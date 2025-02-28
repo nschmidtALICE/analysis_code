@@ -10,6 +10,12 @@
 #include <TH2F.h>
 #include <TCanvas.h>
 #include <TStyle.h>
+#include <TVector3.h>
+#include <TGraph.h>
+#include <TGraphErrors.h>
+#include <TF1.h>
+#include <TLatex.h>
+#include <TLegend.h>
 
 std::vector<std::vector<int>> vec_segment_combinations = {
     {0, 0, 0, 0},
@@ -36,6 +42,7 @@ std::vector<std::vector<int>> vec_segment_combinations = {
     {6, 7, 7, 6},
     {7, 7, 7, 6}};
 
+std::vector<float> vec_module_rotations = {1.2, 1.2, 1.25, 1.25, 1.25, 1.3, 1.3, 1.35, 1.35};
 class Point
 {
 public:
@@ -43,12 +50,18 @@ public:
     Point(double x, double y, double z, double t = 0.0) : x(x), y(y), z(z), t(t) {}
 };
 
+double module_halfwidth          = 25;
+double layer_center_between_bars = 1.5 + 2 + 1 + 4;
+double layer_offsets[4]          = {
+    -module_halfwidth - layer_center_between_bars, -module_halfwidth + layer_center_between_bars,
+    module_halfwidth - layer_center_between_bars, module_halfwidth + layer_center_between_bars };
+
 int track_ambiguity_finder()
 {
     // bool verboseoutput = true;
     bool verboseoutput = false;
-    // const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250218_8cm_inward_lastPanelsNarrow/minimumBias_MS_MagDown_20250218_8cm_inward_lastPanelsNarrow.root";
-    const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_pp_LayerNumbersFixed/20250227_pp_LayerNumbersFixed.root";
+    const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_PbPb_LayerNumbersFixed/minimumBias_MS_MagDown_93.root";
+    // const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_pp_LayerNumbersFixed/20250227_pp_LayerNumbersFixed.root";
     TFile fin(inputfile);
     TTree *ntup = (TTree *)fin.Get("ntup");
     std::cout << ntup->GetEntries() << std::endl;
@@ -69,11 +82,20 @@ int track_ambiguity_finder()
     TTreeReaderArray<float> ms_vx(tree, "ms_vx");
     TTreeReaderArray<float> ms_vy(tree, "ms_vy");
     TTreeReaderArray<float> ms_vz(tree, "ms_vz");
+    TTreeReaderArray<float> ms_px(tree, "ms_px");
+    TTreeReaderArray<float> ms_py(tree, "ms_py");
+    TTreeReaderArray<float> ms_pz(tree, "ms_pz");
     TTreeReaderArray<float> ms_time(tree, "ms_time");
     TTreeReaderArray<int> ms_id(tree, "ms_id");
     TTreeReaderArray<int> ms_bitID(tree, "ms_segment");
     TTreeReaderArray<int> nUThits(tree, "nUThits");
-
+    TGraphErrors *gSlopeFits_orig[30];
+    TF1* funcSlopeFits_orig[30];
+    TGraphErrors *gSlopeFits_true[30];
+    TF1* funcSlopeFits_true[30];
+    TGraphErrors *gSlopeFits[30];
+    TF1* funcSlopeFits[30];
+    int nSlopeFits = 0;
     std::vector<int> clusterizedHits_bitID;
     std::vector<float> clusterizedHits_time;
     std::vector<int> clusterizedHits_id;
@@ -84,14 +106,16 @@ int track_ambiguity_finder()
     {
         hRelativeBarDifferenceToFirstLayerIndiv[i] = new TH1D(Form("hRelativeBarDifferenceToFirstLayerIndiv_%d", i+1), Form("Relative bar difference to first layer (truth) for layer %d", i+1), 21, -10.5, 10.5);
     }
+    TH2D* hAngleDiffModules = new TH2D("hAngleDiffModules", "Angle difference between tracklet and track", 9, 0.5, 9.5, 100, -0.01, 0.2);
     TH1D* hNGroups = new TH1D("hNGroups", "Number of groups", 10, -0.50, 9.5);
     int numevt = 0;
     while (tree.Next())
     {
         // if (numevt > 5) break;
-        std::cout << "evt " << numevt << std::endl;
-
-        if (numevt>1000) break; //NOTE break condition
+        std::cout << "evt " << numevt << " with " << pid.GetSize() << " particles" << std::endl;
+        // numevt++;
+        // if(numevt<30) continue;
+        if (numevt>2) break; //NOTE break condition
 
         for (size_t i = 0; i < pid.GetSize(); ++i)
         {
@@ -113,6 +137,7 @@ int track_ambiguity_finder()
             Point point_match(0, 0, 0);
             float time_match = 0;
             int bitID_match = 0;
+            TVector3 mom_vec_match(0, 0, 0);
             // find the hit in MS with the lowest time and same key
             for (size_t j = 0; j < ms_vz.GetSize(); ++j)
             {
@@ -136,6 +161,8 @@ int track_ambiguity_finder()
                         point_match = ms_pos;
                         time_match = ms_time[j];
                         bitID_match = ms_bitID[j];
+                        mom_vec_match = TVector3(ms_px[j], 0, ms_pz[j]);
+                        mom_vec_match = mom_vec_match.Unit();
                     }
                 }
                 if (std::find(clusterizedHits_bitID.begin(), clusterizedHits_bitID.end(), ms_bitID[j]) == clusterizedHits_bitID.end())
@@ -143,6 +170,12 @@ int track_ambiguity_finder()
                     clusterizedHits_bitID.push_back(ms_bitID[j]);
                     clusterizedHits_time.push_back(ms_time[j]);
                     clusterizedHits_id.push_back(ms_id[j]);
+                } else {
+                    //update the time to the lowest value for the clusterized bar
+                    if(ms_time[j] < clusterizedHits_time[std::find(clusterizedHits_bitID.begin(), clusterizedHits_bitID.end(), ms_bitID[j]) - clusterizedHits_bitID.begin()]){
+                        clusterizedHits_time[std::find(clusterizedHits_bitID.begin(), clusterizedHits_bitID.end(), ms_bitID[j]) - clusterizedHits_bitID.begin()] = ms_time[j];
+                        clusterizedHits_id[std::find(clusterizedHits_bitID.begin(), clusterizedHits_bitID.end(), ms_bitID[j]) - clusterizedHits_bitID.begin()] = ms_id[j];
+                    }
                 }
             }
             if (segment_match == -1)
@@ -173,7 +206,7 @@ int track_ambiguity_finder()
                 // if (clusterizedHits_bitID[j] >> 28 & 0x3 || clusterizedHits_bitID[j] >> 30 & 0x3)
                 //     continue; // NOTE not interested in support hits
                 // Point ms_pos(ms_vx[j], ms_vy[j], ms_vz[j]); // in cm
-                if ((clusterizedHits_bitID[j] >> 18 & 0xF) > segment_match - 1 && (clusterizedHits_bitID[j] >> 18 & 0xF) < segment_match + 2 && clusterizedHits_time[j] > time_match - 3 && clusterizedHits_time[j] < time_match + 3)
+                if (((clusterizedHits_bitID[j] >> 18 & 0xF) > (segment_match - 1)) && ((clusterizedHits_bitID[j] >> 18 & 0xF) < (segment_match + 2)) && (clusterizedHits_time[j] > (time_match - 3)) && (clusterizedHits_time[j] < (time_match + 3)))
                 { // && bitID_match != ms_bitID[j]) {
 
                     // require the bar to be within 7 bars of the matching bar
@@ -435,8 +468,146 @@ int track_ambiguity_finder()
                         }
                     }
                     hNGroups->Fill(nGroups);
+
+                    // mom_vec_match
+
+                    // use the grouped hits to fit a line and obtain the direction of the track
+                    // std::vector<Point> grouped_hits;
+                    for (size_t j = 0; j < grouped_hits_layers.size(); ++j)
+                    {
+                        TVector3 tracklet_vec(0, 0, 0);
+                        if (grouped_hits_layers[j].size() < 3)
+                        {
+                            continue;
+                        }
+                        TGraphErrors *gr = new TGraphErrors();
+                        if(nSlopeFits < 29){
+                            gSlopeFits_true[nSlopeFits] = new TGraphErrors();
+                            funcSlopeFits_true[nSlopeFits] = new TF1();
+                        } else {
+                            // return 0; //TODO NOTE THIS BREAKS THE CODE
+                        }
+                        int nhitsGroup = 0;
+                        for (size_t k = 0; k < grouped_hits_layers[j].size(); ++k)
+                        {
+                            
+                            if(!grouped_hits_removed[j][k]){
+                                gr->SetPoint(nhitsGroup, layer_offsets[grouped_hits_layers[j][k]], 5*(grouped_hits_bitIDs[j][k] >> 22 & 0x3F));
+                                if(k==0)gr->SetPointError(nhitsGroup, 1.5, 1.5);
+                                if(grouped_hits_layers[j][k]==1)gr->SetPointError(nhitsGroup, 2.5, 3.5);
+                                if(grouped_hits_layers[j][k]==2)gr->SetPointError(nhitsGroup, 2.5, 3.5);
+                                if(grouped_hits_layers[j][k]==3)gr->SetPointError(nhitsGroup, 2.5, 3.5);
+                                if(grouped_hits_trues[j][k] && nSlopeFits < 29){
+                                    gSlopeFits_true[nSlopeFits]->SetPoint(nhitsGroup, layer_offsets[grouped_hits_layers[j][k]], 5*(grouped_hits_bitIDs[j][k] >> 22 & 0x3F));
+                                    if(k==0)gSlopeFits_true[nSlopeFits]->SetPointError(nhitsGroup, 0.5, 0.5);
+                                    if(grouped_hits_layers[j][k]==1)gSlopeFits_true[nSlopeFits]->SetPointError(nhitsGroup, 0.5, 0.5);
+                                    if(grouped_hits_layers[j][k]==2)gSlopeFits_true[nSlopeFits]->SetPointError(nhitsGroup, 0.5, 0.5);
+                                    if(grouped_hits_layers[j][k]==3)gSlopeFits_true[nSlopeFits]->SetPointError(nhitsGroup, 0.5, 0.5);
+                                }
+
+                                nhitsGroup++;
+                            }
+                        }
+                        if(nhitsGroup < 3){
+                            delete gr;
+                            if(verboseoutput)std::cout << "\t\t\tgroup " << j << " not enough hits in group to fit" << std::endl;
+                            continue;
+                        }
+                        // gr->Print();
+                        TF1 *fitpol0 = new TF1("fitpol0", "pol1", 0, 7);
+                        fitpol0->SetParLimits(0, 0, 500);
+                        fitpol0->SetParLimits(1, -1, 1);
+                        gr->Fit(fitpol0, "NQ");
+                        if (fitpol0)
+                        {
+
+                            if(nSlopeFits < 29){
+                                //assign gr to gSlopeFits and fitpol0 to funcSlopeFits but make proper copies to avoid memory issues
+                                gSlopeFits_orig[nSlopeFits] = new TGraphErrors(*gr);
+                                funcSlopeFits_orig[nSlopeFits] = new TF1(*fitpol0);
+                            }
+                            //determine the distance of each point to the fit layer by layer, but only if there is more than one point per layer
+                            //remove the point furthest from the fit and refit
+                            for (int ilay = 1; ilay < 4; ++ilay)
+                            {
+                                double fitvalue_layer = fitpol0->Eval(layer_offsets[ilay]);
+                                std::vector<double> distances;
+                                std::vector<int> distances_index;
+                                for (int k = 0; k < gr->GetN(); ++k)
+                                {
+                                    //get the points at the x value layer_offsets[ilay]
+                                    if(abs(gr->GetX()[k] - layer_offsets[ilay]) < 0.1){
+                                        double x, y;
+                                        gr->GetPoint(k, x, y);
+                                        double dist = abs(y - fitvalue_layer);
+                                        distances.push_back(dist);
+                                        distances_index.push_back(k);
+                                    }
+                                }
+                                if(distances.size() > 1){
+                                    //find the index of the point furthest from the fit
+                                    auto max = std::max_element(distances.begin(), distances.end());
+                                    int max_index = std::distance(distances.begin(), max);
+                                    //remove the point from the graph
+                                    gr->RemovePoint(distances_index[max_index]);
+                                }
+                                //refit the graph for the next layer
+                                fitpol0->SetParLimits(0, 0, 500);
+                                fitpol0->SetParLimits(1, -1, 1);
+                                gr->Fit(fitpol0, "NQ");
+
+                            }
+                            
+                            
+                            if(nSlopeFits < 29){
+                                //assign gr to gSlopeFits and fitpol0 to funcSlopeFits but make proper copies to avoid memory issues
+                                gSlopeFits[nSlopeFits] = new TGraphErrors(*gr);
+                                funcSlopeFits[nSlopeFits] = new TF1(*fitpol0);
+                                nSlopeFits++;
+                            }
+
+                            double p0 = fitpol0->GetParameter(0);
+                            double p1 = fitpol0->GetParameter(1);
+                            if(verboseoutput)std::cout << "\t\t\tgroup " << j << " fit: " << p0 << " + " << p1 << " * t" << std::endl;
+                            //create vector for the tracklet in x-z plane
+                            // tracklet_vec.SetXYZ(1, 0, p1);
+                            // tracklet_vec.SetXYZ(stationmatch == 0 ? -1 : 1, 0, p1);
+                            tracklet_vec.SetXYZ(stationmatch == 0 || stationmatch == 2 ? -1 : 1, 0, p1);
+                            tracklet_vec = tracklet_vec.Unit();
+                            if(stationmatch == 0 || stationmatch == 2){
+                                tracklet_vec.RotateY(-0.44);
+                            } else {
+                                tracklet_vec.RotateY(0.44);
+                            }
+                            if(stationmatch == 0 || stationmatch == 2){
+                                tracklet_vec.RotateY(vec_module_rotations[modulematch]);
+                            } else {
+                                tracklet_vec.RotateY(-vec_module_rotations[modulematch]);
+                            }
+                            //compare the tracklet to the momentum vector
+                            double angle = tracklet_vec.Angle(mom_vec_match);
+                            hAngleDiffModules->Fill(modulematch, angle);
+                            if(verboseoutput){
+                                std::cout << "\t\t\tgroup " << j << " angle: " << angle << std::endl;
+                                std::cout << "\t\t\tgroup " << j << " momentum: " << mom_vec_match.X() << " " << mom_vec_match.Y() << " " << mom_vec_match.Z() << std::endl;
+                                std::cout << "\t\t\tgroup " << j << " tracklet: " << tracklet_vec.X() << " " << tracklet_vec.Y() << " " << tracklet_vec.Z() << std::endl;
+                            }
+                        }
+                        delete gr;
+
+                        
+                    }
+                    // std::vector<Point> grouped_hits = {point_match}; 
+                    // for (size_t j = 0; j < close_by_hits.size(); ++j)
+                    // {
+                    //     grouped_hits.push_back(close_by_hits[j]);
+                    // }
+                    // std::vector<Point> grouped_hits = {point_match, close_by_hits[0], close_by_hits[1], close_by_hits[2]};
+
                 }
             }
+
+
         }
 
         numevt++;
@@ -473,6 +644,67 @@ int track_ambiguity_finder()
     hNGroups->GetYaxis()->SetTitle("Counts");
     hNGroups->Draw();
     c3.SaveAs(Form("%shNGroups.pdf", outputdir.Data()));
+
+    //plot the slope fits
+    TCanvas c4("c4", "c4", 1800, 1600);
+    c4.Divide(6, 5);
+    for (int i = 0; i < nSlopeFits; i++)
+    {
+        cout << "drawing " << i << endl;
+        c4.cd(i + 1);
+
+        gSlopeFits_orig[i]->SetMarkerColor(kBlue);
+        gSlopeFits_orig[i]->SetLineColor(kBlue);
+        gSlopeFits_orig[i]->SetMarkerStyle(20);
+        gSlopeFits_orig[i]->SetMarkerSize(2);
+        gSlopeFits_orig[i]->Draw("ap");
+
+        gSlopeFits[i]->GetXaxis()->SetTitle("Layer offset [cm]");
+        gSlopeFits[i]->GetYaxis()->SetTitle("Bar number");
+        gSlopeFits[i]->SetMarkerStyle(24);
+        gSlopeFits[i]->SetLineColor(kRed);
+        gSlopeFits[i]->SetMarkerSize(2);
+        gSlopeFits[i]->SetMarkerColor(kRed);
+        gSlopeFits[i]->Draw("p,same");
+
+        gSlopeFits_true[i]->SetMarkerStyle(5);
+        gSlopeFits_true[i]->SetMarkerColor(kGreen);
+        gSlopeFits_true[i]->SetMarkerSize(2);
+        gSlopeFits_true[i]->Draw("p,same");
+
+        //print slope parameters on plot
+        funcSlopeFits[i]->SetLineColor(kRed);
+        funcSlopeFits[i]->SetRange(-40,40);
+        funcSlopeFits[i]->SetLineStyle(2);
+        funcSlopeFits[i]->SetLineWidth(1);
+
+        funcSlopeFits_orig[i]->SetLineColor(kBlue);
+        funcSlopeFits_orig[i]->SetRange(-40,40);
+        funcSlopeFits_orig[i]->SetLineStyle(2);
+        funcSlopeFits_orig[i]->SetLineWidth(1);
+
+        TLegend *leg = new TLegend(0.15, 0.65, 0.35, 0.85);
+        leg->SetBorderSize(0);
+        leg->SetFillStyle(0);
+        leg->SetTextSize(0.04);
+        // leg->AddEntry(gSlopeFits[i], "Data", "p");
+        // leg->AddEntry(funcSlopeFits[i], "Fit", "l");
+        leg->AddEntry((TObject*)0, Form("orig. p0: %.2f", funcSlopeFits_orig[i]->GetParameter(0)), "");
+        leg->AddEntry((TObject*)0, Form("orig. p1: %.3f", funcSlopeFits_orig[i]->GetParameter(1)), "");
+        leg->AddEntry((TObject*)0, Form("p0: %.2f", funcSlopeFits[i]->GetParameter(0)), "");
+        leg->AddEntry((TObject*)0, Form("p1: %.3f", funcSlopeFits[i]->GetParameter(1)), "");
+        leg->Draw();
+        funcSlopeFits_orig[i]->Draw("same");
+        funcSlopeFits[i]->Draw("same");
+    }
+    c4.SaveAs(Form("%sslopeFits.pdf", outputdir.Data()));
+
+    //plot the angle difference between tracklet and track
+    TCanvas c5("c5", "c5", 800, 600);
+    hAngleDiffModules->GetXaxis()->SetTitle("Module");
+    hAngleDiffModules->GetYaxis()->SetTitle("Angle difference [rad]");
+    hAngleDiffModules->Draw("colz");
+    c5.SaveAs(Form("%shAngleDiffModules.pdf", outputdir.Data()));
 
     return 0;
 }
