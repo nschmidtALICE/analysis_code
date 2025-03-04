@@ -60,13 +60,13 @@ int track_ambiguity_finder()
 {
     // bool verboseoutput = true;
     bool verboseoutput = false;
-    const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_PbPb_LayerNumbersFixed/minimumBias_MS_MagDown_93.root";
-    // const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_pp_LayerNumbersFixed/20250227_pp_LayerNumbersFixed.root";
+    // const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_PbPb_LayerNumbersFixed/20250227_PbPb_LayerNumbersFixed.root";
+    const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_pp_LayerNumbersFixed/20250227_pp_LayerNumbersFixed.root";
     TFile fin(inputfile);
     TTree *ntup = (TTree *)fin.Get("ntup");
     std::cout << ntup->GetEntries() << std::endl;
 
-    TString outputdir = "extraploation_plots/";
+    TString outputdir = "extrapolation_plots/";
     // make output directory
     system("mkdir -p " + outputdir);
 
@@ -108,14 +108,16 @@ int track_ambiguity_finder()
     }
     TH2D* hAngleDiffModules = new TH2D("hAngleDiffModules", "Angle difference between tracklet and track", 9, 0.5, 9.5, 100, -0.01, 0.2);
     TH1D* hNGroups = new TH1D("hNGroups", "Number of groups", 10, -0.50, 9.5);
+    TH1D* hNGroupsSlope = new TH1D("hNGroupsSlope", "Number of groups with tracklet fit", 10, -0.50, 9.5);
     int numevt = 0;
     while (tree.Next())
     {
         // if (numevt > 5) break;
         std::cout << "evt " << numevt << " with " << pid.GetSize() << " particles" << std::endl;
-        // numevt++;
+        numevt++;
         // if(numevt<30) continue;
-        if (numevt>2) break; //NOTE break condition
+        // if (numevt!=1) continue; //NOTE break condition
+        // if (numevt>2) break; //NOTE break condition
 
         for (size_t i = 0; i < pid.GetSize(); ++i)
         {
@@ -470,7 +472,7 @@ int track_ambiguity_finder()
                     hNGroups->Fill(nGroups);
 
                     // mom_vec_match
-
+                    int nGroupsSlope = 0;
                     // use the grouped hits to fit a line and obtain the direction of the track
                     // std::vector<Point> grouped_hits;
                     for (size_t j = 0; j < grouped_hits_layers.size(); ++j)
@@ -587,16 +589,22 @@ int track_ambiguity_finder()
                             //compare the tracklet to the momentum vector
                             double angle = tracklet_vec.Angle(mom_vec_match);
                             hAngleDiffModules->Fill(modulematch, angle);
+
+                            if(angle<0.2){
+                                nGroupsSlope++;
+                            }
                             if(verboseoutput){
                                 std::cout << "\t\t\tgroup " << j << " angle: " << angle << std::endl;
                                 std::cout << "\t\t\tgroup " << j << " momentum: " << mom_vec_match.X() << " " << mom_vec_match.Y() << " " << mom_vec_match.Z() << std::endl;
                                 std::cout << "\t\t\tgroup " << j << " tracklet: " << tracklet_vec.X() << " " << tracklet_vec.Y() << " " << tracklet_vec.Z() << std::endl;
                             }
+                            
                         }
                         delete gr;
 
                         
                     }
+                    hNGroupsSlope->Fill(nGroupsSlope);
                     // std::vector<Point> grouped_hits = {point_match}; 
                     // for (size_t j = 0; j < close_by_hits.size(); ++j)
                     // {
@@ -610,7 +618,7 @@ int track_ambiguity_finder()
 
         }
 
-        numevt++;
+        // numevt++;
     }
     gStyle->SetOptStat(0);
     gStyle->SetPadTickX(1);
@@ -705,6 +713,14 @@ int track_ambiguity_finder()
     hAngleDiffModules->GetYaxis()->SetTitle("Angle difference [rad]");
     hAngleDiffModules->Draw("colz");
     c5.SaveAs(Form("%shAngleDiffModules.pdf", outputdir.Data()));
+
+    //plot hNGroupsSlope
+    TCanvas c6("c6", "c6", 800, 600);
+    hNGroupsSlope->GetXaxis()->SetTitle("Number of groups with tracklet fit");
+    hNGroupsSlope->GetYaxis()->SetTitle("Counts");
+    hNGroupsSlope->Draw();
+    c6.SaveAs(Form("%shNGroupsSlope.pdf", outputdir.Data()));
+
 
     return 0;
 }

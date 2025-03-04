@@ -87,8 +87,8 @@ std::vector<std::vector<Point>> surfaces = {
 };
 
 double getXLimit(double z) {
-    if(z<495) return 150;
-    else return 0.043*z + 237.894 + 50; //TODO added 50 to move gap further out
+    if(z<330) return 200;
+    else return 0.4054*z + 66.22; //TODO added 50 to move gap further out
 }
 Point interpolate(double z) {
     z*=100;
@@ -499,7 +499,7 @@ public:
 };
 
 // Main function to demonstrate particle propagation
-int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nParticles = 1000, bool verboseInfo = false) 
+int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nParticles = 200, bool verboseInfo = false) 
 {
     // Check command line arguments
     if (inputFieldASCII == "")
@@ -590,8 +590,8 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
         mass_value = mass;
         charge_value = charge;
         
-        // Vary initial momentum (e.g., log-spaced energies from 0.1 to 5 GeV)
-        double log_min = -1.0;  // log10(0.1) = -1
+        // Vary initial momentum (e.g., log-spaced energies from 0.5 to 5 GeV)
+        double log_min = -0.3;  // log10(0.5) ≈ -0.3
         double log_max = 0.7;   // log10(5) ≈ 0.7
         double momentum_magnitude = pow(10.0, log_min + i * ((log_max - log_min) / (nParticles - 1)));
         
@@ -735,16 +735,16 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
     mg_xz->Draw("A");
     
     // Add boundary lines for XZ view
-    TLine *boundary_xz_left = new TLine(-x_limit, 0, -x_limit, 8);
-    TLine *boundary_xz_right = new TLine(x_limit, 0, x_limit, 8);
-    boundary_xz_left->SetLineColor(kBlack);
-    boundary_xz_right->SetLineColor(kBlack);
-    boundary_xz_left->SetLineWidth(2);
-    boundary_xz_right->SetLineWidth(2);
-    boundary_xz_left->SetLineStyle(2);
-    boundary_xz_right->SetLineStyle(2);
-    boundary_xz_left->Draw();
-    boundary_xz_right->Draw();
+    // TLine *boundary_xz_left = new TLine(-x_limit, 0, -x_limit, 8);
+    // TLine *boundary_xz_right = new TLine(x_limit, 0, x_limit, 8);
+    // boundary_xz_left->SetLineColor(kBlack);
+    // boundary_xz_right->SetLineColor(kBlack);
+    // boundary_xz_left->SetLineWidth(2);
+    // boundary_xz_right->SetLineWidth(2);
+    // boundary_xz_left->SetLineStyle(2);
+    // boundary_xz_right->SetLineStyle(2);
+    // boundary_xz_left->Draw();
+    // boundary_xz_right->Draw();
     c_all_xz->SaveAs("c_all_xz.pdf");
     c_all_xz->Write();
     
