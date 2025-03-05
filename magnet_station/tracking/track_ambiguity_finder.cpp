@@ -17,6 +17,8 @@
 #include <TLatex.h>
 #include <TLegend.h>
 
+#include "track_propagatorRK.C"
+
 std::vector<std::vector<int>> vec_segment_combinations = {
     {0, 0, 0, 0},
     {1, 1, 1, 0},
@@ -43,12 +45,12 @@ std::vector<std::vector<int>> vec_segment_combinations = {
     {7, 7, 7, 6}};
 
 std::vector<float> vec_module_rotations = {1.2, 1.2, 1.25, 1.25, 1.25, 1.3, 1.3, 1.35, 1.35};
-class Point
-{
-public:
-    double x, y, z, t;
-    Point(double x, double y, double z, double t = 0.0) : x(x), y(y), z(z), t(t) {}
-};
+// class Point
+// {
+// public:
+//     double x, y, z, t;
+//     Point(double x, double y, double z, double t = 0.0) : x(x), y(y), z(z), t(t) {}
+// };
 
 double module_halfwidth          = 25;
 double layer_center_between_bars = 1.5 + 2 + 1 + 4;
@@ -56,7 +58,7 @@ double layer_offsets[4]          = {
     -module_halfwidth - layer_center_between_bars, -module_halfwidth + layer_center_between_bars,
     module_halfwidth - layer_center_between_bars, module_halfwidth + layer_center_between_bars };
 
-int track_ambiguity_finder()
+int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
 {
     // bool verboseoutput = true;
     bool verboseoutput = false;
@@ -65,6 +67,27 @@ int track_ambiguity_finder()
     TFile fin(inputfile);
     TTree *ntup = (TTree *)fin.Get("ntup");
     std::cout << ntup->GetEntries() << std::endl;
+
+
+    // Check command line arguments
+    if (inputFieldASCII == "")
+    {
+        std::cerr << "Error: No magnetic field file provided." << std::endl;
+        std::cerr << "Usage: ./track_propagator-RK field_map.txt" << std::endl;
+        return 1;
+    }
+
+    std::string field_file = inputFieldASCII.Data();
+
+    // Load magnetic field
+    MagneticField field(field_file);
+
+    // Create particle propagator with magnet boundaries
+    double x_limit = 1.5;  // 1.5 m magnet half-width
+    double y_limit = 2.0;  // 2.0 m magnet half-height
+    ParticlePropagator propagator(field, 0.01, x_limit, y_limit); // 0.01m step size
+
+
 
     TString outputdir = "extrapolation_plots/";
     // make output directory
@@ -77,6 +100,12 @@ int track_ambiguity_finder()
     // TTreeReaderArray<float> ut_tx(tree, "ut_tx");
     // TTreeReaderArray<float> ut_ty(tree, "ut_ty");
     TTreeReaderArray<float> p(tree, "p");
+    TTreeReaderArray<float> vx(tree, "vx");
+    TTreeReaderArray<float> vy(tree, "vy");
+    TTreeReaderArray<float> vz(tree, "vz");
+    TTreeReaderArray<float> px(tree, "px");
+    TTreeReaderArray<float> py(tree, "py");
+    TTreeReaderArray<float> pz(tree, "pz");
     TTreeReaderArray<int> pid(tree, "pid");
     TTreeReaderArray<int> key(tree, "key");
     TTreeReaderArray<float> ms_vx(tree, "ms_vx");
@@ -88,6 +117,12 @@ int track_ambiguity_finder()
     TTreeReaderArray<float> ms_time(tree, "ms_time");
     TTreeReaderArray<int> ms_id(tree, "ms_id");
     TTreeReaderArray<int> ms_bitID(tree, "ms_segment");
+    // TTreeReaderArray<float> ut_vx(tree, "ut_vx");
+    // TTreeReaderArray<float> ut_vy(tree, "ut_vy");
+    // TTreeReaderArray<float> ut_vz(tree, "ut_vz");
+    // TTreeReaderArray<float> ut_px(tree, "ut_px");
+    // TTreeReaderArray<float> ut_py(tree, "ut_py");
+    // TTreeReaderArray<float> ut_pz(tree, "ut_pz");
     TTreeReaderArray<int> nUThits(tree, "nUThits");
     TGraphErrors *gSlopeFits_orig[30];
     TF1* funcSlopeFits_orig[30];
@@ -109,10 +144,12 @@ int track_ambiguity_finder()
     TH2D* hAngleDiffModules = new TH2D("hAngleDiffModules", "Angle difference between tracklet and track", 9, 0.5, 9.5, 100, -0.01, 0.2);
     TH1D* hNGroups = new TH1D("hNGroups", "Number of groups", 10, -0.50, 9.5);
     TH1D* hNGroupsSlope = new TH1D("hNGroupsSlope", "Number of groups with tracklet fit", 10, -0.50, 9.5);
+    TH2D* hMatchdYdZ = new TH2D("hMatchdYdZ", "Matched dYdZ", 100, -200, 200, 100, -200, 200);
+    TH2D* hMatchdXdZ = new TH2D("hMatchdXdZ", "Matched dXdZ", 100, -200, 200, 100, -200, 200);
     int numevt = 0;
     while (tree.Next())
     {
-        // if (numevt > 5) break;
+        if (numevt > 500) break;
         std::cout << "evt " << numevt << " with " << pid.GetSize() << " particles" << std::endl;
         numevt++;
         // if(numevt<30) continue;
@@ -134,6 +171,39 @@ int track_ambiguity_finder()
                 // std::cout << "skipping track with nUThits < 5" << std::endl;
                 continue;
             }
+
+            double particle_charge = pid[i] / fabs(pid[i]);
+            double particle_mass = 0.13957039; //assuming charged pion
+
+            TVector3 initial_position(vx[i]/1000, vy[i]/1000, vz[i]/1000);
+
+            double total_energy = sqrt(px[i] * px[i] + py[i] * py[i] + pz[i] * pz[i] + particle_mass * particle_mass);
+
+            TLorentzVector four_momentum(px[i], py[i], pz[i], total_energy);
+
+            // TVector3 initial_position(ut_vx[i]/100, ut_vy[i]/100, ut_vz[i]/100);
+
+            // double total_energy = sqrt(ut_px[i] * ut_px[i] + ut_py[i] * ut_py[i] + ut_pz[i] * ut_pz[i] + particle_mass * particle_mass);
+
+            // TLorentzVector four_momentum_ut(ut_px[i], ut_py[i], ut_pz[i], total_energy);
+
+
+            // Propagate particle
+            std::vector<State> trajectory = propagator.propagate(
+                initial_position, four_momentum, 8.0, 50000);
+            
+            TVector3 final_position(trajectory.back().position.X()*1000, trajectory.back().position.Y()*1000, trajectory.back().position.Z()*1000);
+            int trajectories_size = trajectory.size();
+            double x1 = trajectory[trajectories_size-2].position.X()*1000;
+            double y1 = trajectory[trajectories_size-2].position.Y()*1000;
+            double z1 = trajectory[trajectories_size-2].position.Z()*1000;
+            double x2 = trajectory[trajectories_size-1].position.X()*1000;
+            double y2 = trajectory[trajectories_size-1].position.Y()*1000;
+            double z2 = trajectory[trajectories_size-1].position.Z()*1000;
+            TVector3 final_direction(x2 - x1, y2 - y1, z2 - z1);
+            final_direction = final_direction.Unit();
+
+
             int segment_match = -1;
             int bar_match = -1;
             Point point_match(0, 0, 0);
@@ -189,6 +259,12 @@ int track_ambiguity_finder()
             {
                 if(verboseoutput)std::cout << "\tmatching segment found: " << segment_match << " layer: " << ((bitID_match >> 15) & 0x7) << " bar: " << bar_match << " module: " << ((bitID_match >> 11) & 0xF) << " station: " << ((bitID_match >> 8) & 0x7) << " time: " << time_match << std::endl;
             }
+
+            hMatchdYdZ->Fill(point_match.y - final_position.Y(), point_match.z - final_position.Z());
+            hMatchdXdZ->Fill(point_match.x - final_position.X(), point_match.z - final_position.Z());
+
+            std::cout << "point_match: " << point_match.x << " " << point_match.y << " " << point_match.z << std::endl;
+            std::cout << "final_position: " << final_position.X() << " " << final_position.Y() << " " << final_position.Z() << std::endl;
 
             int stationmatch = (bitID_match >> 8) & 0x7;
             int modulematch = (bitID_match >> 11) & 0xF;
@@ -720,6 +796,22 @@ int track_ambiguity_finder()
     hNGroupsSlope->GetYaxis()->SetTitle("Counts");
     hNGroupsSlope->Draw();
     c6.SaveAs(Form("%shNGroupsSlope.pdf", outputdir.Data()));
+
+    // plot hMatchdYdZ
+    TCanvas c7("c7", "c7", 800, 600);
+    c7.SetLogz();
+    hMatchdYdZ->GetXaxis()->SetTitle("dY [cm]");
+    hMatchdYdZ->GetYaxis()->SetTitle("dZ [cm]");
+    hMatchdYdZ->Draw("colz");
+    c7.SaveAs(Form("%shMatchdYdZ.pdf", outputdir.Data()));
+
+    // plot hMatchdXdZ
+    TCanvas c8("c8", "c8", 800, 600);
+    c8.SetLogz();
+    hMatchdXdZ->GetXaxis()->SetTitle("dX [cm]");
+    hMatchdXdZ->GetYaxis()->SetTitle("dZ [cm]");
+    hMatchdXdZ->Draw("colz");
+    c8.SaveAs(Form("%shMatchdXdZ.pdf", outputdir.Data()));
 
 
     return 0;
