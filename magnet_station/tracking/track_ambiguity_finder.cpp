@@ -63,7 +63,7 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
     // bool verboseoutput = true;
     bool verboseoutput = false;
     // const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_PbPb_LayerNumbersFixed/20250227_PbPb_LayerNumbersFixed.root";
-    const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_pp_LayerNumbersFixed/20250227_pp_LayerNumbersFixed.root";
+    const char *inputfile = "/home/niviths/Downloads/magnetStationSims/20250305_pp_addedUTinfo/20250305_pp_addedUTinfo.root";
     TFile fin(inputfile);
     TTree *ntup = (TTree *)fin.Get("ntup");
     std::cout << ntup->GetEntries() << std::endl;
@@ -117,12 +117,12 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
     TTreeReaderArray<float> ms_time(tree, "ms_time");
     TTreeReaderArray<int> ms_id(tree, "ms_id");
     TTreeReaderArray<int> ms_bitID(tree, "ms_segment");
-    // TTreeReaderArray<float> ut_vx(tree, "ut_vx");
-    // TTreeReaderArray<float> ut_vy(tree, "ut_vy");
-    // TTreeReaderArray<float> ut_vz(tree, "ut_vz");
-    // TTreeReaderArray<float> ut_px(tree, "ut_px");
-    // TTreeReaderArray<float> ut_py(tree, "ut_py");
-    // TTreeReaderArray<float> ut_pz(tree, "ut_pz");
+    TTreeReaderArray<float> ut_vx(tree, "ut_vx");
+    TTreeReaderArray<float> ut_vy(tree, "ut_vy");
+    TTreeReaderArray<float> ut_vz(tree, "ut_vz");
+    TTreeReaderArray<float> ut_px(tree, "ut_px");
+    TTreeReaderArray<float> ut_py(tree, "ut_py");
+    TTreeReaderArray<float> ut_pz(tree, "ut_pz");
     TTreeReaderArray<int> nUThits(tree, "nUThits");
     TGraphErrors *gSlopeFits_orig[30];
     TF1* funcSlopeFits_orig[30];
@@ -144,8 +144,16 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
     TH2D* hAngleDiffModules = new TH2D("hAngleDiffModules", "Angle difference between tracklet and track", 9, 0.5, 9.5, 100, -0.01, 0.2);
     TH1D* hNGroups = new TH1D("hNGroups", "Number of groups", 10, -0.50, 9.5);
     TH1D* hNGroupsSlope = new TH1D("hNGroupsSlope", "Number of groups with tracklet fit", 10, -0.50, 9.5);
-    TH2D* hMatchdYdZ = new TH2D("hMatchdYdZ", "Matched dYdZ", 100, -200, 200, 100, -200, 200);
-    TH2D* hMatchdXdZ = new TH2D("hMatchdXdZ", "Matched dXdZ", 100, -200, 200, 100, -200, 200);
+    double matchwindow = 1000;
+    TH2D* hMatchdYdZ = new TH2D("hMatchdYdZ", "Matched dYdZ", 100, -matchwindow, matchwindow, 100, -matchwindow, matchwindow);
+    TH2D* hMatchdXdZ = new TH2D("hMatchdXdZ", "Matched dXdZ", 100, -matchwindow, matchwindow, 100, -matchwindow, matchwindow);
+    TH1D* hMatchdX = new TH1D("hMatchdX", "Matched dX", 100, -matchwindow, matchwindow);
+    TH1D* hMatchdY = new TH1D("hMatchdY", "Matched dY", 100, -matchwindow, matchwindow);
+    TH1D* hMatchdZ = new TH1D("hMatchdZ", "Matched dZ", 100, -matchwindow, matchwindow);
+    TH2D* hFinalXZ = new TH2D("hFinalXZ", "Final XZ", 100, -2000, 2000, 100, 3000, 8000);
+    TH2D* hFinalYZ = new TH2D("hFinalYZ", "Final YZ", 100, -2000, 2000, 100, 3000, 8000);
+    TH2D* hExtrapolatedXZ = new TH2D("hExtrapolatedXZ", "Extrapolated XZ", 100, -2000, 2000, 100, 3000, 8000);
+    TH2D* hExtrapolatedYZ = new TH2D("hExtrapolatedYZ", "Extrapolated YZ", 100, -2000, 2000, 100, 3000, 8000);
     int numevt = 0;
     while (tree.Next())
     {
@@ -166,7 +174,7 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
                 // std::cout << "skipping track with p > 5000" << std::endl;
                 continue;
             }
-            if (nUThits[i] < 4)
+            if (nUThits[i] < 3)
             {
                 // std::cout << "skipping track with nUThits < 5" << std::endl;
                 continue;
@@ -175,20 +183,28 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
             double particle_charge = pid[i] / fabs(pid[i]);
             double particle_mass = 0.13957039; //assuming charged pion
 
-            TVector3 initial_position(vx[i]/1000, vy[i]/1000, vz[i]/1000);
+            // TVector3 initial_position(vx[i]/1000, vy[i]/1000, vz[i]/1000);
 
-            double total_energy = sqrt(px[i] * px[i] + py[i] * py[i] + pz[i] * pz[i] + particle_mass * particle_mass);
+            // double total_energy = sqrt(px[i] * px[i] + py[i] * py[i] + pz[i] * pz[i] + particle_mass * particle_mass);
 
-            TLorentzVector four_momentum(px[i], py[i], pz[i], total_energy);
+            // TLorentzVector four_momentum(px[i], py[i], pz[i], total_energy);
 
-            // TVector3 initial_position(ut_vx[i]/100, ut_vy[i]/100, ut_vz[i]/100);
+            TVector3 initial_position(ut_vx[i]/1000, ut_vy[i]/1000, ut_vz[i]/1000);
+
+            //use the true energy and the direction vector given by ut_px, ut_py, ut_pz to form a momentum vector for the particle
+            TVector3 direction(ut_px[i], ut_py[i], ut_pz[i]);
+            direction = direction.Unit();
+            double total_energy = sqrt(p[i] * p[i] + particle_mass * particle_mass);
+            TVector3 momentum = direction * p[i];
+            TLorentzVector four_momentum(momentum.X(), momentum.Y(), momentum.Z(), total_energy);
 
             // double total_energy = sqrt(ut_px[i] * ut_px[i] + ut_py[i] * ut_py[i] + ut_pz[i] * ut_pz[i] + particle_mass * particle_mass);
 
-            // TLorentzVector four_momentum_ut(ut_px[i], ut_py[i], ut_pz[i], total_energy);
+            // TLorentzVector four_momentum(ut_px[i], ut_py[i], ut_pz[i], total_energy);
 
 
             // Propagate particle
+            propagator.setParticleProperties(particle_charge, particle_mass);
             std::vector<State> trajectory = propagator.propagate(
                 initial_position, four_momentum, 8.0, 50000);
             
@@ -262,9 +278,15 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
 
             hMatchdYdZ->Fill(point_match.y - final_position.Y(), point_match.z - final_position.Z());
             hMatchdXdZ->Fill(point_match.x - final_position.X(), point_match.z - final_position.Z());
-
-            std::cout << "point_match: " << point_match.x << " " << point_match.y << " " << point_match.z << std::endl;
-            std::cout << "final_position: " << final_position.X() << " " << final_position.Y() << " " << final_position.Z() << std::endl;
+            hMatchdX->Fill(point_match.x - final_position.X());
+            hMatchdY->Fill(point_match.y - final_position.Y());
+            hMatchdZ->Fill(point_match.z - final_position.Z());
+            hFinalXZ->Fill(point_match.x, point_match.z);
+            hExtrapolatedXZ->Fill(final_position.X(), final_position.Z());
+            hFinalYZ->Fill(point_match.y, point_match.z);
+            hExtrapolatedYZ->Fill(final_position.Y(), final_position.Z());
+            // std::cout << "point_match: " << point_match.x << " " << point_match.y << " " << point_match.z << std::endl;
+            // std::cout << "final_position: " << final_position.X() << " " << final_position.Y() << " " << final_position.Z() << std::endl;
 
             int stationmatch = (bitID_match >> 8) & 0x7;
             int modulematch = (bitID_match >> 11) & 0xF;
@@ -800,19 +822,70 @@ int track_ambiguity_finder(TString inputFieldASCII = "field_map_lhcb.txt")
     // plot hMatchdYdZ
     TCanvas c7("c7", "c7", 800, 600);
     c7.SetLogz();
-    hMatchdYdZ->GetXaxis()->SetTitle("dY [cm]");
-    hMatchdYdZ->GetYaxis()->SetTitle("dZ [cm]");
+    hMatchdYdZ->GetXaxis()->SetTitle("dY [mm]");
+    hMatchdYdZ->GetYaxis()->SetTitle("dZ [mm]");
     hMatchdYdZ->Draw("colz");
     c7.SaveAs(Form("%shMatchdYdZ.pdf", outputdir.Data()));
 
     // plot hMatchdXdZ
     TCanvas c8("c8", "c8", 800, 600);
     c8.SetLogz();
-    hMatchdXdZ->GetXaxis()->SetTitle("dX [cm]");
-    hMatchdXdZ->GetYaxis()->SetTitle("dZ [cm]");
+    hMatchdXdZ->GetXaxis()->SetTitle("dX [mm]");
+    hMatchdXdZ->GetYaxis()->SetTitle("dZ [mm]");
     hMatchdXdZ->Draw("colz");
     c8.SaveAs(Form("%shMatchdXdZ.pdf", outputdir.Data()));
 
+    // plot hMatchdX
+    TCanvas c9("c9", "c9", 800, 600);
+    hMatchdX->GetXaxis()->SetTitle("dX [mm]");
+    hMatchdX->GetYaxis()->SetTitle("Counts");
+    hMatchdX->Draw();
+    c9.SaveAs(Form("%shMatchdX.pdf", outputdir.Data()));
 
+    // plot hMatchdY
+    TCanvas c10("c10", "c10", 800, 600);
+    hMatchdY->GetXaxis()->SetTitle("dY [mm]");
+    hMatchdY->GetYaxis()->SetTitle("Counts");
+    hMatchdY->Draw();
+    c10.SaveAs(Form("%shMatchdY.pdf", outputdir.Data()));
+
+    // plot hMatchdZ
+    TCanvas c11("c11", "c11", 800, 600);
+    hMatchdZ->GetXaxis()->SetTitle("dZ [mm]");
+    hMatchdZ->GetYaxis()->SetTitle("Counts");
+    hMatchdZ->Draw();
+    c11.SaveAs(Form("%shMatchdZ.pdf", outputdir.Data()));
+
+    // plot hFinalXZ
+    TCanvas c12("c12", "c12", 800, 600);
+    c12.SetLogz();
+    hFinalXZ->GetXaxis()->SetTitle("X [mm]");
+    hFinalXZ->GetYaxis()->SetTitle("Z [mm]");
+    hFinalXZ->Draw("colz");
+    c12.SaveAs(Form("%shFinalXZ.pdf", outputdir.Data()));
+
+    // plot hExtrapolatedXZ
+    TCanvas c13("c13", "c13", 800, 600);
+    c13.SetLogz();
+    hExtrapolatedXZ->GetXaxis()->SetTitle("X [mm]");
+    hExtrapolatedXZ->GetYaxis()->SetTitle("Z [mm]");
+    hExtrapolatedXZ->Draw("colz");
+    c13.SaveAs(Form("%shExtrapolatedXZ.pdf", outputdir.Data()));
+
+    // plot hFinalYZ
+    TCanvas c14("c14", "c14", 800, 600);
+    c14.SetLogz();
+    hFinalYZ->GetXaxis()->SetTitle("Y [mm]");
+    hFinalYZ->GetYaxis()->SetTitle("Z [mm]");
+    hFinalYZ->Draw("colz");
+    c14.SaveAs(Form("%shFinalYZ.pdf", outputdir.Data()));
+
+    // plot hExtrapolatedYZ
+    TCanvas c15("c15", "c15", 800, 600);
+    c15.SetLogz();
+    hExtrapolatedYZ->GetXaxis()->SetTitle("Y [mm]");
+    hExtrapolatedYZ->GetYaxis()->SetTitle("Z [mm]");
+    hExtrapolatedYZ->Draw("colz");
+    c15.SaveAs(Form("%shExtrapolatedYZ.pdf", outputdir.Data()));
     return 0;
 }

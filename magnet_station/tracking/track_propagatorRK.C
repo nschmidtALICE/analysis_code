@@ -64,26 +64,44 @@ public:
  * Format: {{x1,y1,z1}, {x2,y2,z2}, {x3,y3,z3}, {x4,y4,z4}}
  * These surfaces are used to define realistic detector geometry for boundary checks
  */
+// std::vector<std::vector<Point>> surfaces = {
+//     // Station 1
+//     {{152.195, 99.1559, 500.266}, {165.039, 5.22261, 494.219}, {144.656, 1.04414, 516.03}, {131.811, 94.9774, 522.077}},
+//     // Station 2
+//     {{164.973, 99.1559, 529.408}, {177.817, 5.22261, 523.362}, {157.434, 1.04414, 545.073}, {144.589, 94.9774, 551.12}},
+//     // Station 3
+//     {{178.279, 99.1938, 557.082}, {191.123, 5.26059, 551.035}, {169.684, 1.00616, 571.584}, {156.84, 94.9394, 577.631}},
+//     // Station 4
+//     {{189.705, 109.082, 584.861}, {203.902, 5.26059, 578.178}, {182.462, 1.00616, 598.727}, {168.266, 104.827, 605.41}},
+//     // Station 5
+//     {{202.483, 109.082, 612.004}, {216.68, 5.26059, 605.321}, {195.24, 1.00616, 625.869}, {181.044, 104.827, 632.552}},
+//     // Station 6
+//     {{215.763, 109.114, 639.704}, {229.959, 5.29326, 633.021}, {207.518, 0.973489, 652.455}, {193.321, 104.794, 659.138}},
+//     // Station 7
+//     {{227.865, 114.058, 667.164}, {242.737, 5.29326, 660.162}, {220.296, 0.973489, 679.597}, {205.423, 109.738, 686.599}},
+//     // Station 8
+//     {{235.737, 113.079, 699.891}, {250.609, 4.31444, 692.889}, {237.98, 1.95231, 702.756}, {223.108, 110.717, 709.758}},
+//     // Station 9
+//     {{247.839, 118.023, 736.851}, {263.388, 4.31444, 729.531}, {250.758, 1.95231, 739.398}, {235.21, 115.661, 746.718}}};
 std::vector<std::vector<Point>> surfaces = {
-    // Station 1
-    {{152.195, 99.1559, 500.266}, {165.039, 5.22261, 494.219}, {144.656, 1.04414, 516.03}, {131.811, 94.9774, 522.077}},
-    // Station 2
-    {{164.973, 99.1559, 529.408}, {177.817, 5.22261, 523.362}, {157.434, 1.04414, 545.073}, {144.589, 94.9774, 551.12}},
-    // Station 3
-    {{178.279, 99.1938, 557.082}, {191.123, 5.26059, 551.035}, {169.684, 1.00616, 571.584}, {156.84, 94.9394, 577.631}},
-    // Station 4
-    {{189.705, 109.082, 584.861}, {203.902, 5.26059, 578.178}, {182.462, 1.00616, 598.727}, {168.266, 104.827, 605.41}},
-    // Station 5
-    {{202.483, 109.082, 612.004}, {216.68, 5.26059, 605.321}, {195.24, 1.00616, 625.869}, {181.044, 104.827, 632.552}},
-    // Station 6
-    {{215.763, 109.114, 639.704}, {229.959, 5.29326, 633.021}, {207.518, 0.973489, 652.455}, {193.321, 104.794, 659.138}},
-    // Station 7
-    {{227.865, 114.058, 667.164}, {242.737, 5.29326, 660.162}, {220.296, 0.973489, 679.597}, {205.423, 109.738, 686.599}},
-    // Station 8
-    {{235.737, 113.079, 699.891}, {250.609, 4.31444, 692.889}, {237.98, 1.95231, 702.756}, {223.108, 110.717, 709.758}},
-    // Station 9
-    {{247.839, 118.023, 736.851}, {263.388, 4.31444, 729.531}, {250.758, 1.95231, 739.398}, {235.21, 115.661, 746.718}}};
-
+    // Module 0
+    {{152.195, 106.556, 500.266}, {165.039, 12.6226, 494.219}, {144.656, 8.44414, 515.83}, {131.811, 102.377, 521.877}},
+    // Module 1
+    {{164.973, 106.556, 527.408}, {177.817, 12.6226, 521.362}, {157.434, 8.44414, 542.973}, {144.589, 102.377, 549.02}},
+    // Module 2
+    {{178.279, 106.594, 555.082}, {191.123, 12.6606, 549.035}, {169.684, 8.40616, 569.584}, {156.84, 102.339, 575.631}},
+    // Module 3
+    {{189.705, 116.482, 582.861}, {203.902, 12.6606, 576.178}, {182.462, 8.40616, 596.727}, {168.266, 112.227, 603.41}},
+    // Module 4
+    {{202.483, 116.482, 610.004}, {216.68, 12.6606, 603.321}, {195.24, 8.40616, 623.869}, {181.044, 112.227, 630.553}},
+    // Module 5
+    {{215.763, 116.514, 637.703}, {229.959, 12.6933, 631.02}, {207.518, 8.37349, 650.455}, {193.321, 112.194, 657.138}},
+    // Module 6
+    {{227.865, 121.458, 665.164}, {242.737, 12.6933, 658.163}, {220.296, 8.37349, 677.597}, {205.423, 117.138, 684.599}},
+    // Module 7
+    {{241.116, 121.485, 692.888}, {255.989, 12.7205, 685.886}, {232.601, 8.34622, 704.159}, {217.728, 117.111, 711.16}},
+    // Module 8
+    {{253.218, 126.429, 720.349}, {268.767, 12.7205, 713.029}, {245.379, 8.34622, 731.301}, {229.831, 122.055, 738.621}}};
 /**
  * Calculate aperture half-width at a given z position
  * This function implements a z-dependent aperture that gets wider
@@ -103,17 +121,92 @@ double getXLimit(double z)
         return 0.4054 * z + 66.22;
 }
 
+// /**
+//  * Interpolate boundary position at a given z coordinate
+//  * For any z-position, finds the corresponding detector surface
+//  * and calculates the boundary by interpolation between corners
+//  * @param z Z-position in meters (will be converted to mm internally)
+//  * @return Point object containing boundary coordinate in meters
+//  */
+// Point interpolate(double z)
+// {
+//     // Convert input z from meters to millimeters (internal calculations use mm)
+//     z *= 100;
+
+//     // Default boundary value when z is outside defined surfaces range
+//     // Uses the getXLimit function for x and fixed y-limit of 155mm
+//     Point default_value(getXLimit(z) / 100, 155.0 / 100, z / 100);
+
+//     // Debug flag (set to true to enable verbose output)
+//     bool verbosityhere = 0;
+
+//     if (verbosityhere)
+//     {
+//         std::cout << "z = " << z << std::endl;
+//     }
+
+//     // Search through all defined detector surfaces
+//     for (const auto &surface : surfaces)
+//     {
+//         // Find min/max z-values for this surface
+//         double z_min = std::min({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+//         double z_max = std::max({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+
+//         // Check if requested z is within this surface's z-range
+//         if (z >= z_min && z <= z_max)
+//         {
+//             if (verbosityhere)
+//             {
+//                 // Output surface index and range for debugging
+//                 std::cout << "surface number " << &surface - &surfaces[0] << " with z_min = " << z_min << ", z_max = " << z_max << std::endl;
+//             }
+
+//             // Perform bilinear interpolation within the quadrilateral surface
+//             // First calculate interpolation parameters along two edges
+//             double t1 = (z - surface[0].z) / (surface[1].z - surface[0].z);
+//             double t2 = (z - surface[2].z) / (surface[3].z - surface[2].z);
+
+//             // Interpolate x,y along first edge (based on z-position)
+//             double x1 = surface[0].x + t1 * (surface[1].x - surface[0].x);
+//             double y1 = surface[0].y + t1 * (surface[1].y - surface[0].y);
+
+//             // Interpolate x,y along second edge (based on z-position)
+//             double x2 = surface[2].x + t2 * (surface[3].x - surface[2].x);
+//             double y2 = surface[2].y + t2 * (surface[3].y - surface[2].y);
+
+//             // Now interpolate between the two edge points
+//             double t = (z - surface[0].z) / (surface[2].z - surface[0].z);
+//             double x = x1 + t * (x2 - x1);
+//             double y = y1 + t * (y2 - y1);
+
+//             if (verbosityhere)
+//                 std::cout << "x = " << x << ", y = " << y << ", z = " << z << std::endl;
+
+//             // Return interpolated position, converting back to meters
+//             return Point(x / 100, y / 100, z / 100);
+//         }
+//     }
+
+//     // Warning if z is outside the range of all defined surfaces
+//     if (verbosityhere)
+//         std::cout << "Warning: z = " << z / 100 << " is not covered by any surface" << std::endl;
+
+//     // Return default boundary if no matching surface is found
+//     return default_value;
+// }
 /**
- * Interpolate boundary position at a given z coordinate
- * For any z-position, finds the corresponding detector surface
- * and calculates the boundary by interpolation between corners
+ * Interpolate boundary position at a given z,y coordinate pair
+ * For any z,y-position, finds the corresponding detector module surface
+ * and calculates the intersection point by interpolation
  * @param z Z-position in meters (will be converted to mm internally)
+ * @param y Y-position in meters (will be converted to mm internally)
  * @return Point object containing boundary coordinate in meters
  */
-Point interpolate(double z)
+Point interpolate(double z, double y = 0.0)
 {
-    // Convert input z from meters to millimeters (internal calculations use mm)
+    // Convert input z and y from meters to millimeters (internal calculations use mm)
     z *= 100;
+    y *= 100;
 
     // Default boundary value when z is outside defined surfaces range
     // Uses the getXLimit function for x and fixed y-limit of 155mm
@@ -124,7 +217,7 @@ Point interpolate(double z)
 
     if (verbosityhere)
     {
-        std::cout << "z = " << z << std::endl;
+        std::cout << "Interpolating at z = " << z << ", y = " << y << std::endl;
     }
 
     // Search through all defined detector surfaces
@@ -142,30 +235,53 @@ Point interpolate(double z)
                 // Output surface index and range for debugging
                 std::cout << "surface number " << &surface - &surfaces[0] << " with z_min = " << z_min << ", z_max = " << z_max << std::endl;
             }
-
-            // Perform bilinear interpolation within the quadrilateral surface
-            // First calculate interpolation parameters along two edges
-            double t1 = (z - surface[0].z) / (surface[1].z - surface[0].z);
-            double t2 = (z - surface[2].z) / (surface[3].z - surface[2].z);
-
-            // Interpolate x,y along first edge (based on z-position)
-            double x1 = surface[0].x + t1 * (surface[1].x - surface[0].x);
-            double y1 = surface[0].y + t1 * (surface[1].y - surface[0].y);
-
-            // Interpolate x,y along second edge (based on z-position)
-            double x2 = surface[2].x + t2 * (surface[3].x - surface[2].x);
-            double y2 = surface[2].y + t2 * (surface[3].y - surface[2].y);
-
-            // Now interpolate between the two edge points
-            double t = (z - surface[0].z) / (surface[2].z - surface[0].z);
-            double x = x1 + t * (x2 - x1);
-            double y = y1 + t * (y2 - y1);
-
+            
+            // Find min/max y-values for this surface
+            double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+            double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+            
+            // For surface found with matching z, we'll now do bilinear interpolation considering both y and z
+            
+            // First compute normalized coordinates within the surface (0-1 range)
+            double z_norm = (z - z_min) / (z_max - z_min);
+            
+            // Clamp y within the module's y range for interpolation
+            double y_actual = std::max(y_min, std::min(y_max, y));
+            double y_norm = (y_actual - y_min) / (y_max - y_min);
+            
+            // Check if we're using exact y or clamped value
+            bool y_in_range = (y >= y_min && y <= y_max);
+            
+            if (!y_in_range && verbosityhere)
+            {
+                std::cout << "Warning: y = " << y/100.0 << " is outside module boundaries [" 
+                          << y_min/100.0 << ", " << y_max/100.0 << "]. Using clamped value: " 
+                          << y_actual/100.0 << std::endl;
+            }
+            
+            // Get the four corners of the surface for interpolation
+            // We rearrange corners to have consistent indexing:
+            // 0: min-y, min-z
+            // 1: min-y, max-z
+            // 2: max-y, min-z
+            // 3: max-y, max-z
+            
+            // This handling depends on how your surfaces are defined
+            // Assuming surface points are ordered consistently
+            std::vector<Point> corners = surface;
+            
+            // Perform bilinear interpolation in y-z space
+            // Interpolate x along the four edges based on y and z
+            double x = (1-y_norm) * (1-z_norm) * corners[0].x + 
+                       (1-y_norm) * z_norm     * corners[1].x + 
+                       y_norm     * (1-z_norm) * corners[2].x + 
+                       y_norm     * z_norm     * corners[3].x;
+                       
             if (verbosityhere)
-                std::cout << "x = " << x << ", y = " << y << ", z = " << z << std::endl;
+                std::cout << "Interpolated x = " << x << " at y = " << y << ", z = " << z << std::endl;
 
             // Return interpolated position, converting back to meters
-            return Point(x / 100, y / 100, z / 100);
+            return Point(x / 100, y_actual / 100, z / 100);
         }
     }
 
@@ -176,7 +292,6 @@ Point interpolate(double z)
     // Return default boundary if no matching surface is found
     return default_value;
 }
-
 /**
  * MagneticField class
  * Reads magnetic field map from file and provides interpolation
@@ -645,7 +760,7 @@ public:
             RungeKutta4Step(position, momentum, step_size);
 
             // Get boundary limits at current z-position (allows for varying aperture)
-            Point interpolatedBoundary = interpolate(position.Z());
+            Point interpolatedBoundary = interpolate(position.Z(), position.Y());
 
             // Check if particle hit magnet boundary
             // Original simple check: if (fabs(position.X()) >= x_limit || fabs(position.Y()) >= y_limit)
@@ -710,7 +825,7 @@ public:
 /**
  * Main function to demonstrate particle propagation and visualization
  * Simulates multiple particles through a magnetic field and generates output files
- * 
+ *
  * @param inputFieldASCII Path to ASCII file containing magnetic field map
  * @param nParticles Number of particles to simulate (with different momenta)
  * @param verboseInfo Whether to print detailed information during propagation
@@ -733,8 +848,8 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
     MagneticField field(field_file);
 
     // Create particle propagator with specified magnet aperture
-    double x_limit = 1.5;  // 1.5 m magnet half-width
-    double y_limit = 2.0;  // 2.0 m magnet half-height
+    double x_limit = 1.5;                                         // 1.5 m magnet half-width
+    double y_limit = 2.0;                                         // 2.0 m magnet half-height
     ParticlePropagator propagator(field, 0.01, x_limit, y_limit); // 0.01m step size
 
     // Create ROOT output file for all particle trajectories
@@ -744,14 +859,14 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
     TTree *tree = new TTree("trajectories", "Multiple Particle Trajectories");
 
     // Variables to store in the tree
-    int particle_id;       // Unique ID for each particle
-    double x, y, z;        // Position coordinates (m)
-    double px_out, py_out, pz_out;  // Momentum components (GeV/c)
-    double energy;         // Total energy (GeV)
-    double mass_value;     // Particle mass (GeV/c²)
-    double charge_value;   // Particle charge (e)
-    int step_num;          // Step number along trajectory
-    bool hit_boundary;     // Flag indicating boundary hit
+    int particle_id;               // Unique ID for each particle
+    double x, y, z;                // Position coordinates (m)
+    double px_out, py_out, pz_out; // Momentum components (GeV/c)
+    double energy;                 // Total energy (GeV)
+    double mass_value;             // Particle mass (GeV/c²)
+    double charge_value;           // Particle charge (e)
+    int step_num;                  // Step number along trajectory
+    bool hit_boundary;             // Flag indicating boundary hit
 
     // Create branches for all variables in the tree
     tree->Branch("particle_id", &particle_id, "particle_id/I");
@@ -784,8 +899,8 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
     for (int i = 0; i < nParticles; i++)
     {
         // Set standard particle properties (all pions in this case)
-        double charge = 1.0;       // in units of e
-        double mass = 0.13957039;  // pion mass in GeV/c²
+        double charge = 1.0;      // in units of e
+        double mass = 0.13957039; // pion mass in GeV/c²
         std::string particle_type = "pion";
 
         // Alternative: Vary particle types by ID (commented out)
@@ -803,16 +918,16 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
 
         // Create logarithmically spaced momentum values from 0.5 to 5 GeV/c
         // This ensures good coverage of both low and high momentum behaviors
-        double log_min = -0.3;  // log10(0.5) ≈ -0.3
-        double log_max = 0.7;   // log10(5) ≈ 0.7
+        double log_min = -0.3; // log10(0.5) ≈ -0.3
+        double log_max = 0.7;  // log10(5) ≈ 0.7
         double momentum_magnitude = pow(10.0, log_min + i * ((log_max - log_min) / (nParticles - 1)));
 
         // Set momentum direction (mainly along z-axis with small x component)
-        double angle = 0.0;  // No angle variation in this example
+        double angle = 0.0; // No angle variation in this example
         // Alternative: double angle = (i * 45.0 / nParticles) * (M_PI / 180.0);
-        double px = 0.1 * momentum_magnitude * sin(angle);  // Small x component (10% of total)
-        double py = 0.0;                                    // No y component
-        double pz = momentum_magnitude * cos(angle);        // Main momentum along z
+        double px = 0.1 * momentum_magnitude * sin(angle); // Small x component (10% of total)
+        double py = 0.0;                                   // No y component
+        double pz = momentum_magnitude * cos(angle);       // Main momentum along z
 
         // Set initial position at origin (no variation in this example)
         double x_offset = 0.0;
@@ -820,7 +935,7 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
         // Alternative: Add position variation
         // double x_offset = (i % 3) * 0.05 - 0.05;
         // double y_offset = ((i / 3) % 3) * 0.05 - 0.05;
-        
+
         TVector3 initial_position(x_offset, y_offset, 0.0);
 
         // Calculate total energy from momentum and mass: E² = p²c² + m²c⁴
@@ -843,18 +958,18 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
             std::cout << "Initial position: (" << initial_position.X() << ", "
                       << initial_position.Y() << ", " << initial_position.Z() << ") m" << std::endl;
         }
-        
+
         // Propagate particle through the magnetic field (max length 8m, up to 50k steps)
         std::vector<State> trajectory = propagator.propagate(
             initial_position, four_momentum, 8.0, 50000);
 
         // Create graphs for visualizing this particle's trajectory
-        TGraph *graph_xy = new TGraph(trajectory.size());  // XY projection
-        TGraph *graph_xz = new TGraph(trajectory.size());  // XZ projection
-        TGraph *graph_yz = new TGraph(trajectory.size());  // YZ projection
+        TGraph *graph_xy = new TGraph(trajectory.size()); // XY projection
+        TGraph *graph_xz = new TGraph(trajectory.size()); // XZ projection
+        TGraph *graph_yz = new TGraph(trajectory.size()); // YZ projection
 
         // Set visual styles for trajectory plots
-        graph_xy->SetLineColor(colors[i % 10]);  // Cycle through colors
+        graph_xy->SetLineColor(colors[i % 10]); // Cycle through colors
         graph_xz->SetLineColor(colors[i % 10]);
         graph_yz->SetLineColor(colors[i % 10]);
         graph_xy->SetLineWidth(2);
@@ -874,7 +989,7 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
             px_out = trajectory[j].momentum.X();
             py_out = trajectory[j].momentum.Y();
             pz_out = trajectory[j].momentum.Z();
-            
+
             // Calculate total energy: E² = p²c² + m²c⁴
             energy = sqrt(px_out * px_out + py_out * py_out + pz_out * pz_out + mass * mass);
             step_num = j;
@@ -902,7 +1017,7 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
         }
 
         // Add this particle's graphs to the multi-graphs for combined visualization
-        mg_xy->Add(graph_xy, "l");  // "l" option draws lines
+        mg_xy->Add(graph_xy, "l"); // "l" option draws lines
         mg_xz->Add(graph_xz, "l");
         mg_yz->Add(graph_yz, "l");
 
@@ -918,38 +1033,20 @@ int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nPart
                       << 100.0 * (trajectory.back().momentum.Mag() / momentum_magnitude) << "%" << std::endl;
             std::cout << "Points in trajectory: " << trajectory.size() << std::endl;
         }
-        
-        // Option to create individual trajectory plots for each particle
-        // (Commented out to avoid creating too many files)
-        // TCanvas *c_particle = new TCanvas(Form("c_particle_%d", i),
-        //                                  Form("Particle %d (%s) Trajectory", i, particle_type.c_str()),
-        //                                  1200, 400);
-        // c_particle->Divide(3, 1);
-        // c_particle->cd(1);
-        // graph_xy->SetTitle(Form("Particle %d (%s) XY Projection;X (m);Y (m)", i, particle_type.c_str()));
-        // graph_xy->Draw("AL");
-        // c_particle->cd(2);
-        // graph_xz->SetTitle(Form("Particle %d (%s) XZ Projection;X (m);Z (m)", i, particle_type.c_str()));
-        // graph_xz->Draw("AL");
-        // c_particle->cd(3);
-        // graph_yz->SetTitle(Form("Particle %d (%s) YZ Projection;Y (m);Z (m)", i, particle_type.c_str()));
-        // graph_yz->Draw("AL");
-        // c_particle->SaveAs(Form("c_particle_%d.pdf", i));
-        // c_particle->Write();
     }
 
     // Create and save XY projection plot with all trajectories
     TCanvas *c_all_xy = new TCanvas("c_all_xy", "All Trajectories XY Projection", 800, 600);
-    mg_xy->Draw("A");  // "A" draws axes and all trajectories
+    mg_xy->Draw("A"); // "A" draws axes and all trajectories
 
     // Add rectangular boundary box showing magnet aperture in XY view
     TBox *boundary_xy = new TBox(-x_limit, -y_limit, x_limit, y_limit);
-    boundary_xy->SetFillStyle(0);  // Transparent fill
+    boundary_xy->SetFillStyle(0); // Transparent fill
     boundary_xy->SetLineColor(kBlack);
     boundary_xy->SetLineWidth(2);
-    boundary_xy->SetLineStyle(2);  // Dashed line
+    boundary_xy->SetLineStyle(2); // Dashed line
     boundary_xy->Draw("same");
-    
+
     // Save plot to PDF file
     c_all_xy->SaveAs("c_all_xy.pdf");
     c_all_xy->Write();
