@@ -155,10 +155,10 @@ int track_ambiguity_finder(bool doTree = false)
     std::cout << "Input file contains " << ntup->GetEntries() << " entries" << std::endl;
 
     // Magnetic field configuration files
-    TString q1File = "./field.v5r0.c1.down.cdf";
-    TString q2File = "./field.v5r0.c2.down.cdf";
-    TString q3File = "./field.v5r0.c3.down.cdf";
-    TString q4File = "./field.v5r0.c4.down.cdf";
+    TString q1File = "./field_inputs_LHCb/field.v5r0.c1.down.cdf";
+    TString q2File = "./field_inputs_LHCb/field.v5r0.c2.down.cdf";
+    TString q3File = "./field_inputs_LHCb/field.v5r0.c3.down.cdf";
+    TString q4File = "./field_inputs_LHCb/field.v5r0.c4.down.cdf";
 
     // Load magnetic field from files
     auto field = loadLHCbMagneticField(q1File.Data(), q2File.Data(), q3File.Data(), q4File.Data());

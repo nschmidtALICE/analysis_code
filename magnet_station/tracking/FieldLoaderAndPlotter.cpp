@@ -181,7 +181,7 @@ private:
             for (int iy = 0; iy < Nyquad; ++iy) {
                 for (int ix = 0; ix < Nxquad; ++ix) {
                     // Get quadrant indices
-                    const int q0_index = Nxquad * (Nyquad * iz + iy) + ix;
+                    const size_t q0_index = static_cast<size_t>(Nxquad * (Nyquad * iz + iy) + ix);
                     
                     // Ensure we don't exceed the bounds
                     if (q0_index >= quadrants[0].B.size()) continue;
