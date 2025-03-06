@@ -44,6 +44,7 @@
 #include "TLine.h"          // For drawing lines
 #include "TLegend.h"        // For plot legends
 
+#include "FieldLoaderAndPlotter.cpp" // Load magnetic field and visualize it
 /**
  * Point class - Simple container for 3D coordinates with time component
  * Used for describing geometry points and boundaries
@@ -207,6 +208,8 @@ Point interpolate(double z, double y = 0.0)
     // Convert input z and y from meters to millimeters (internal calculations use mm)
     z *= 100;
     y *= 100;
+    // use absolute value of y
+    y = abs(y);
 
     // Default boundary value when z is outside defined surfaces range
     // Uses the getXLimit function for x and fixed y-limit of 155mm
@@ -235,48 +238,48 @@ Point interpolate(double z, double y = 0.0)
                 // Output surface index and range for debugging
                 std::cout << "surface number " << &surface - &surfaces[0] << " with z_min = " << z_min << ", z_max = " << z_max << std::endl;
             }
-            
+
             // Find min/max y-values for this surface
             double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
             double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
-            
+
             // For surface found with matching z, we'll now do bilinear interpolation considering both y and z
-            
+
             // First compute normalized coordinates within the surface (0-1 range)
             double z_norm = (z - z_min) / (z_max - z_min);
-            
+
             // Clamp y within the module's y range for interpolation
             double y_actual = std::max(y_min, std::min(y_max, y));
             double y_norm = (y_actual - y_min) / (y_max - y_min);
-            
+
             // Check if we're using exact y or clamped value
             bool y_in_range = (y >= y_min && y <= y_max);
-            
+
             if (!y_in_range && verbosityhere)
             {
-                std::cout << "Warning: y = " << y/100.0 << " is outside module boundaries [" 
-                          << y_min/100.0 << ", " << y_max/100.0 << "]. Using clamped value: " 
-                          << y_actual/100.0 << std::endl;
+                std::cout << "Warning: y = " << y << " is outside module boundaries ["
+                          << y_min << ", " << y_max << "]. Using clamped value: "
+                          << y_actual << std::endl;
             }
-            
+
             // Get the four corners of the surface for interpolation
             // We rearrange corners to have consistent indexing:
             // 0: min-y, min-z
             // 1: min-y, max-z
             // 2: max-y, min-z
             // 3: max-y, max-z
-            
+
             // This handling depends on how your surfaces are defined
             // Assuming surface points are ordered consistently
             std::vector<Point> corners = surface;
-            
+
             // Perform bilinear interpolation in y-z space
             // Interpolate x along the four edges based on y and z
-            double x = (1-y_norm) * (1-z_norm) * corners[0].x + 
-                       (1-y_norm) * z_norm     * corners[1].x + 
-                       y_norm     * (1-z_norm) * corners[2].x + 
-                       y_norm     * z_norm     * corners[3].x;
-                       
+            double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
+                       (1 - y_norm) * z_norm * corners[1].x +
+                       y_norm * (1 - z_norm) * corners[2].x +
+                       y_norm * z_norm * corners[3].x;
+
             if (verbosityhere)
                 std::cout << "Interpolated x = " << x << " at y = " << y << ", z = " << z << std::endl;
 
@@ -287,164 +290,12 @@ Point interpolate(double z, double y = 0.0)
 
     // Warning if z is outside the range of all defined surfaces
     if (verbosityhere)
-        std::cout << "Warning: z = " << z / 100 << " is not covered by any surface" << std::endl;
+        std::cout << "Warning: z = " << z << " is not covered by any surface" << std::endl;
 
     // Return default boundary if no matching surface is found
     return default_value;
 }
-/**
- * MagneticField class
- * Reads magnetic field map from file and provides interpolation
- * for field values at arbitrary positions
- */
-class MagneticField
-{
-private:
-    // Grid coordinates for the magnetic field map
-    std::vector<double> x_grid, y_grid, z_grid;
 
-    // 3D array to store field vectors at each grid point
-    std::vector<std::vector<std::vector<TVector3>>> field_values;
-
-    // Field map boundaries and grid spacing
-    double x_min, x_max, y_min, y_max, z_min, z_max;
-    double dx, dy, dz;
-
-public:
-    /**
-     * Constructor: Load magnetic field from ASCII file
-     * @param filename Path to the field map file
-     * Format: First line: nx ny nz (grid dimensions)
-     *         Second line: xmin xmax ymin ymax zmin zmax (field boundaries)
-     *         Remaining lines: x y z Bx By Bz (field values at each point)
-     */
-    MagneticField(const std::string &filename)
-    {
-        // Open the magnetic field map file
-        std::ifstream file(filename);
-        if (!file.is_open())
-        {
-            std::cerr << "Error: Could not open field map file: " << filename << std::endl;
-            exit(1);
-        }
-
-        // Read header with grid information
-        int nx, ny, nz; // Number of grid points in each dimension
-        file >> nx >> ny >> nz;
-        file >> x_min >> x_max >> y_min >> y_max >> z_min >> z_max;
-
-        // Calculate grid spacing in each dimension
-        dx = (x_max - x_min) / (nx - 1);
-        dy = (y_max - y_min) / (ny - 1);
-        dz = (z_max - z_min) / (nz - 1);
-
-        // Initialize arrays for grid coordinates
-        x_grid.resize(nx);
-        y_grid.resize(ny);
-        z_grid.resize(nz);
-
-        // Fill grid coordinate arrays
-        for (int i = 0; i < nx; i++)
-            x_grid[i] = x_min + i * dx;
-        for (int j = 0; j < ny; j++)
-            y_grid[j] = y_min + j * dy;
-        for (int k = 0; k < nz; k++)
-            z_grid[k] = z_min + k * dz;
-
-        // Initialize 3D array to hold field vectors
-        // Uses nested vectors for flexibility
-        field_values.resize(nx);
-        for (int i = 0; i < nx; i++)
-        {
-            field_values[i].resize(ny);
-            for (int j = 0; j < ny; j++)
-            {
-                field_values[i][j].resize(nz);
-            }
-        }
-
-        // Read field values from file
-        double x, y, z, Bx, By, Bz;
-        int i, j, k;
-
-        // Process each line in the file
-        while (file >> x >> y >> z >> Bx >> By >> Bz)
-        {
-            // Convert coordinates to grid indices
-            i = round((x - x_min) / dx);
-            j = round((y - y_min) / dy);
-            k = round((z - z_min) / dz);
-
-            // Store field value if indices are valid
-            if (i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz)
-            {
-                field_values[i][j][k] = TVector3(Bx, By, Bz);
-            }
-        }
-
-        file.close();
-
-        // Report successful loading
-        std::cout << "Loaded magnetic field map with dimensions "
-                  << nx << "x" << ny << "x" << nz << " from " << filename << std::endl;
-    }
-    /**
-     * Trilinear interpolation method to get magnetic field at arbitrary position
-     * @param position 3D position vector where we need the field value (in meters)
-     * @return Interpolated magnetic field vector at requested position (in Tesla)
-     */
-    TVector3 getFieldAt(const TVector3 &position) const
-    {
-        double x = position.X();
-        double y = position.Y();
-        double z = position.Z();
-
-        // Return zero field if position is outside the defined field region
-        if (x < x_min || x > x_max || y < y_min || y > y_max || z < z_min || z > z_max)
-        {
-            return TVector3(0, 0, 0);
-        }
-
-        // Find grid cell containing this position
-        // floor() ensures we get the lower index of the surrounding grid points
-        int i0 = floor((x - x_min) / dx);
-        int j0 = floor((y - y_min) / dy);
-        int k0 = floor((z - z_min) / dz);
-
-        // Safety check to ensure indices stay within array bounds
-        // This prevents segmentation faults if position is near max boundary
-        if (i0 >= static_cast<int>(x_grid.size() - 1))
-            i0 = static_cast<int>(x_grid.size() - 2);
-        if (j0 >= static_cast<int>(y_grid.size() - 1))
-            j0 = static_cast<int>(y_grid.size() - 2);
-        if (k0 >= static_cast<int>(z_grid.size() - 1))
-            k0 = static_cast<int>(z_grid.size() - 2);
-
-        // Calculate indices for upper corner of grid cell
-        int i1 = i0 + 1;
-        int j1 = j0 + 1;
-        int k1 = k0 + 1;
-
-        // Calculate interpolation weights - normalized distance within cell
-        // These values determine how much each corner contributes to the interpolated result
-        double wx = (x - x_grid[i0]) / dx; // 0 ≤ wx ≤ 1, weight for x direction
-        double wy = (y - y_grid[j0]) / dy; // 0 ≤ wy ≤ 1, weight for y direction
-        double wz = (z - z_grid[k0]) / dz; // 0 ≤ wz ≤ 1, weight for z direction
-
-        // Perform trilinear interpolation using the 8 corners of the surrounding cell
-        // For each corner, calculate its contribution based on its distance from position
-        TVector3 B = (1 - wx) * (1 - wy) * (1 - wz) * field_values[i0][j0][k0] + // Weight for (i0,j0,k0)
-                     (1 - wx) * (1 - wy) * wz * field_values[i0][j0][k1] +       // Weight for (i0,j0,k1)
-                     (1 - wx) * wy * (1 - wz) * field_values[i0][j1][k0] +       // Weight for (i0,j1,k0)
-                     (1 - wx) * wy * wz * field_values[i0][j1][k1] +             // Weight for (i0,j1,k1)
-                     wx * (1 - wy) * (1 - wz) * field_values[i1][j0][k0] +       // Weight for (i1,j0,k0)
-                     wx * (1 - wy) * wz * field_values[i1][j0][k1] +             // Weight for (i1,j0,k1)
-                     wx * wy * (1 - wz) * field_values[i1][j1][k0] +             // Weight for (i1,j1,k0)
-                     wx * wy * wz * field_values[i1][j1][k1];                    // Weight for (i1,j1,k1)
-
-        return B; // Return interpolated magnetic field vector in Tesla
-    }
-};
 
 /**
  * Calculate value of a Gaussian distribution at position x
@@ -472,17 +323,17 @@ TVector3 GetFieldValue(const TVector3 &position)
     TVector3 B(0.0, 0.0, 0.0); // Initialize field to zero
 
     // Set field to zero outside magnet aperture boundaries (±1800mm in x, ±2000mm in y)
-    if (fabs(position.x() * 100) > 1800)
+    if (fabs(position.X() * 100) > 1800)
         B.SetX(0.);
-    if (fabs(position.y() * 100) > 2000)
+    if (fabs(position.Y() * 100) > 2000)
         B.SetY(0.);
 
     // Field model: Sum of two Gaussian distributions in the y-component only
     // First Gaussian: peak at z=431mm with width 82.9mm, amplitude -0.46530
     // Second Gaussian: peak at z=574mm with width 154mm, amplitude -0.864
     // Factor 1/(2π²) scales overall field strength
-    B.SetY((-0.46530 * gauss(position.z() * 100, 431.0, 82.9) -
-            0.864 * gauss(position.z() * 100, 574.0, 154.0)) /
+    B.SetY((-0.46530 * gauss(position.Z() * 100, 431.0, 82.9) -
+            0.864 * gauss(position.Z() * 100, 574.0, 154.0)) /
            (2 * M_PI * M_PI));
 
     // No field in z-direction
@@ -507,15 +358,15 @@ TVector3 GetFieldValueConst(const TVector3 &position)
     TVector3 B(0.0, 0.0, 0.0); // Initialize field to zero
 
     // Simple model: constant -0.3T field in y-direction beyond z=2m (200mm)
-    if (fabs(position.z() * 100) > 200)
-        B.SetY(-0.3); // -0.3 Tesla in y-direction
+    if (fabs(position.Z() * 100) > 200)
+        B.SetY(-1.1); // -0.3 Tesla in y-direction
 
     // No field in z-direction
     B.SetZ(0.);
 
     // Debug output (disabled by default for performance)
-    std::cout << "Bx: " << B.X() << " By: " << B.Y() << " Bz: " << B.Z()
-              << " at position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
+    // std::cout << "Bx: " << B.X() << " By: " << B.Y() << " Bz: " << B.Z()
+    //           << " at position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
 
     return B;
 }
@@ -537,7 +388,7 @@ struct State
 class ParticlePropagator
 {
 private:
-    MagneticField &field; // Reference to magnetic field object
+std::shared_ptr<LHCbMagneticField> &field; // Reference to magnetic field object
     double x_limit;       // Maximum allowed |x| position (in meters)
     double y_limit;       // Maximum allowed |y| position (in meters)
     double step_size;     // Integration step size (in meters)
@@ -556,8 +407,13 @@ private:
      */
     void RungeKutta4Step(TVector3 &position, TVector3 &momentum, double dt)
     {
+        c_light = 0.299792458;
+
         // q_factor represents particle charge for Lorentz force calculation
         const double q_factor = charge;
+
+        // MISSING FACTOR: Need to add conversion factor for e·T → GeV/c
+        const double e_conversion = 0.299792458; // Speed of light in m/ns
 
         // Calculate total relativistic energy: E² = (pc)² + (mc²)²
         double energy = sqrt(momentum.Mag2() + mass * mass); // Energy in GeV
@@ -568,14 +424,15 @@ private:
         TVector3 vel1 = momentum * (c_light / energy); // Velocity in m/ns
 
         // Get magnetic field at current position
-        TVector3 B1 = field.getFieldAt(position);
+        TVector3 B1 = field->getFieldAt(position);
+        // TVector3 B1 = GetFieldValueConst(position);
 
         // Calculate position change: dx = v·dt
         TVector3 k1_pos = vel1 * dt; // Position increment in meters
 
         // Calculate momentum change: dp = q(v×B)dt
         // Lorentz force equation: F = q(v×B), and F = dp/dt
-        TVector3 k1_mom = q_factor * vel1.Cross(B1) * dt; // Momentum increment in GeV/c
+        TVector3 k1_mom = q_factor * vel1.Cross(B1) * dt * e_conversion;
 
         // ------ SECOND RK4 STEP (k2) ------
         // Use midpoint of first increment (position + k1/2)
@@ -587,11 +444,12 @@ private:
         TVector3 vel2 = mom2 * (c_light / energy2);
 
         // Get field at new position
-        TVector3 B2 = field.getFieldAt(pos2);
+        TVector3 B2 = field->getFieldAt(pos2);
+        // TVector3 B2 = GetFieldValueConst(pos2);
 
         // Calculate increments for second step
         TVector3 k2_pos = vel2 * dt;
-        TVector3 k2_mom = q_factor * vel2.Cross(B2) * dt;
+        TVector3 k2_mom = q_factor * vel2.Cross(B2) * dt * e_conversion;
 
         // ------ THIRD RK4 STEP (k3) ------
         // Use midpoint of second increment
@@ -603,11 +461,12 @@ private:
         TVector3 vel3 = mom3 * (c_light / energy3);
 
         // Get field at new position
-        TVector3 B3 = field.getFieldAt(pos3);
+        TVector3 B3 = field->getFieldAt(pos3);
+        // TVector3 B3 = GetFieldValueConst(pos3);
 
         // Calculate increments for third step
         TVector3 k3_pos = vel3 * dt;
-        TVector3 k3_mom = q_factor * vel3.Cross(B3) * dt;
+        TVector3 k3_mom = q_factor * vel3.Cross(B3) * dt * e_conversion;
 
         // ------ FOURTH RK4 STEP (k4) ------
         // Use full step with third increment
@@ -619,11 +478,12 @@ private:
         TVector3 vel4 = mom4 * (c_light / energy4);
 
         // Get field at new position
-        TVector3 B4 = field.getFieldAt(pos4);
+        // TVector3 B4 = GetFieldValueConst(pos4);
+        TVector3 B4 = field->getFieldAt(pos4);
 
         // Calculate increments for fourth step
         TVector3 k4_pos = vel4 * dt;
-        TVector3 k4_mom = q_factor * vel4.Cross(B4) * dt;
+        TVector3 k4_mom = q_factor * vel4.Cross(B4) * dt * e_conversion;
 
         // Optional detailed diagnostic output (disabled by default)
         if (false) // Set to true to enable debugging
@@ -633,25 +493,11 @@ private:
 
             std::cout << std::endl;
             std::cout << "RungeKutta4Step::Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
-            std::cout << "RungeKutta4Step::Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << std::endl;
-            std::cout << "RungeKutta4Step::Energy: " << energy << " GeV, γ = " << energy / mass << std::endl;
-            std::cout << "RungeKutta4Step::Velocity: " << vel1.Mag() << " m/ns (" << vel1.Mag() / c_light << " × c)" << std::endl;
+            // std::cout << "RungeKutta4Step::Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << std::endl;
+            // std::cout << "RungeKutta4Step::Energy: " << energy << " GeV, γ = " << energy / mass << std::endl;
+            // std::cout << "RungeKutta4Step::Velocity: " << vel1.Mag() << " m/ns (" << vel1.Mag() / c_light << " × c)" << std::endl;
             std::cout << "RungeKutta4Step::B1: " << B1.X() << ", " << B1.Y() << ", " << B1.Z() << " T" << std::endl;
-            std::cout << "RungeKutta4Step::dt: " << dt << " ns" << std::endl;
-
-            std::cout << "\tRungeKutta4Step::k1_pos: " << k1_pos.X() << ", " << k1_pos.Y() << ", " << k1_pos.Z()
-                      << " m, scaling: " << c_light / energy << std::endl;
-            std::cout << "\tRungeKutta4Step::k2_pos: " << k2_pos.X() << ", " << k2_pos.Y() << ", " << k2_pos.Z()
-                      << " m, scaling: " << c_light / energy2 << std::endl;
-            std::cout << "\tRungeKutta4Step::k3_pos: " << k3_pos.X() << ", " << k3_pos.Y() << ", " << k3_pos.Z()
-                      << " m, scaling: " << c_light / energy3 << std::endl;
-            std::cout << "\tRungeKutta4Step::k4_pos: " << k4_pos.X() << ", " << k4_pos.Y() << ", " << k4_pos.Z()
-                      << " m, scaling: " << c_light / energy4 << std::endl;
-
-            std::cout << "\tRungeKutta4Step::k1_mom: " << k1_mom.X() << ", " << k1_mom.Y() << ", " << k1_mom.Z() << " GeV/c" << std::endl;
-            std::cout << "\tRungeKutta4Step::k2_mom: " << k2_mom.X() << ", " << k2_mom.Y() << ", " << k2_mom.Z() << " GeV/c" << std::endl;
-            std::cout << "\tRungeKutta4Step::k3_mom: " << k3_mom.X() << ", " << k3_mom.Y() << ", " << k3_mom.Z() << " GeV/c" << std::endl;
-            std::cout << "\tRungeKutta4Step::k4_mom: " << k4_mom.X() << ", " << k4_mom.Y() << ", " << k4_mom.Z() << " GeV/c" << std::endl;
+            // std::cout << "RungeKutta4Step::dt: " << dt << " ns" << std::endl;
         }
 
         // ------ FINAL RK4 UPDATE ------
@@ -668,21 +514,21 @@ private:
             // Show energy before and after update to check conservation
 
             std::cout << "\tRungeKutta4Step::New Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << " m" << std::endl;
-            std::cout << "\tRungeKutta4Step::New Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << " GeV/c" << std::endl;
-            std::cout << "\tRungeKutta4Step::New Energy: " << new_energy << " GeV (Change: " << new_energy - energy << " GeV)" << std::endl;
-            std::cout << "\tRungeKutta4Step::Momentum magnitude: " << momentum.Mag() << " GeV/c" << std::endl;
+            // std::cout << "\tRungeKutta4Step::New Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << " GeV/c" << std::endl;
+            // std::cout << "\tRungeKutta4Step::New Energy: " << new_energy << " GeV (Change: " << new_energy - energy << " GeV)" << std::endl;
+            // std::cout << "\tRungeKutta4Step::Momentum magnitude: " << momentum.Mag() << " GeV/c" << std::endl;
         }
     }
 
 public:
     /**
      * Constructor for the ParticlePropagator class
-     * @param field Reference to MagneticField object providing B field values
+     * @param field Reference to LHCbMagneticField object providing B field values
      * @param step_size_m Step size for numerical integration in meters (default: 0.01m)
      * @param x_lim Maximum allowed x-coordinate in meters (default: 1.0m)
      * @param y_lim Maximum allowed y-coordinate in meters (default: 1.0m)
      */
-    ParticlePropagator(MagneticField &field, double step_size_m = 0.01,
+    ParticlePropagator(std::shared_ptr<LHCbMagneticField> &field, double step_size_m = 0.01,
                        double x_lim = 1.0, double y_lim = 1.0)
         : field(field), step_size(step_size_m), charge(1.0), mass(0.1057),
           x_limit(x_lim), y_limit(y_lim)
@@ -760,11 +606,13 @@ public:
             RungeKutta4Step(position, momentum, step_size);
 
             // Get boundary limits at current z-position (allows for varying aperture)
+            // std::cout << "current position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
             Point interpolatedBoundary = interpolate(position.Z(), position.Y());
 
             // Check if particle hit magnet boundary
             // Original simple check: if (fabs(position.X()) >= x_limit || fabs(position.Y()) >= y_limit)
-            if (fabs(position.X()) >= fabs(interpolatedBoundary.x) || fabs(position.Y()) >= fabs(interpolatedBoundary.y))
+            if (fabs(position.X()) >= fabs(interpolatedBoundary.x) || fabs(position.Y()) >= fabs(1.2))
+            // if (fabs(position.X()) >= fabs(interpolatedBoundary.x) || fabs(position.Y()) >= fabs(interpolatedBoundary.y))
             {
                 hit_boundary = true;
                 // Debug output when hitting boundary (disabled by default)
@@ -773,25 +621,38 @@ public:
                     std::cout << "propagate::Particle hit boundary at position: ("
                               << position.X() << ", " << position.Y() << ", "
                               << position.Z() << ")" << std::endl;
+                    std::cout << "propagate::Boundary conditions were x = " << interpolatedBoundary.x
+                              << ", y = " << interpolatedBoundary.y << std::endl;
                 }
             }
 
             // Add current state to trajectory
             trajectory.push_back({position, momentum});
 
-            // Calculate incremental path length
-            if (trajectory.size() > 1)
-            {
-                total_length += (trajectory[trajectory.size() - 1].position -
-                                 trajectory[trajectory.size() - 2].position)
-                                    .Mag();
-            }
+            // // Calculate incremental path length
+            // if (trajectory.size() > 1)
+            // {
+            //     total_length += (trajectory[trajectory.size() - 1].position -
+            //                      trajectory[trajectory.size() - 2].position)
+            //                         .Mag();
+            // }
 
-            // Stop if we've reached maximum path length
-            if (total_length >= max_length)
+            // // Stop if we've reached maximum path length
+            // if (total_length >= max_length)
+            // {
+            //     break;
+            // }
+            if (position.Z() >= max_length)
             {
                 break;
             }
+        }
+
+        // Debug output for final state (disabled by default)
+        if (false)
+        {
+            std::cout << "propagate::Final Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
+            // std::cout << "propagate::Final Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << std::endl;
         }
 
         return trajectory;
@@ -831,21 +692,15 @@ public:
  * @param verboseInfo Whether to print detailed information during propagation
  * @return 0 on success, 1 on error
  */
-int track_propagatorRK(TString inputFieldASCII = "field_map_lhcb.txt", int nParticles = 200, bool verboseInfo = false)
+int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
 {
-    // Validate input field file path
-    if (inputFieldASCII == "")
-    {
-        std::cerr << "Error: No magnetic field file provided." << std::endl;
-        std::cerr << "Usage: ./track_propagator-RK field_map.txt" << std::endl;
-        return 1;
-    }
-
-    // Convert TString to std::string for C++ file handling
-    std::string field_file = inputFieldASCII.Data();
+    TString q1File = "/home/niviths/Downloads/field.v5r0.c1.down.cdf";
+    TString q2File = "/home/niviths/Downloads/field.v5r0.c2.down.cdf";
+    TString q3File = "/home/niviths/Downloads/field.v5r0.c3.down.cdf";
+    TString q4File = "/home/niviths/Downloads/field.v5r0.c4.down.cdf";
 
     // Load magnetic field from file
-    MagneticField field(field_file);
+    auto field = loadLHCbMagneticField(q1File.Data(), q2File.Data(), q3File.Data(), q4File.Data());
 
     // Create particle propagator with specified magnet aperture
     double x_limit = 1.5;                                         // 1.5 m magnet half-width
