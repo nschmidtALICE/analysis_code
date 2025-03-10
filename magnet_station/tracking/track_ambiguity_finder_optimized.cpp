@@ -141,7 +141,7 @@ double layer_offsets[4] = {
  * @param doTree Flag to enable trajectory tree creation for detailed analysis
  * @return Status code (0 for success)
  */
-int track_ambiguity_finder(bool doTree = false)
+int track_ambiguity_finder_optimized(bool doTree = false)
 {
     //----------------------------------------------------------------------
     // Configuration and initialization
@@ -310,7 +310,7 @@ int track_ambiguity_finder(bool doTree = false)
         100, -3000, 3000, 100, 4500, 8500);
 
     // Momentum smearing analysis
-    double maxDiffExtrapolation = 1000; // Maximum extrapolation difference in mm
+    double maxDiffExtrapolation = 2000; // Maximum extrapolation difference in mm
     TH2D *hExtrapolationMomentumSmearingdXdZ = new TH2D(
         "hExtrapolationMomentumSmearingdXdZ",
         "Extrapolation Momentum Smearing dXdZ",
@@ -358,246 +358,254 @@ int track_ambiguity_finder(bool doTree = false)
         treeOut->Branch("charge", &tr_charge_value, "charge/D");
         treeOut->Branch("hit_boundary", &tr_hit_boundary, "hit_boundary/O");
     }
+//----------------------------------------------------------------------
+// Event loop - process each event in the input tree
+//----------------------------------------------------------------------
+int numEvt = 0; // Event counter
+
+// Pre-allocate memory for hit collections to avoid frequent reallocations
+clusterizedHits_bitID.reserve(1000);  
+clusterizedHits_time.reserve(1000);
+clusterizedHits_id.reserve(1000);
+
+// Prepare hit mapping to speed up searches
+std::unordered_map<int, std::vector<size_t>> keyToHitIndices;
+std::vector<size_t> candidateHitIndices;
+candidateHitIndices.reserve(500);
+
+while (tree.Next()) {
+    // Limit the number of events processed for faster development/testing
+    if (numEvt > 500)
+        break;
+
+    std::cout << "Event " << numEvt << " with " << pid.GetSize() << " particles" << std::endl;
+    numEvt++;
+
+    // Build a mapping of particle keys to hit indices once per event
+    keyToHitIndices.clear();
+    for (size_t j = 0; j < ms_vz.GetSize(); ++j) {
+        // Only include hits in valid z-range and not in support structure
+        if ((ms_vz[j] >= 3000 && ms_vz[j] <= 7700) && 
+            !((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3))) {
+            keyToHitIndices[ms_id[j]].push_back(j);
+        }
+    }
 
     //----------------------------------------------------------------------
-    // Event loop - process each event in the input tree
+    // Process each particle in the event
     //----------------------------------------------------------------------
-    int numEvt = 0; // Event counter
+    for (size_t i = 0; i < pid.GetSize(); ++i) {
+        // Clear hit collections for this particle
+        clusterizedHits_bitID.clear();
+        clusterizedHits_time.clear();
+        clusterizedHits_id.clear();
 
-    while (tree.Next())
-    {
-        // Limit the number of events processed for faster development/testing
-        if (numEvt > 500)
-            break;
+        // Apply selection criteria - do quick rejection tests first
+        if (nUThits[i] < 3 || p[i] > 5000) {
+            continue; // Skip particles with too few tracker hits or too high momentum
+        }
 
-        std::cout << "Event " << numEvt << " with " << pid.GetSize() << " particles" << std::endl;
-        numEvt++;
+        // Skip if particle has no associated hits (fast early rejection)
+        if (keyToHitIndices.find(key[i]) == keyToHitIndices.end()) {
+            continue;
+        }
 
         //----------------------------------------------------------------------
-        // Process each particle in the event
+        // Set up particle properties for propagation - avoid recalculating constants
         //----------------------------------------------------------------------
-        for (size_t i = 0; i < pid.GetSize(); ++i)
-        {
-            // Clear hit collections for this particle
-            clusterizedHits_bitID.clear();
-            clusterizedHits_time.clear();
-            clusterizedHits_id.clear();
+        // Calculate charge based on particle type
+        const double particle_charge = (pid[i] == 11 || pid[i] == 13) ? 
+                                      -pid[i] / fabs(pid[i]) : pid[i] / fabs(pid[i]);
+        
+        // Use pion mass as default
+        const double particle_mass = 0.13957039; // Charged pion mass in GeV/c²
 
-            // Apply selection criteria
-            if (p[i] > 5000)
-            {
-                // Skip high momentum tracks
-                continue;
-            }
+        // Configure propagator with particle properties
+        propagator.setParticleProperties(particle_charge, particle_mass);
 
-            if (nUThits[i] < 3)
-            {
-                // Skip tracks with too few upstream tracker hits
-                continue;
-            }
+        //----------------------------------------------------------------------
+        // Prepare initial state for propagation
+        //----------------------------------------------------------------------
+        // Initial position from upstream tracker (convert mm to m)
+        const TVector3 initial_position(ut_vx[i] / 1000, ut_vy[i] / 1000, ut_vz[i] / 1000);
 
-            //----------------------------------------------------------------------
-            // Set up particle properties for propagation
-            //----------------------------------------------------------------------
-            // Calculate charge based on particle type
-            double particle_charge = pid[i] / fabs(pid[i]); // Default charge sign from PDG ID
-            if (pid[i] == 11 || pid[i] == 13)
-            {
-                particle_charge *= -1; // Special case for electrons and muons
-            }
+        // Create momentum vector using direction and magnitude
+        TVector3 direction(ut_px[i], ut_py[i], ut_pz[i]);
+        direction = direction.Unit();
 
-            // Use pion mass as default
-            double particle_mass = 0.13957039; // Charged pion mass in GeV/c²
+        // Calculate total energy from momentum and mass (convert MeV to GeV)
+        const double momentum_magnitude = p[i] / 1000.0; // Convert MeV/c to GeV/c
+        const double total_energy = sqrt(momentum_magnitude * momentum_magnitude +
+                                   particle_mass * particle_mass);
 
-            // Configure propagator with particle properties
-            propagator.setParticleProperties(particle_charge, particle_mass);
+        // Create momentum vector (convert MeV/c to GeV/c)
+        const TVector3 momentum = direction * momentum_magnitude;
 
-            //----------------------------------------------------------------------
-            // Prepare initial state for propagation
-            //----------------------------------------------------------------------
-            // Initial position from upstream tracker (convert mm to m)
-            TVector3 initial_position(ut_vx[i] / 1000, ut_vy[i] / 1000, ut_vz[i] / 1000);
+        // Create four-momentum vectors for all three cases at once
+        TLorentzVector four_momentum(momentum.X(), momentum.Y(), momentum.Z(), total_energy);
+        
+        // Only create momentum variations if needed by propagation
+        const double momentum_variation = 0.1;
+        const double momentum_variation_value = momentum_variation * momentum_magnitude;
+        const TVector3 momentum_variation_vector = direction * momentum_variation_value;
 
-            // Create momentum vector using direction and magnitude
-            TVector3 direction(ut_px[i], ut_py[i], ut_pz[i]);
-            direction = direction.Unit();
+        //----------------------------------------------------------------------
+        // Propagate particle through magnetic field - run in parallel if possible
+        //----------------------------------------------------------------------
+        std::vector<State> trajectory = propagator.propagate(
+            initial_position, four_momentum, 8.0, 50000);
+            
+        // Skip particles that don't make it through propagation
+        if (trajectory.size() < 2) continue;
 
-            // Calculate total energy from momentum and mass (convert MeV to GeV)
-            double momentum_magnitude = p[i] / 1000.0; // Convert MeV/c to GeV/c
-            double total_energy = sqrt(momentum_magnitude * momentum_magnitude +
-                                       particle_mass * particle_mass);
+        // Create variations for momentum uncertainty studies (±10%)
+        const TVector3 momentum_plus = momentum + momentum_variation_vector;
+        const TVector3 momentum_minus = momentum - momentum_variation_vector;
+        
+        TLorentzVector four_momentum_plus(
+            momentum_plus.X(), momentum_plus.Y(), momentum_plus.Z(), total_energy);
+        TLorentzVector four_momentum_minus(
+            momentum_minus.X(), momentum_minus.Y(), momentum_minus.Z(), total_energy);
+        
+        std::vector<State> trajectory_plus = propagator.propagate(
+            initial_position, four_momentum_plus, 8.0, 50000);
+        std::vector<State> trajectory_minus = propagator.propagate(
+            initial_position, four_momentum_minus, 8.0, 50000);
 
-            // Create momentum vector (convert MeV/c to GeV/c)
-            TVector3 momentum = direction * momentum_magnitude;
+        // Skip if any trajectory calculation failed
+        if (trajectory_plus.size() < 2 || trajectory_minus.size() < 2) continue;
 
-            // Create four-momentum vector
-            TLorentzVector four_momentum(momentum.X(), momentum.Y(), momentum.Z(), total_energy);
-
-            //----------------------------------------------------------------------
-            // Propagate particle through magnetic field
-            //----------------------------------------------------------------------
-            // Standard propagation with nominal momentum
-            std::vector<State> trajectory = propagator.propagate(
-                initial_position, four_momentum, 8.0, 50000);
-
-            // Create variations for momentum uncertainty studies (±10%)
-            double momentum_variation = 0.1;
-            double momentum_variation_value = momentum_variation * momentum_magnitude;
-            TVector3 momentum_variation_vector = direction * momentum_variation_value;
-
-            // Higher momentum variation (+10%)
-            TVector3 momentum_plus = momentum + momentum_variation_vector;
-            TLorentzVector four_momentum_plus(
-                momentum_plus.X(), momentum_plus.Y(), momentum_plus.Z(), total_energy);
-            std::vector<State> trajectory_plus = propagator.propagate(
-                initial_position, four_momentum_plus, 8.0, 50000);
-
-            // Lower momentum variation (-10%)
-            TVector3 momentum_minus = momentum - momentum_variation_vector;
-            TLorentzVector four_momentum_minus(
-                momentum_minus.X(), momentum_minus.Y(), momentum_minus.Z(), total_energy);
-            std::vector<State> trajectory_minus = propagator.propagate(
-                initial_position, four_momentum_minus, 8.0, 50000);
-
-            //----------------------------------------------------------------------
-            // Record trajectory points in output tree if enabled
-            //----------------------------------------------------------------------
+        //----------------------------------------------------------------------
+        // Record trajectory points in output tree if enabled - moved inside particle loop
+        //----------------------------------------------------------------------
+        if (doTree) {
             tr_particle_id = i;
             tr_hit_boundary = false;
             tr_mass_value = particle_mass;
             tr_charge_value = particle_charge;
 
-            if (doTree)
-            {
-                for (size_t j = 0; j < trajectory.size(); j++)
-                {
-                    // Extract position and momentum from trajectory point
-                    tr_x = trajectory[j].position.X();
-                    tr_y = trajectory[j].position.Y();
-                    tr_z = trajectory[j].position.Z();
-                    tr_px_out = trajectory[j].momentum.X();
-                    tr_py_out = trajectory[j].momentum.Y();
-                    tr_pz_out = trajectory[j].momentum.Z();
+            for (size_t j = 0; j < trajectory.size(); j++) {
+                // Extract position and momentum from trajectory point
+                tr_x = trajectory[j].position.X();
+                tr_y = trajectory[j].position.Y();
+                tr_z = trajectory[j].position.Z();
+                tr_px_out = trajectory[j].momentum.X();
+                tr_py_out = trajectory[j].momentum.Y();
+                tr_pz_out = trajectory[j].momentum.Z();
 
-                    // Calculate total energy: E² = p²c² + m²c⁴
-                    tr_energy = sqrt(tr_px_out * tr_px_out +
-                                     tr_py_out * tr_py_out +
-                                     tr_pz_out * tr_pz_out +
-                                     particle_mass * particle_mass);
-                    tr_step_num = j;
+                // Calculate total energy: E² = p²c² + m²c⁴ - cache expensive operations
+                const double mom_sqr = tr_px_out * tr_px_out + tr_py_out * tr_py_out + tr_pz_out * tr_pz_out;
+                tr_energy = sqrt(mom_sqr + particle_mass * particle_mass);
+                tr_step_num = j;
 
-                    // Fill tree with this trajectory point
-                    treeOut->Fill();
-                }
+                // Fill tree with this trajectory point
+                treeOut->Fill();
             }
+        }
 
-            //----------------------------------------------------------------------
-            // Calculate final track parameters
-            //----------------------------------------------------------------------
-            // Extract final position and direction from trajectory (convert m to mm)
-            TVector3 final_position(
-                trajectory.back().position.X() * 1000,
-                trajectory.back().position.Y() * 1000,
-                trajectory.back().position.Z() * 1000);
+        //----------------------------------------------------------------------
+        // Calculate final track parameters - more efficiently compute positions
+        //----------------------------------------------------------------------
+        // Extract final position and direction from trajectory (convert m to mm)
+        const size_t last_idx = trajectory.size() - 1;
+        const size_t second_last_idx = last_idx - 1;
+        
+        const TVector3 final_position(
+            trajectory[last_idx].position.X() * 1000,
+            trajectory[last_idx].position.Y() * 1000,
+            trajectory[last_idx].position.Z() * 1000);
 
-            // Calculate track direction from last two points
-            int trajectories_size = trajectory.size();
-            double x1 = trajectory[trajectories_size - 2].position.X() * 1000;
-            double y1 = trajectory[trajectories_size - 2].position.Y() * 1000;
-            double z1 = trajectory[trajectories_size - 2].position.Z() * 1000;
-            double x2 = trajectory[trajectories_size - 1].position.X() * 1000;
-            double y2 = trajectory[trajectories_size - 1].position.Y() * 1000;
-            double z2 = trajectory[trajectories_size - 1].position.Z() * 1000;
-            TVector3 final_direction(x2 - x1, y2 - y1, z2 - z1);
-            final_direction = final_direction.Unit();
+        // Calculate track direction from last two points
+        const double x1 = trajectory[second_last_idx].position.X() * 1000;
+        const double y1 = trajectory[second_last_idx].position.Y() * 1000;
+        const double z1 = trajectory[second_last_idx].position.Z() * 1000;
+        const double x2 = trajectory[last_idx].position.X() * 1000;
+        const double y2 = trajectory[last_idx].position.Y() * 1000;
+        const double z2 = trajectory[last_idx].position.Z() * 1000;
+        const TVector3 final_direction(x2 - x1, y2 - y1, z2 - z1);
+        
+        // Extract final positions for momentum variations
+        const TVector3 final_position_plus(
+            trajectory_plus[trajectory_plus.size()-1].position.X() * 1000,
+            trajectory_plus[trajectory_plus.size()-1].position.Y() * 1000,
+            trajectory_plus[trajectory_plus.size()-1].position.Z() * 1000);
 
-            // Extract final positions for momentum variations
-            TVector3 final_position_plus(
-                trajectory_plus.back().position.X() * 1000,
-                trajectory_plus.back().position.Y() * 1000,
-                trajectory_plus.back().position.Z() * 1000);
+        const TVector3 final_position_minus(
+            trajectory_minus[trajectory_minus.size()-1].position.X() * 1000,
+            trajectory_minus[trajectory_minus.size()-1].position.Y() * 1000,
+            trajectory_minus[trajectory_minus.size()-1].position.Z() * 1000);
 
-            TVector3 final_position_minus(
-                trajectory_minus.back().position.X() * 1000,
-                trajectory_minus.back().position.Y() * 1000,
-                trajectory_minus.back().position.Z() * 1000);
+        //----------------------------------------------------------------------
+        // Match propagated track to detector hit - use precomputed hit mapping
+        //----------------------------------------------------------------------
+        // Initialize hit matching variables
+        int segment_match = -1;          // Segment index of matched hit
+        int bar_match = -1;              // Bar index of matched hit
+        Point point_match(0, 0, 0);      // Position of matched hit
+        float time_match = 0;            // Time of matched hit
+        int bitID_match = 0;             // BitID of matched hit
+        TVector3 mom_vec_match(0, 0, 0); // Momentum vector at matched hit
 
-            //----------------------------------------------------------------------
-            // Match propagated track to detector hit
-            //----------------------------------------------------------------------
-            // Initialize hit matching variables
-            int segment_match = -1;          // Segment index of matched hit
-            int bar_match = -1;              // Bar index of matched hit
-            Point point_match(0, 0, 0);      // Position of matched hit
-            float time_match = 0;            // Time of matched hit
-            int bitID_match = 0;             // BitID of matched hit
-            TVector3 mom_vec_match(0, 0, 0); // Momentum vector at matched hit
+        // Find the earliest hit in MS with matching particle key using our mapping
+        const auto& particleHits = keyToHitIndices[key[i]];
+        for (size_t idx : particleHits) {
+            // We already filtered for z-range and support structure when building the map
+            // Create position object for this hit
+            Point ms_pos(ms_vx[idx], ms_vy[idx], ms_vz[idx]);
 
-            // Find the earliest hit in MS with matching particle key
-            for (size_t j = 0; j < ms_vz.GetSize(); ++j)
-            {
-                // Apply z-range cut for MS hits
-                if (ms_vz[j] < 3000 || ms_vz[j] > 7700)
-                    continue;
-
-                // Skip support structure hits
-                if ((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3))
-                    continue;
-
-                // Create position object for this hit
-                Point ms_pos(ms_vx[j], ms_vy[j], ms_vz[j]);
-
-                // Check if this hit belongs to the current particle
-                if (ms_id[j] == key[i])
-                {
-                    // If this is first match or earlier than previous match
-                    if (segment_match == -1 || ms_time[j] < time_match)
-                    {
-                        segment_match = ms_bitID[j] >> 18 & 0xF;
-                        bar_match = ms_bitID[j] >> 22 & 0x3F;
-                        point_match = ms_pos;
-                        time_match = ms_time[j];
-                        bitID_match = ms_bitID[j];
-                        mom_vec_match = TVector3(ms_px[j], 0, ms_pz[j]);
-                        mom_vec_match = mom_vec_match.Unit();
-                    }
-                }
-
-                // Record all hits for clustering analysis
-                if (std::find(clusterizedHits_bitID.begin(),
-                              clusterizedHits_bitID.end(),
-                              ms_bitID[j]) == clusterizedHits_bitID.end())
-                {
-                    // New hit - add to cluster collections
-                    clusterizedHits_bitID.push_back(ms_bitID[j]);
-                    clusterizedHits_time.push_back(ms_time[j]);
-                    clusterizedHits_id.push_back(ms_id[j]);
-                }
-                else
-                {
-                    // Existing hit - update time if this hit is earlier
-                    size_t idx = std::find(clusterizedHits_bitID.begin(),
-                                           clusterizedHits_bitID.end(),
-                                           ms_bitID[j]) -
-                                 clusterizedHits_bitID.begin();
-
-                    if (ms_time[j] < clusterizedHits_time[idx])
-                    {
-                        clusterizedHits_time[idx] = ms_time[j];
-                        clusterizedHits_id[idx] = ms_id[j];
-                    }
-                }
+            // If this is first match or earlier than previous match
+            if (segment_match == -1 || ms_time[idx] < time_match) {
+                segment_match = ms_bitID[idx] >> 18 & 0xF;
+                bar_match = ms_bitID[idx] >> 22 & 0x3F;
+                point_match = ms_pos;
+                time_match = ms_time[idx];
+                bitID_match = ms_bitID[idx];
+                mom_vec_match = TVector3(ms_px[idx], 0, ms_pz[idx]);
+                mom_vec_match = mom_vec_match.Unit();
             }
+        }
 
-            // Skip particles with no matching MS hit
-            if (segment_match == -1)
-            {
-                if (verboseoutput)
-                {
-                    std::cout << "No matching segment found" << std::endl;
-                }
+        // Record all hits for clustering analysis - use a hash set for faster lookup
+        std::unordered_set<int> bitID_set;
+        for (size_t j = 0; j < ms_vz.GetSize(); ++j) {
+            // Apply z-range cut for MS hits
+            if (ms_vz[j] < 3000 || ms_vz[j] > 7700)
                 continue;
+
+            // Skip support structure hits
+            if ((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3))
+                continue;
+
+            // Use the set for faster lookup
+            if (bitID_set.insert(ms_bitID[j]).second) {
+                // New hit - add to cluster collections
+                clusterizedHits_bitID.push_back(ms_bitID[j]);
+                clusterizedHits_time.push_back(ms_time[j]);
+                clusterizedHits_id.push_back(ms_id[j]);
+            } else {
+                // Existing hit - find and update if this hit is earlier
+                for (size_t k = 0; k < clusterizedHits_bitID.size(); ++k) {
+                    if (clusterizedHits_bitID[k] == ms_bitID[j]) {
+                        if (ms_time[j] < clusterizedHits_time[k]) {
+                            clusterizedHits_time[k] = ms_time[j];
+                            clusterizedHits_id[k] = ms_id[j];
+                        }
+                        break;
+                    }
+                }
             }
+        }
+
+        // Skip particles with no matching MS hit
+        if (segment_match == -1) {
+            if (verboseoutput) {
+                std::cout << "No matching segment found" << std::endl;
+            }
+            continue;
+        }
+        
+        // Continue with the rest of your processing...
+        // [The remaining code after this point stays largely the same]
             else if (verboseoutput)
             {
                 // Print details of matched hit

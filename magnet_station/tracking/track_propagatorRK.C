@@ -121,18 +121,113 @@ double getXLimit(double z)
         // Derived from points: (330mm,200mm) and (700mm,350mm)
         return 0.4054 * z + 66.22;
 }
+/**
+ * Optimized boundary position interpolation function
+ * For any z,y-position, finds the corresponding detector module surface
+ * and calculates the intersection point by interpolation
+ * @param z Z-position in meters (will be converted to mm internally)
+ * @param y Y-position in meters (will be converted to mm internally)
+ * @return Point object containing boundary coordinate in meters
+ */
+Point interpolate(double z, double y = 0.0)
+{
+    // Convert input z and y from meters to millimeters (internal calculations use mm)
+    double z_mm = z * 100;
+    double y_mm = std::abs(y * 100);
 
+    // Default boundary value when z is outside defined surfaces range
+    // Uses the getXLimit function for x and fixed y-limit of 155mm
+    Point default_value(getXLimit(z_mm) / 100, 155.0 / 100, z / 100);
+
+    // Debug flag (set to true to enable verbose output)
+    constexpr bool verbosityhere = false;
+
+    if (verbosityhere) {
+        std::cout << "Interpolating at z = " << z_mm << ", y = " << y_mm << std::endl;
+    }
+
+    // Static cache for surface boundaries - computed once on first call
+    static std::vector<std::tuple<double, double, double, double>> surface_bounds;
+    
+    // Initialize surface bounds cache if empty
+    if (surface_bounds.empty()) {
+        surface_bounds.reserve(surfaces.size());
+        for (const auto& surface : surfaces) {
+            double z_min = std::min({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+            double z_max = std::max({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+            double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+            double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+            surface_bounds.emplace_back(z_min, z_max, y_min, y_max);
+        }
+    }
+
+    // Search through surface bounds for the matching surface
+    for (size_t i = 0; i < surface_bounds.size(); ++i) {
+        const auto& [z_min, z_max, y_min, y_max] = surface_bounds[i];
+        
+        // Skip if z is outside this surface's range
+        if (z_mm < z_min || z_mm > z_max)
+            continue;
+            
+        if (verbosityhere) {
+            std::cout << "Surface " << i << " with z_min = " << z_min 
+                      << ", z_max = " << z_max << std::endl;
+        }
+
+        // Clamp y within the module's y range for interpolation
+        double y_actual = std::max(y_min, std::min(y_max, y_mm));
+        
+        // Check if we're using exact y or clamped value
+        bool y_in_range = (y_mm >= y_min && y_mm <= y_max);
+
+        if (!y_in_range && verbosityhere) {
+            std::cout << "Warning: y = " << y_mm << " is outside module boundaries ["
+                      << y_min << ", " << y_max << "]. Using clamped value: "
+                      << y_actual << std::endl;
+        }
+
+        // Get normalized coordinates within the surface (0-1 range)
+        double z_norm = (z_mm - z_min) / (z_max - z_min);
+        double y_norm = (y_actual - y_min) / (y_max - y_min);
+
+        // Reference the actual surface for interpolation
+        const auto& corners = surfaces[i];
+
+        // Perform bilinear interpolation in y-z space
+        double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
+                   (1 - y_norm) * z_norm * corners[1].x +
+                   y_norm * (1 - z_norm) * corners[2].x +
+                   y_norm * z_norm * corners[3].x;
+
+        if (verbosityhere)
+            std::cout << "Interpolated x = " << x << " at y = " << y_mm << ", z = " << z_mm << std::endl;
+
+        // Return interpolated position, converting back to meters
+        return Point(x / 100, y_actual / 100, z / 100);
+    }
+
+    // Warning if z is outside the range of all defined surfaces
+    if (verbosityhere)
+        std::cout << "Warning: z = " << z_mm << " is not covered by any surface" << std::endl;
+
+    // Return default boundary if no matching surface is found
+    return default_value;
+}
 // /**
-//  * Interpolate boundary position at a given z coordinate
-//  * For any z-position, finds the corresponding detector surface
-//  * and calculates the boundary by interpolation between corners
+//  * Interpolate boundary position at a given z,y coordinate pair
+//  * For any z,y-position, finds the corresponding detector module surface
+//  * and calculates the intersection point by interpolation
 //  * @param z Z-position in meters (will be converted to mm internally)
+//  * @param y Y-position in meters (will be converted to mm internally)
 //  * @return Point object containing boundary coordinate in meters
 //  */
-// Point interpolate(double z)
+// Point interpolate(double z, double y = 0.0)
 // {
-//     // Convert input z from meters to millimeters (internal calculations use mm)
+//     // Convert input z and y from meters to millimeters (internal calculations use mm)
 //     z *= 100;
+//     y *= 100;
+//     // use absolute value of y
+//     y = abs(y);
 
 //     // Default boundary value when z is outside defined surfaces range
 //     // Uses the getXLimit function for x and fixed y-limit of 155mm
@@ -143,7 +238,7 @@ double getXLimit(double z)
 
 //     if (verbosityhere)
 //     {
-//         std::cout << "z = " << z << std::endl;
+//         std::cout << "Interpolating at z = " << z << ", y = " << y << std::endl;
 //     }
 
 //     // Search through all defined detector surfaces
@@ -162,139 +257,62 @@ double getXLimit(double z)
 //                 std::cout << "surface number " << &surface - &surfaces[0] << " with z_min = " << z_min << ", z_max = " << z_max << std::endl;
 //             }
 
-//             // Perform bilinear interpolation within the quadrilateral surface
-//             // First calculate interpolation parameters along two edges
-//             double t1 = (z - surface[0].z) / (surface[1].z - surface[0].z);
-//             double t2 = (z - surface[2].z) / (surface[3].z - surface[2].z);
+//             // Find min/max y-values for this surface
+//             double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+//             double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
 
-//             // Interpolate x,y along first edge (based on z-position)
-//             double x1 = surface[0].x + t1 * (surface[1].x - surface[0].x);
-//             double y1 = surface[0].y + t1 * (surface[1].y - surface[0].y);
+//             // For surface found with matching z, we'll now do bilinear interpolation considering both y and z
 
-//             // Interpolate x,y along second edge (based on z-position)
-//             double x2 = surface[2].x + t2 * (surface[3].x - surface[2].x);
-//             double y2 = surface[2].y + t2 * (surface[3].y - surface[2].y);
+//             // First compute normalized coordinates within the surface (0-1 range)
+//             double z_norm = (z - z_min) / (z_max - z_min);
 
-//             // Now interpolate between the two edge points
-//             double t = (z - surface[0].z) / (surface[2].z - surface[0].z);
-//             double x = x1 + t * (x2 - x1);
-//             double y = y1 + t * (y2 - y1);
+//             // Clamp y within the module's y range for interpolation
+//             double y_actual = std::max(y_min, std::min(y_max, y));
+//             double y_norm = (y_actual - y_min) / (y_max - y_min);
+
+//             // Check if we're using exact y or clamped value
+//             bool y_in_range = (y >= y_min && y <= y_max);
+
+//             if (!y_in_range && verbosityhere)
+//             {
+//                 std::cout << "Warning: y = " << y << " is outside module boundaries ["
+//                           << y_min << ", " << y_max << "]. Using clamped value: "
+//                           << y_actual << std::endl;
+//             }
+
+//             // Get the four corners of the surface for interpolation
+//             // We rearrange corners to have consistent indexing:
+//             // 0: min-y, min-z
+//             // 1: min-y, max-z
+//             // 2: max-y, min-z
+//             // 3: max-y, max-z
+
+//             // This handling depends on how your surfaces are defined
+//             // Assuming surface points are ordered consistently
+//             std::vector<Point> corners = surface;
+
+//             // Perform bilinear interpolation in y-z space
+//             // Interpolate x along the four edges based on y and z
+//             double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
+//                        (1 - y_norm) * z_norm * corners[1].x +
+//                        y_norm * (1 - z_norm) * corners[2].x +
+//                        y_norm * z_norm * corners[3].x;
 
 //             if (verbosityhere)
-//                 std::cout << "x = " << x << ", y = " << y << ", z = " << z << std::endl;
+//                 std::cout << "Interpolated x = " << x << " at y = " << y << ", z = " << z << std::endl;
 
 //             // Return interpolated position, converting back to meters
-//             return Point(x / 100, y / 100, z / 100);
+//             return Point(x / 100, y_actual / 100, z / 100);
 //         }
 //     }
 
 //     // Warning if z is outside the range of all defined surfaces
 //     if (verbosityhere)
-//         std::cout << "Warning: z = " << z / 100 << " is not covered by any surface" << std::endl;
+//         std::cout << "Warning: z = " << z << " is not covered by any surface" << std::endl;
 
 //     // Return default boundary if no matching surface is found
 //     return default_value;
 // }
-/**
- * Interpolate boundary position at a given z,y coordinate pair
- * For any z,y-position, finds the corresponding detector module surface
- * and calculates the intersection point by interpolation
- * @param z Z-position in meters (will be converted to mm internally)
- * @param y Y-position in meters (will be converted to mm internally)
- * @return Point object containing boundary coordinate in meters
- */
-Point interpolate(double z, double y = 0.0)
-{
-    // Convert input z and y from meters to millimeters (internal calculations use mm)
-    z *= 100;
-    y *= 100;
-    // use absolute value of y
-    y = abs(y);
-
-    // Default boundary value when z is outside defined surfaces range
-    // Uses the getXLimit function for x and fixed y-limit of 155mm
-    Point default_value(getXLimit(z) / 100, 155.0 / 100, z / 100);
-
-    // Debug flag (set to true to enable verbose output)
-    bool verbosityhere = 0;
-
-    if (verbosityhere)
-    {
-        std::cout << "Interpolating at z = " << z << ", y = " << y << std::endl;
-    }
-
-    // Search through all defined detector surfaces
-    for (const auto &surface : surfaces)
-    {
-        // Find min/max z-values for this surface
-        double z_min = std::min({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
-        double z_max = std::max({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
-
-        // Check if requested z is within this surface's z-range
-        if (z >= z_min && z <= z_max)
-        {
-            if (verbosityhere)
-            {
-                // Output surface index and range for debugging
-                std::cout << "surface number " << &surface - &surfaces[0] << " with z_min = " << z_min << ", z_max = " << z_max << std::endl;
-            }
-
-            // Find min/max y-values for this surface
-            double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
-            double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
-
-            // For surface found with matching z, we'll now do bilinear interpolation considering both y and z
-
-            // First compute normalized coordinates within the surface (0-1 range)
-            double z_norm = (z - z_min) / (z_max - z_min);
-
-            // Clamp y within the module's y range for interpolation
-            double y_actual = std::max(y_min, std::min(y_max, y));
-            double y_norm = (y_actual - y_min) / (y_max - y_min);
-
-            // Check if we're using exact y or clamped value
-            bool y_in_range = (y >= y_min && y <= y_max);
-
-            if (!y_in_range && verbosityhere)
-            {
-                std::cout << "Warning: y = " << y << " is outside module boundaries ["
-                          << y_min << ", " << y_max << "]. Using clamped value: "
-                          << y_actual << std::endl;
-            }
-
-            // Get the four corners of the surface for interpolation
-            // We rearrange corners to have consistent indexing:
-            // 0: min-y, min-z
-            // 1: min-y, max-z
-            // 2: max-y, min-z
-            // 3: max-y, max-z
-
-            // This handling depends on how your surfaces are defined
-            // Assuming surface points are ordered consistently
-            std::vector<Point> corners = surface;
-
-            // Perform bilinear interpolation in y-z space
-            // Interpolate x along the four edges based on y and z
-            double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
-                       (1 - y_norm) * z_norm * corners[1].x +
-                       y_norm * (1 - z_norm) * corners[2].x +
-                       y_norm * z_norm * corners[3].x;
-
-            if (verbosityhere)
-                std::cout << "Interpolated x = " << x << " at y = " << y << ", z = " << z << std::endl;
-
-            // Return interpolated position, converting back to meters
-            return Point(x / 100, y_actual / 100, z / 100);
-        }
-    }
-
-    // Warning if z is outside the range of all defined surfaces
-    if (verbosityhere)
-        std::cout << "Warning: z = " << z << " is not covered by any surface" << std::endl;
-
-    // Return default boundary if no matching surface is found
-    return default_value;
-}
 
 
 /**
