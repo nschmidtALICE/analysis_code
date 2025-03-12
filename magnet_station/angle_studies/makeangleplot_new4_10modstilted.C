@@ -258,7 +258,7 @@ TVector3 getBarXYZ(int bar, int layer, int module, int segment, int station)
 }
 
 // void makeangleplot_new3_moreModules(TString inputfile = "/home/niviths/Downloads/minimumBias_MS_MagDown_1006.root") //tilt
-void makeangleplot_new4_10modstilted(TString inputfile = "/home/niviths/Downloads/magnetStationSims/minimumBias_MS_MagDown_2000plus.root") // tilt
+void makeangleplot_new4_10modstilted(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250227_pp_LayerNumbersFixed/20250227_pp_LayerNumbersFixed.root") // tilt
 // void makeangleplot_new2(TString inputfile = "/home/niviths/Downloads/magnetStationSims/minimumBias_MS_MagDown_600plus.root") //vertical
 {
     TFile fin(inputfile, "READ");
@@ -478,14 +478,17 @@ void makeangleplot_new4_10modstilted(TString inputfile = "/home/niviths/Download
                 // 5 bit = 31
                 // 4 bit = 15
                 // 3 bit = 7
+                // <id>system:8,station:3,module:4,layer:3,segment:4,bar:6,isfiber:2,issupp:2</id>
 
                 int station = (ms_bitID[j] >> 8) & 0x7;  // 3 bit
                 int module = (ms_bitID[j] >> 11) & 0xF;  // 4 bit
                 int layer = (ms_bitID[j] >> 15) & 0x7;   // 3 bit
                 int segment = (ms_bitID[j] >> 18) & 0xF; // 4 bit
-                int bar = (ms_bitID[j] >> 22) & 0xFF;    // 8 bit
-                int isfiber = (ms_bitID[j] >> 30) & 0x3; // 2 bit
+                int bar = (ms_bitID[j] >> 22) & 0x3F;     // 6 bits (was incorrectly using 0xFF for 8 bits)
+                int isfiber = (ms_bitID[j] >> 28) & 0x3;  // 2 bits (was incorrectly shifted by 30)
+                int issupp = (ms_bitID[j] >> 30) & 0x3;   // 2 bits (this was missing)
                 // if(station!=0) continue;
+                // cout << __LINE__ << endl;
                 if (bar > maxbar)
                     maxbar = bar;
                 // cout << "\t\tStation: " << station << " Module: " << module << " Layer: " << layer << " Segment: " << segment << " Bar: " << bar << " Energy: " << ms_energy[j] << endl;
@@ -498,7 +501,7 @@ void makeangleplot_new4_10modstilted(TString inputfile = "/home/niviths/Download
                     nHitsMS_nofirstMod++;
                 }
                 nHitsPartSum += 1;
-                hNPartPerBar->Fill(ms_npart[j]);
+                // hNPartPerBar->Fill(ms_npart[j]);
                 hitInLayer[layer] = 1;
                 if (abs(pid[i]) == 211)
                     timeInLayer[layer] = ms_time[j];

@@ -11,8 +11,17 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <TTreeReader.h>
+#include <TTreeReaderArray.h>
+#include <TString.h>
+#include <TLegend.h>
+#include <TMath.h>
+#include <TProfile.h>
+#include <TProfile2D.h>
+#include <TGraph.h>
+#include <TStyle.h>
 
-void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/magnetStationSims/minimumBias_MS_MagDown_3200plus.root") // tilt
+void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250214_backup_all/minimumBias_MS_MagDown_3120plus.root") // tilt
 // void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/magnetStationSims/minimumBias_MS_MagDown_3120plus.root") // tilt
 {
     TFile fin(inputfile, "READ");
@@ -20,6 +29,10 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
     double modSpacing = 300 * TMath::Cos(0.42);
     double minZ = 3500 + 2 * 500 + 300;
     double maxZ = 7700;
+
+    //make output directory
+    system("mkdir -p SciFi_impact_plots/");
+    TString outputdir = "SciFi_impact_plots/";
 
     // get ms_px, ms_py, ms_pz and ms_vx, ms_vy, ms_vz, as well as p and ms_time from the tree
     TTreeReaderArray<float> ms_px(tree, "ms_px");
@@ -190,7 +203,7 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
     hAccPartHitMSAndFT->GetXaxis()->SetTitle("1/pT [1/GeV]");
     hAccPartHitMSAndFT->GetYaxis()->SetTitle("#eta");
     hAccPartHitMSAndFT->Draw("colz");
-    c8->SaveAs("hAccPartHitMSAndFT.pdf");
+    c8->SaveAs(Form("%shAccPartHitMSAndFT.pdf", outputdir.Data()));
 
 
     fin.Close();

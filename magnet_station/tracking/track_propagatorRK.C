@@ -43,6 +43,7 @@
 #include "TBox.h"           // For drawing boundaries
 #include "TLine.h"          // For drawing lines
 #include "TLegend.h"        // For plot legends
+#include "TRandom3.h"       // Random number generator
 
 #include "FieldLoaderAndPlotter.cpp" // Load magnetic field and visualize it
 /**
@@ -84,25 +85,47 @@ public:
 //     {{235.737, 113.079, 699.891}, {250.609, 4.31444, 692.889}, {237.98, 1.95231, 702.756}, {223.108, 110.717, 709.758}},
 //     // Station 9
 //     {{247.839, 118.023, 736.851}, {263.388, 4.31444, 729.531}, {250.758, 1.95231, 739.398}, {235.21, 115.661, 746.718}}};
+// std::vector<std::vector<Point>> surfaces = {
+//     // Module 0
+//     {{152.195, 106.556, 500.266}, {165.039, 12.6226, 494.219}, {144.656, 8.44414, 515.83}, {131.811, 102.377, 521.877}},
+//     // Module 1
+//     {{164.973, 106.556, 527.408}, {177.817, 12.6226, 521.362}, {157.434, 8.44414, 542.973}, {144.589, 102.377, 549.02}},
+//     // Module 2
+//     {{178.279, 106.594, 555.082}, {191.123, 12.6606, 549.035}, {169.684, 8.40616, 569.584}, {156.84, 102.339, 575.631}},
+//     // Module 3
+//     {{189.705, 116.482, 582.861}, {203.902, 12.6606, 576.178}, {182.462, 8.40616, 596.727}, {168.266, 112.227, 603.41}},
+//     // Module 4
+//     {{202.483, 116.482, 610.004}, {216.68, 12.6606, 603.321}, {195.24, 8.40616, 623.869}, {181.044, 112.227, 630.553}},
+//     // Module 5
+//     {{215.763, 116.514, 637.703}, {229.959, 12.6933, 631.02}, {207.518, 8.37349, 650.455}, {193.321, 112.194, 657.138}},
+//     // Module 6
+//     {{227.865, 121.458, 665.164}, {242.737, 12.6933, 658.163}, {220.296, 8.37349, 677.597}, {205.423, 117.138, 684.599}},
+//     // Module 7
+//     {{241.116, 121.485, 692.888}, {255.989, 12.7205, 685.886}, {232.601, 8.34622, 704.159}, {217.728, 117.111, 711.16}},
+//     // Module 8
+//     {{253.218, 126.429, 720.349}, {268.767, 12.7205, 713.029}, {245.379, 8.34622, 731.301}, {229.831, 122.055, 738.621}}};
+
 std::vector<std::vector<Point>> surfaces = {
     // Module 0
-    {{152.195, 106.556, 500.266}, {165.039, 12.6226, 494.219}, {144.656, 8.44414, 515.83}, {131.811, 102.377, 521.877}},
+    {{167.424, 106.651, 500.98}, {181.406, 12.9415, 494.053}, {161.518, 8.34878, 516.038}, {147.536, 102.059, 522.966}},
     // Module 1
-    {{164.973, 106.556, 527.408}, {177.817, 12.6226, 521.362}, {157.434, 8.44414, 542.973}, {144.589, 102.377, 549.02}},
+    {{180.742, 106.651, 527.862}, {194.724, 12.9415, 520.934}, {174.836, 8.34878, 542.92}, {160.854, 102.059, 549.847}},
     // Module 2
-    {{178.279, 106.594, 555.082}, {191.123, 12.6606, 549.035}, {169.684, 8.40616, 569.584}, {156.84, 102.339, 575.631}},
+    {{194.599, 106.693, 555.264}, {208.581, 12.9832, 548.337}, {187.617, 8.30703, 569.281}, {173.635, 102.017, 576.208}},
     // Module 3
-    {{189.705, 116.482, 582.861}, {203.902, 12.6606, 576.178}, {182.462, 8.40616, 596.727}, {168.266, 112.227, 603.41}},
+    {{206.445, 116.557, 582.875}, {221.899, 12.9832, 575.218}, {200.935, 8.30703, 596.162}, {185.481, 111.881, 603.819}},
     // Module 4
-    {{202.483, 116.482, 610.004}, {216.68, 12.6606, 603.321}, {195.24, 8.40616, 623.869}, {181.044, 112.227, 630.553}},
+    {{219.764, 116.557, 609.757}, {235.218, 12.9832, 602.1}, {214.253, 8.30703, 623.044}, {198.8, 111.881, 630.7}},
     // Module 5
-    {{215.763, 116.514, 637.703}, {229.959, 12.6933, 631.02}, {207.518, 8.37349, 650.455}, {193.321, 112.194, 657.138}},
+    {{233.594, 116.593, 637.185}, {249.048, 13.0191, 629.529}, {227.06, 8.27113, 649.378}, {211.606, 111.845, 657.035}},
     // Module 6
-    {{227.865, 121.458, 665.164}, {242.737, 12.6933, 658.163}, {220.296, 8.37349, 677.597}, {205.423, 117.138, 684.599}},
+    {{246.176, 121.525, 664.431}, {262.366, 13.0191, 656.41}, {240.379, 8.27113, 676.26}, {224.189, 116.777, 684.281}},
     // Module 7
-    {{241.116, 121.485, 692.888}, {255.989, 12.7205, 685.886}, {232.601, 8.34622, 704.159}, {217.728, 117.111, 711.16}},
+    {{259.979, 121.555, 691.885}, {276.169, 13.0491, 683.864}, {253.213, 8.24116, 702.569}, {237.023, 116.747, 710.591}},
     // Module 8
-    {{253.218, 126.429, 720.349}, {268.767, 12.7205, 713.029}, {245.379, 8.34622, 731.301}, {229.831, 122.055, 738.621}}};
+    {{272.562, 126.487, 719.131}, {289.487, 13.0491, 710.745}, {266.531, 8.24116, 729.451}, {249.606, 121.679, 737.837}}
+};
+
 /**
  * Calculate aperture half-width at a given z position
  * This function implements a z-dependent aperture that gets wider
@@ -397,6 +420,7 @@ struct State
 {
     TVector3 position; // Position vector in meters
     TVector3 momentum; // Momentum vector in GeV/c
+    double time;       // Time value in nanoseconds
 };
 
 /**
@@ -598,31 +622,36 @@ public:
      */
     std::vector<State> propagate(const TVector3 &initial_position,
                                  const TVector3 &initial_momentum,
+                                 const double initial_time,
                                  double max_length = 8.0,
                                  int max_steps = 10000)
     {
         // Create trajectory vector and add initial state
         std::vector<State> trajectory;
-        trajectory.push_back({initial_position, initial_momentum});
+        trajectory.push_back({initial_position, initial_momentum, initial_time});
+
 
         // Set current position and momentum to initial values
         TVector3 position = initial_position;
         TVector3 momentum = initial_momentum;
 
         // Debug output can be enabled by uncommenting these lines
-        // std::cout << "propagate::Initial Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
-        // std::cout << "propagate::Initial Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << std::endl;
-
+        if (false)
+        {
+            std::cout << "propagate::Initial Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << " and time " << initial_time << std::endl;
+            // std::cout << "propagate::Initial Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << std::endl;
+        }
         // Track total path length and boundary hit status
         double total_length = 0.0;
         bool hit_boundary = false;
+        double additional_time = 0.0;
 
         // Main propagation loop
         for (int step = 0; step < max_steps && !hit_boundary; step++)
         {
             // Perform one RK4 integration step
             RungeKutta4Step(position, momentum, step_size);
-
+            additional_time += step_size;
             // Get boundary limits at current z-position (allows for varying aperture)
             // std::cout << "current position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
             Point interpolatedBoundary = interpolate(position.Z(), position.Y());
@@ -645,7 +674,7 @@ public:
             }
 
             // Add current state to trajectory
-            trajectory.push_back({position, momentum});
+            trajectory.push_back({position, momentum, initial_time + additional_time});
 
             // // Calculate incremental path length
             // if (trajectory.size() > 1)
@@ -669,8 +698,10 @@ public:
         // Debug output for final state (disabled by default)
         if (false)
         {
-            std::cout << "propagate::Final Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << std::endl;
+            if(position.Z()<7.7){
+            std::cout << "propagate::Final Position: " << position.X() << ", " << position.Y() << ", " << position.Z() << " and time " << initial_time + additional_time << std::endl;
             // std::cout << "propagate::Final Momentum: " << momentum.X() << ", " << momentum.Y() << ", " << momentum.Z() << std::endl;
+            }
         }
 
         return trajectory;
@@ -687,6 +718,7 @@ public:
      */
     std::vector<State> propagate(const TVector3 &initial_position,
                                  const TLorentzVector &four_momentum,
+                                 const double initial_time,
                                  double max_length = 10.0,
                                  int max_steps = 10000)
     {
@@ -697,7 +729,7 @@ public:
         mass = four_momentum.M();
 
         // Call the main propagate method with extracted 3-momentum
-        return propagate(initial_position, momentum, max_length, max_steps);
+        return propagate(initial_position, momentum, initial_time, max_length, max_steps);
     }
 };
 
@@ -798,8 +830,10 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
         // Set momentum direction (mainly along z-axis with small x component)
         double angle = 0.0; // No angle variation in this example
         // Alternative: double angle = (i * 45.0 / nParticles) * (M_PI / 180.0);
-        double px = 0.1 * momentum_magnitude * sin(angle); // Small x component (10% of total)
-        double py = 0.0;                                   // No y component
+        double px = 0.0;
+        // double px = 0.1 * momentum_magnitude * sin(angle); // Small x component (10% of total)
+        // also add a small y component, or we wont hit the modules
+        double py = 0.1 * momentum_magnitude * cos(angle); // Small y component (10% of total)
         double pz = momentum_magnitude * cos(angle);       // Main momentum along z
 
         // Set initial position at origin (no variation in this example)
@@ -810,6 +844,9 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
         // double y_offset = ((i / 3) % 3) * 0.05 - 0.05;
 
         TVector3 initial_position(x_offset, y_offset, 0.0);
+
+        // determine a random start time for the particle in ns
+        double initial_time = gRandom->Uniform(0, 10);
 
         // Calculate total energy from momentum and mass: E² = p²c² + m²c⁴
         double total_energy = sqrt(px * px + py * py + pz * pz + mass * mass);
@@ -834,7 +871,7 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
 
         // Propagate particle through the magnetic field (max length 8m, up to 50k steps)
         std::vector<State> trajectory = propagator.propagate(
-            initial_position, four_momentum, 8.0, 50000);
+            initial_position, four_momentum, initial_time, 8.0, 50000);
 
         // Create graphs for visualizing this particle's trajectory
         TGraph *graph_xy = new TGraph(trajectory.size()); // XY projection

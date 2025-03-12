@@ -12,7 +12,7 @@
  * 2. Configures magnetic field maps for accurate particle propagation
  * 3. Propagates particles through the field using Runge-Kutta integration
  * 4. Identifies detector hits corresponding to propagated particles
- * 5. Groups hits across detector layers into potential track candidates
+ * 5. Tracklets hits across detector layers into potential track candidates
  * 6. Matches hit patterns against physically valid segment combinations
  * 7. Performs linear track fitting with iterative outlier removal
  * 8. Evaluates reconstruction quality by comparing to truth information
@@ -149,7 +149,9 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     bool verboseoutput = false; // Set to true for detailed debugging output
 
     // Input simulation file
-    const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250305_pp_addedUTinfo/20250305_pp_addedUTinfo.root";
+    // const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250305_pp_addedUTinfo/20250305_pp_addedUTinfo.root";
+    const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_PbPb_addUTinfo/20250311_PbPb_addUTinfo.root";
+    // const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_pp_newOutput/20250311_pp_newOutput.root";
     TFile fin(inputFile);
     TTree *ntup = (TTree *)fin.Get("ntup");
     std::cout << "Input file contains " << ntup->GetEntries() << " entries" << std::endl;
@@ -172,6 +174,14 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     // Create output directory for plots
     TString outputdir = "extrapolation_plots/";
     system("mkdir -p " + outputdir);
+
+    // Set matching windows for hit pattern analysis
+    const double matchingWindow = 1000;      // Matching window size in mm
+    const int maxBarDifference = 50;         // Maximum allowed bar difference
+    const int maxSegmentDifferencePlus = 2;  // Maximum allowed segment difference
+    const int maxSegmentDifferenceMinus = 1; // Maximum allowed segment difference
+    const int maxTimeDifference = 5;         // Maximum allowed time difference [ns]
+    const double maxAngleDifference = 0.3;   // Maximum allowed angle difference [rad]
 
     //----------------------------------------------------------------------
     // Set up tree reader and branches for input data
@@ -201,13 +211,14 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     TTreeReaderArray<int> ms_bitID(tree, "ms_segment"); // MS hit segment identifier
 
     // Upstream Tracker (UT) hit information
-    TTreeReaderArray<float> ut_vx(tree, "ut_vx");   // UT hit x-coordinate (mm)
-    TTreeReaderArray<float> ut_vy(tree, "ut_vy");   // UT hit y-coordinate (mm)
-    TTreeReaderArray<float> ut_vz(tree, "ut_vz");   // UT hit z-coordinate (mm)
-    TTreeReaderArray<float> ut_px(tree, "ut_px");   // UT momentum x-component (MeV/c)
-    TTreeReaderArray<float> ut_py(tree, "ut_py");   // UT momentum y-component (MeV/c)
-    TTreeReaderArray<float> ut_pz(tree, "ut_pz");   // UT momentum z-component (MeV/c)
-    TTreeReaderArray<int> nUThits(tree, "nUThits"); // Number of UT hits per track
+    TTreeReaderArray<float> ut_vx(tree, "ut_vx");     // UT hit x-coordinate (mm)
+    TTreeReaderArray<float> ut_vy(tree, "ut_vy");     // UT hit y-coordinate (mm)
+    TTreeReaderArray<float> ut_vz(tree, "ut_vz");     // UT hit z-coordinate (mm)
+    TTreeReaderArray<float> ut_px(tree, "ut_px");     // UT momentum x-component (MeV/c)
+    TTreeReaderArray<float> ut_py(tree, "ut_py");     // UT momentum y-component (MeV/c)
+    TTreeReaderArray<float> ut_pz(tree, "ut_pz");     // UT momentum z-component (MeV/c)
+    TTreeReaderArray<float> ut_time(tree, "ut_time"); // UT hit time (ns)
+    TTreeReaderArray<int> nUThits(tree, "nUThits");   // Number of UT hits per track
 
     //----------------------------------------------------------------------
     // Track fitting and visualization containers
@@ -243,20 +254,55 @@ int track_ambiguity_finder_optimized(bool doTree = false)
             21, -10.5, 10.5);
     }
 
-    // Track angle and group analysis
+    // Track angle and tracklet analysis
     TH2D *hAngleDiffModules = new TH2D(
         "hAngleDiffModules",
-        "Angle difference between tracklet and track",
-        9, 0.5, 9.5, 100, -0.01, 0.2);
+        "Angle difference between MS tracklet and true hit direction",
+        9, 0.5, 9.5, 100, -0.01, 0.4);
 
-    TH1D *hNGroups = new TH1D(
-        "hNGroups",
-        "Number of groups",
+    TH2D *hAngleDiffFinalModules = new TH2D(
+        "hAngleDiffFinalModules",
+        "Angle difference between MS tracklet and extrapolated track",
+        9, 0.5, 9.5, 100, -0.01, 0.4);
+
+    TH1D *hNTracklets = new TH1D(
+        "hNTracklets",
+        "Number of tracklets",
         10, -0.50, 9.5);
 
-    TH1D *hNGroupsSlope = new TH1D(
-        "hNGroupsSlope",
-        "Number of groups with tracklet fit",
+    TH1D *hNTrackletsTrue = new TH1D(
+        "hNTrackletsTrue",
+        "Number of tracklets with truth",
+        10, -0.50, 9.5);
+
+    TH1D *hNTrackletsSlope = new TH1D(
+        "hNTrackletsSlope",
+        Form("Number of tracklets with tracklet fit (d#Phi < %1.1f rad)", maxAngleDifference),
+        10, -0.50, 9.5);
+    
+    TH1D *hNTrackletsSlopeTrue = new TH1D(
+        "hNTrackletsSlopeTrue",
+        Form("Number of tracklets with tracklet fit (d#Phi < %1.1f rad) and truth hits", maxAngleDifference),
+        10, -0.50, 9.5);
+
+    TH1D *hNTrackletsTime = new TH1D(
+        "hNTrackletsTime",
+        "Number of tracklets with time cut",
+        10, -0.50, 9.5);
+
+    TH1D *hNTrackletsTimeTrue = new TH1D(
+        "hNTrackletsTimeTrue",
+        "Number of tracklets with time cut and truth hits",
+        10, -0.50, 9.5);
+
+    TH1D *hNTrackletsSlopeAndTimeCut = new TH1D(
+        "hNTrackletsSlopeAndTimeCut",
+        Form("Number of tracklets with tracklet fit (d#Phi < %1.1f rad) and time cut", maxAngleDifference),
+        10, -0.50, 9.5);
+
+    TH1D *hNTrackletsSlopeAndTimeCutTrue = new TH1D(
+        "hNTrackletsSlopeAndTimeCutTrue",
+        Form("Number of tracklets with tracklet fit (d#Phi < %1.1f rad) and time cut and truth hits", maxAngleDifference),
         10, -0.50, 9.5);
 
     // Track matching quality analysis
@@ -264,7 +310,7 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     TH2D *hMatchdYdZ = new TH2D(
         "hMatchdYdZ",
         "Matched dYdZ",
-        100, -matchWindow, matchWindow,
+        100, -matchWindow/5, matchWindow/5,
         100, -matchWindow, matchWindow);
 
     TH2D *hMatchdXdZ = new TH2D(
@@ -281,11 +327,39 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     TH1D *hMatchdY = new TH1D(
         "hMatchdY",
         "Matched dY",
-        100, -matchWindow, matchWindow);
+        100, -matchWindow/5, matchWindow/5);
 
     TH1D *hMatchdZ = new TH1D(
         "hMatchdZ",
         "Matched dZ",
+        100, -matchWindow, matchWindow);
+
+    // make the same histograms as the five above for after application of cuts
+    TH2D *hMatchdYdZCut = new TH2D(
+        "hMatchdYdZCut",
+        "Matched dYdZ after cuts",
+        100, -matchWindow/5, matchWindow/5,
+        100, -matchWindow, matchWindow);
+
+    TH2D *hMatchdXdZCut = new TH2D(
+        "hMatchdXdZCut",
+        "Matched dXdZ after cuts",
+        100, -matchWindow, matchWindow,
+        100, -matchWindow, matchWindow);
+
+    TH1D *hMatchdXCut = new TH1D(
+        "hMatchdXCut",
+        "Matched dX after cuts",
+        100, -matchWindow, matchWindow);
+
+    TH1D *hMatchdYCut = new TH1D(
+        "hMatchdYCut",
+        "Matched dY after cuts",
+        100, -matchWindow/5, matchWindow/5);
+
+    TH1D *hMatchdZCut = new TH1D(
+        "hMatchdZCut",
+        "Matched dZ after cuts",
         100, -matchWindow, matchWindow);
 
     // Track position analysis
@@ -308,6 +382,15 @@ int track_ambiguity_finder_optimized(bool doTree = false)
         "hExtrapolatedYZ",
         "Extrapolated YZ",
         100, -3000, 3000, 100, 4500, 8500);
+
+    TH1D *hExtrapolatedTimeVsTrue = new TH1D(
+        "hExtrapolatedTimeVsTrue",
+        "Extrapolated time minus true time",
+        200, -5, 5);
+    TH1D *hExtrapolatedTimeVsTracklet = new TH1D(
+        "hExtrapolatedTimeVsTracklet",
+        "Extrapolated time minus tracklet time",
+        200, -5, 5);
 
     // Momentum smearing analysis
     double maxDiffExtrapolation = 2000; // Maximum extrapolation difference in mm
@@ -358,255 +441,295 @@ int track_ambiguity_finder_optimized(bool doTree = false)
         treeOut->Branch("charge", &tr_charge_value, "charge/D");
         treeOut->Branch("hit_boundary", &tr_hit_boundary, "hit_boundary/O");
     }
-//----------------------------------------------------------------------
-// Event loop - process each event in the input tree
-//----------------------------------------------------------------------
-int numEvt = 0; // Event counter
-
-// Pre-allocate memory for hit collections to avoid frequent reallocations
-clusterizedHits_bitID.reserve(1000);  
-clusterizedHits_time.reserve(1000);
-clusterizedHits_id.reserve(1000);
-
-// Prepare hit mapping to speed up searches
-std::unordered_map<int, std::vector<size_t>> keyToHitIndices;
-std::vector<size_t> candidateHitIndices;
-candidateHitIndices.reserve(500);
-
-while (tree.Next()) {
-    // Limit the number of events processed for faster development/testing
-    if (numEvt > 500)
-        break;
-
-    std::cout << "Event " << numEvt << " with " << pid.GetSize() << " particles" << std::endl;
-    numEvt++;
-
-    // Build a mapping of particle keys to hit indices once per event
-    keyToHitIndices.clear();
-    for (size_t j = 0; j < ms_vz.GetSize(); ++j) {
-        // Only include hits in valid z-range and not in support structure
-        if ((ms_vz[j] >= 3000 && ms_vz[j] <= 7700) && 
-            !((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3))) {
-            keyToHitIndices[ms_id[j]].push_back(j);
-        }
-    }
-
     //----------------------------------------------------------------------
-    // Process each particle in the event
+    // Event loop - process each event in the input tree
     //----------------------------------------------------------------------
-    for (size_t i = 0; i < pid.GetSize(); ++i) {
-        // Clear hit collections for this particle
-        clusterizedHits_bitID.clear();
-        clusterizedHits_time.clear();
-        clusterizedHits_id.clear();
+    int numEvt = 0; // Event counter
 
-        // Apply selection criteria - do quick rejection tests first
-        if (nUThits[i] < 3 || p[i] > 5000) {
-            continue; // Skip particles with too few tracker hits or too high momentum
-        }
+    // Pre-allocate memory for hit collections to avoid frequent reallocations
+    clusterizedHits_bitID.reserve(10000);
+    clusterizedHits_time.reserve(10000);
+    clusterizedHits_id.reserve(10000);
 
-        // Skip if particle has no associated hits (fast early rejection)
-        if (keyToHitIndices.find(key[i]) == keyToHitIndices.end()) {
-            continue;
-        }
+    // Prepare hit mapping to speed up searches
+    std::unordered_map<int, std::vector<size_t>> keyToHitIndices;
+    std::vector<size_t> candidateHitIndices;
+    candidateHitIndices.reserve(5000);
 
-        //----------------------------------------------------------------------
-        // Set up particle properties for propagation - avoid recalculating constants
-        //----------------------------------------------------------------------
-        // Calculate charge based on particle type
-        const double particle_charge = (pid[i] == 11 || pid[i] == 13) ? 
-                                      -pid[i] / fabs(pid[i]) : pid[i] / fabs(pid[i]);
-        
-        // Use pion mass as default
-        const double particle_mass = 0.13957039; // Charged pion mass in GeV/c²
 
-        // Configure propagator with particle properties
-        propagator.setParticleProperties(particle_charge, particle_mass);
+    while (tree.Next())
+    {
+        // Limit the number of events processed for faster development/testing
+        if (numEvt > 10)
+            break;
 
-        //----------------------------------------------------------------------
-        // Prepare initial state for propagation
-        //----------------------------------------------------------------------
-        // Initial position from upstream tracker (convert mm to m)
-        const TVector3 initial_position(ut_vx[i] / 1000, ut_vy[i] / 1000, ut_vz[i] / 1000);
+        std::cout << "Event " << numEvt << " with " << pid.GetSize() << " particles" << std::endl;
+        numEvt++;
 
-        // Create momentum vector using direction and magnitude
-        TVector3 direction(ut_px[i], ut_py[i], ut_pz[i]);
-        direction = direction.Unit();
-
-        // Calculate total energy from momentum and mass (convert MeV to GeV)
-        const double momentum_magnitude = p[i] / 1000.0; // Convert MeV/c to GeV/c
-        const double total_energy = sqrt(momentum_magnitude * momentum_magnitude +
-                                   particle_mass * particle_mass);
-
-        // Create momentum vector (convert MeV/c to GeV/c)
-        const TVector3 momentum = direction * momentum_magnitude;
-
-        // Create four-momentum vectors for all three cases at once
-        TLorentzVector four_momentum(momentum.X(), momentum.Y(), momentum.Z(), total_energy);
-        
-        // Only create momentum variations if needed by propagation
-        const double momentum_variation = 0.1;
-        const double momentum_variation_value = momentum_variation * momentum_magnitude;
-        const TVector3 momentum_variation_vector = direction * momentum_variation_value;
-
-        //----------------------------------------------------------------------
-        // Propagate particle through magnetic field - run in parallel if possible
-        //----------------------------------------------------------------------
-        std::vector<State> trajectory = propagator.propagate(
-            initial_position, four_momentum, 8.0, 50000);
-            
-        // Skip particles that don't make it through propagation
-        if (trajectory.size() < 2) continue;
-
-        // Create variations for momentum uncertainty studies (±10%)
-        const TVector3 momentum_plus = momentum + momentum_variation_vector;
-        const TVector3 momentum_minus = momentum - momentum_variation_vector;
-        
-        TLorentzVector four_momentum_plus(
-            momentum_plus.X(), momentum_plus.Y(), momentum_plus.Z(), total_energy);
-        TLorentzVector four_momentum_minus(
-            momentum_minus.X(), momentum_minus.Y(), momentum_minus.Z(), total_energy);
-        
-        std::vector<State> trajectory_plus = propagator.propagate(
-            initial_position, four_momentum_plus, 8.0, 50000);
-        std::vector<State> trajectory_minus = propagator.propagate(
-            initial_position, four_momentum_minus, 8.0, 50000);
-
-        // Skip if any trajectory calculation failed
-        if (trajectory_plus.size() < 2 || trajectory_minus.size() < 2) continue;
-
-        //----------------------------------------------------------------------
-        // Record trajectory points in output tree if enabled - moved inside particle loop
-        //----------------------------------------------------------------------
-        if (doTree) {
-            tr_particle_id = i;
-            tr_hit_boundary = false;
-            tr_mass_value = particle_mass;
-            tr_charge_value = particle_charge;
-
-            for (size_t j = 0; j < trajectory.size(); j++) {
-                // Extract position and momentum from trajectory point
-                tr_x = trajectory[j].position.X();
-                tr_y = trajectory[j].position.Y();
-                tr_z = trajectory[j].position.Z();
-                tr_px_out = trajectory[j].momentum.X();
-                tr_py_out = trajectory[j].momentum.Y();
-                tr_pz_out = trajectory[j].momentum.Z();
-
-                // Calculate total energy: E² = p²c² + m²c⁴ - cache expensive operations
-                const double mom_sqr = tr_px_out * tr_px_out + tr_py_out * tr_py_out + tr_pz_out * tr_pz_out;
-                tr_energy = sqrt(mom_sqr + particle_mass * particle_mass);
-                tr_step_num = j;
-
-                // Fill tree with this trajectory point
-                treeOut->Fill();
+        // Build a mapping of particle keys to hit indices once per event
+        keyToHitIndices.clear();
+        for (size_t j = 0; j < ms_vz.GetSize(); ++j)
+        {
+            // Only include hits in valid z-range and not in support structure
+            if ((ms_vz[j] >= 3000 && ms_vz[j] <= 7700) &&
+                !((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3)))
+            {
+                keyToHitIndices[ms_id[j]].push_back(j);
             }
         }
 
         //----------------------------------------------------------------------
-        // Calculate final track parameters - more efficiently compute positions
+        // Process each particle in the event
         //----------------------------------------------------------------------
-        // Extract final position and direction from trajectory (convert m to mm)
-        const size_t last_idx = trajectory.size() - 1;
-        const size_t second_last_idx = last_idx - 1;
-        
-        const TVector3 final_position(
-            trajectory[last_idx].position.X() * 1000,
-            trajectory[last_idx].position.Y() * 1000,
-            trajectory[last_idx].position.Z() * 1000);
+        for (size_t i = 0; i < pid.GetSize(); ++i)
+        {
+            // Clear hit collections for this particle
+            clusterizedHits_bitID.clear();
+            clusterizedHits_time.clear();
+            clusterizedHits_id.clear();
 
-        // Calculate track direction from last two points
-        const double x1 = trajectory[second_last_idx].position.X() * 1000;
-        const double y1 = trajectory[second_last_idx].position.Y() * 1000;
-        const double z1 = trajectory[second_last_idx].position.Z() * 1000;
-        const double x2 = trajectory[last_idx].position.X() * 1000;
-        const double y2 = trajectory[last_idx].position.Y() * 1000;
-        const double z2 = trajectory[last_idx].position.Z() * 1000;
-        const TVector3 final_direction(x2 - x1, y2 - y1, z2 - z1);
-        
-        // Extract final positions for momentum variations
-        const TVector3 final_position_plus(
-            trajectory_plus[trajectory_plus.size()-1].position.X() * 1000,
-            trajectory_plus[trajectory_plus.size()-1].position.Y() * 1000,
-            trajectory_plus[trajectory_plus.size()-1].position.Z() * 1000);
-
-        const TVector3 final_position_minus(
-            trajectory_minus[trajectory_minus.size()-1].position.X() * 1000,
-            trajectory_minus[trajectory_minus.size()-1].position.Y() * 1000,
-            trajectory_minus[trajectory_minus.size()-1].position.Z() * 1000);
-
-        //----------------------------------------------------------------------
-        // Match propagated track to detector hit - use precomputed hit mapping
-        //----------------------------------------------------------------------
-        // Initialize hit matching variables
-        int segment_match = -1;          // Segment index of matched hit
-        int bar_match = -1;              // Bar index of matched hit
-        Point point_match(0, 0, 0);      // Position of matched hit
-        float time_match = 0;            // Time of matched hit
-        int bitID_match = 0;             // BitID of matched hit
-        TVector3 mom_vec_match(0, 0, 0); // Momentum vector at matched hit
-
-        // Find the earliest hit in MS with matching particle key using our mapping
-        const auto& particleHits = keyToHitIndices[key[i]];
-        for (size_t idx : particleHits) {
-            // We already filtered for z-range and support structure when building the map
-            // Create position object for this hit
-            Point ms_pos(ms_vx[idx], ms_vy[idx], ms_vz[idx]);
-
-            // If this is first match or earlier than previous match
-            if (segment_match == -1 || ms_time[idx] < time_match) {
-                segment_match = ms_bitID[idx] >> 18 & 0xF;
-                bar_match = ms_bitID[idx] >> 22 & 0x3F;
-                point_match = ms_pos;
-                time_match = ms_time[idx];
-                bitID_match = ms_bitID[idx];
-                mom_vec_match = TVector3(ms_px[idx], 0, ms_pz[idx]);
-                mom_vec_match = mom_vec_match.Unit();
+            // Apply selection criteria - do quick rejection tests first
+            if (nUThits[i] < 3 || p[i] > 5000)
+            {
+                continue; // Skip particles with too few tracker hits or too high momentum
             }
-        }
 
-        // Record all hits for clustering analysis - use a hash set for faster lookup
-        std::unordered_set<int> bitID_set;
-        for (size_t j = 0; j < ms_vz.GetSize(); ++j) {
-            // Apply z-range cut for MS hits
-            if (ms_vz[j] < 3000 || ms_vz[j] > 7700)
+            // Skip if particle has no associated hits (fast early rejection)
+            if (keyToHitIndices.find(key[i]) == keyToHitIndices.end())
+            {
+                continue;
+            }
+
+            //----------------------------------------------------------------------
+            // Set up particle properties for propagation - avoid recalculating constants
+            //----------------------------------------------------------------------
+            // Calculate charge based on particle type
+            const double particle_charge = (pid[i] == 11 || pid[i] == 13) ? -pid[i] / fabs(pid[i]) : pid[i] / fabs(pid[i]);
+
+            // Use pion mass as default
+            const double particle_mass = 0.13957039; // Charged pion mass in GeV/c²
+
+            // Configure propagator with particle properties
+            propagator.setParticleProperties(particle_charge, particle_mass);
+
+            //----------------------------------------------------------------------
+            // Prepare initial state for propagation
+            //----------------------------------------------------------------------
+            // Initial position from upstream tracker (convert mm to m)
+            const TVector3 initial_position(ut_vx[i] / 1000, ut_vy[i] / 1000, ut_vz[i] / 1000);
+
+            // Initial time
+            const double initial_time = ut_time[i];
+
+            // Create momentum vector using direction and magnitude
+            TVector3 direction(ut_px[i], ut_py[i], ut_pz[i]);
+            direction = direction.Unit();
+
+            // Calculate total energy from momentum and mass (convert MeV to GeV)
+            const double momentum_magnitude = p[i] / 1000.0; // Convert MeV/c to GeV/c
+            const double total_energy = sqrt(momentum_magnitude * momentum_magnitude +
+                                             particle_mass * particle_mass);
+
+            // Create momentum vector (convert MeV/c to GeV/c)
+            const TVector3 momentum = direction * momentum_magnitude;
+
+            // Create four-momentum vectors for all three cases at once
+            TLorentzVector four_momentum(momentum.X(), momentum.Y(), momentum.Z(), total_energy);
+
+            // Only create momentum variations if needed by propagation
+            const double momentum_variation = 0.1;
+            const double momentum_variation_value = momentum_variation * momentum_magnitude;
+            const TVector3 momentum_variation_vector = direction * momentum_variation_value;
+
+            //----------------------------------------------------------------------
+            // Propagate particle through magnetic field - run in parallel if possible
+            //----------------------------------------------------------------------
+            std::vector<State> trajectory = propagator.propagate(
+                initial_position, four_momentum, initial_time, 8.0, 50000);
+
+            // debug output
+            if (false)
+            {
+                std::cout << "Final position and time: " << trajectory.back().position.X() << " " << trajectory.back().position.Y() << " " << trajectory.back().position.Z() << " " << trajectory.back().time << std::endl;
+            }
+
+            if (trajectory.back().position.Z() > 7.7 || trajectory.back().position.Z() < 3.0)
+            {
+                continue;
+            }
+
+            // Skip particles that don't make it through propagation
+            if (trajectory.size() < 2)
                 continue;
 
-            // Skip support structure hits
-            if ((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3))
+            double final_time = trajectory.back().time;
+
+            // Create variations for momentum uncertainty studies (±10%)
+            const TVector3 momentum_plus = momentum + momentum_variation_vector;
+            const TVector3 momentum_minus = momentum - momentum_variation_vector;
+
+            TLorentzVector four_momentum_plus(
+                momentum_plus.X(), momentum_plus.Y(), momentum_plus.Z(), total_energy);
+            TLorentzVector four_momentum_minus(
+                momentum_minus.X(), momentum_minus.Y(), momentum_minus.Z(), total_energy);
+
+            std::vector<State> trajectory_plus = propagator.propagate(
+                initial_position, four_momentum_plus, initial_time, 8.0, 50000);
+            std::vector<State> trajectory_minus = propagator.propagate(
+                initial_position, four_momentum_minus, initial_time, 8.0, 50000);
+
+            // Skip if any trajectory calculation failed
+            if (trajectory_plus.size() < 2 || trajectory_minus.size() < 2)
                 continue;
 
-            // Use the set for faster lookup
-            if (bitID_set.insert(ms_bitID[j]).second) {
-                // New hit - add to cluster collections
-                clusterizedHits_bitID.push_back(ms_bitID[j]);
-                clusterizedHits_time.push_back(ms_time[j]);
-                clusterizedHits_id.push_back(ms_id[j]);
-            } else {
-                // Existing hit - find and update if this hit is earlier
-                for (size_t k = 0; k < clusterizedHits_bitID.size(); ++k) {
-                    if (clusterizedHits_bitID[k] == ms_bitID[j]) {
-                        if (ms_time[j] < clusterizedHits_time[k]) {
-                            clusterizedHits_time[k] = ms_time[j];
-                            clusterizedHits_id[k] = ms_id[j];
+            //----------------------------------------------------------------------
+            // Record trajectory points in output tree if enabled - moved inside particle loop
+            //----------------------------------------------------------------------
+            if (doTree)
+            {
+                tr_particle_id = i;
+                tr_hit_boundary = false;
+                tr_mass_value = particle_mass;
+                tr_charge_value = particle_charge;
+
+                for (size_t j = 0; j < trajectory.size(); j++)
+                {
+                    // Extract position and momentum from trajectory point
+                    tr_x = trajectory[j].position.X();
+                    tr_y = trajectory[j].position.Y();
+                    tr_z = trajectory[j].position.Z();
+                    tr_px_out = trajectory[j].momentum.X();
+                    tr_py_out = trajectory[j].momentum.Y();
+                    tr_pz_out = trajectory[j].momentum.Z();
+
+                    // Calculate total energy: E² = p²c² + m²c⁴ - cache expensive operations
+                    const double mom_sqr = tr_px_out * tr_px_out + tr_py_out * tr_py_out + tr_pz_out * tr_pz_out;
+                    tr_energy = sqrt(mom_sqr + particle_mass * particle_mass);
+                    tr_step_num = j;
+
+                    // Fill tree with this trajectory point
+                    treeOut->Fill();
+                }
+            }
+
+            //----------------------------------------------------------------------
+            // Calculate final track parameters - more efficiently compute positions
+            //----------------------------------------------------------------------
+            // Extract final position and direction from trajectory (convert m to mm)
+            const size_t last_idx = trajectory.size() - 1;
+            const size_t second_last_idx = last_idx - 1;
+
+            const TVector3 final_position(
+                trajectory[last_idx].position.X() * 1000,
+                trajectory[last_idx].position.Y() * 1000,
+                trajectory[last_idx].position.Z() * 1000);
+
+            // Calculate track direction from last two points
+            const double x1 = trajectory[second_last_idx].position.X() * 1000;
+            const double y1 = trajectory[second_last_idx].position.Y() * 1000;
+            const double z1 = trajectory[second_last_idx].position.Z() * 1000;
+            const double x2 = trajectory[last_idx].position.X() * 1000;
+            const double y2 = trajectory[last_idx].position.Y() * 1000;
+            const double z2 = trajectory[last_idx].position.Z() * 1000;
+            const TVector3 final_direction(x2 - x1, y2 - y1, z2 - z1);
+
+            // Extract final positions for momentum variations
+            const TVector3 final_position_plus(
+                trajectory_plus[trajectory_plus.size() - 1].position.X() * 1000,
+                trajectory_plus[trajectory_plus.size() - 1].position.Y() * 1000,
+                trajectory_plus[trajectory_plus.size() - 1].position.Z() * 1000);
+
+            const TVector3 final_position_minus(
+                trajectory_minus[trajectory_minus.size() - 1].position.X() * 1000,
+                trajectory_minus[trajectory_minus.size() - 1].position.Y() * 1000,
+                trajectory_minus[trajectory_minus.size() - 1].position.Z() * 1000);
+
+            //----------------------------------------------------------------------
+            // Match propagated track to detector hit - use precomputed hit mapping
+            //----------------------------------------------------------------------
+            // Initialize hit matching variables
+            int segment_match = -1;          // Segment index of matched hit
+            int bar_match = -1;              // Bar index of matched hit
+            Point point_match(0, 0, 0);      // Position of matched hit
+            float time_match = 0;            // Time of matched hit
+            int bitID_match = 0;             // BitID of matched hit
+            TVector3 mom_vec_match(0, 0, 0); // Momentum vector at matched hit
+
+            // Find the earliest hit in MS with matching particle key using our mapping
+            const auto &particleHits = keyToHitIndices[key[i]];
+            for (size_t idx : particleHits)
+            {
+                // We already filtered for z-range and support structure when building the map
+                // Create position object for this hit
+                Point ms_pos(ms_vx[idx], ms_vy[idx], ms_vz[idx]);
+
+                // If this is first match or earlier than previous match
+                if (segment_match == -1 || ms_time[idx] < time_match)
+                {
+                    segment_match = ms_bitID[idx] >> 18 & 0xF;
+                    bar_match = ms_bitID[idx] >> 22 & 0x3F;
+                    point_match = ms_pos;
+                    time_match = ms_time[idx];
+                    bitID_match = ms_bitID[idx];
+                    mom_vec_match = TVector3(ms_px[idx], 0, ms_pz[idx]);
+                    mom_vec_match = mom_vec_match.Unit();
+                }
+            }
+
+            // Record all hits for clustering analysis - use a hash set for faster lookup
+            std::unordered_set<int> bitID_set;
+            for (size_t j = 0; j < ms_vz.GetSize(); ++j)
+            {
+                // Apply z-range cut for MS hits
+                if (ms_vz[j] < 3000 || ms_vz[j] > 7700)
+                    continue;
+
+                // Skip support structure hits
+                if ((ms_bitID[j] >> 28 & 0x3) || (ms_bitID[j] >> 30 & 0x3))
+                    continue;
+
+                // Use the set for faster lookup
+                if (bitID_set.insert(ms_bitID[j]).second)
+                {
+                    // New hit - add to cluster collections
+                    clusterizedHits_bitID.push_back(ms_bitID[j]);
+                    clusterizedHits_time.push_back(ms_time[j]);
+                    clusterizedHits_id.push_back(ms_id[j]);
+                }
+                else
+                {
+                    // Existing hit - find and update if this hit is earlier
+                    for (size_t k = 0; k < clusterizedHits_bitID.size(); ++k)
+                    {
+                        if (clusterizedHits_bitID[k] == ms_bitID[j])
+                        {
+                            if (ms_time[j] < clusterizedHits_time[k])
+                            {
+                                clusterizedHits_time[k] = ms_time[j];
+                                clusterizedHits_id[k] = ms_id[j];
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
             }
-        }
 
-        // Skip particles with no matching MS hit
-        if (segment_match == -1) {
-            if (verboseoutput) {
-                std::cout << "No matching segment found" << std::endl;
+            // Skip particles with no matching MS hit
+            if (segment_match == -1)
+            {
+                if (verboseoutput)
+                {
+                    std::cout << "No matching segment found" << std::endl;
+                }
+                continue;
             }
-            continue;
-        }
-        
-        // Continue with the rest of your processing...
-        // [The remaining code after this point stays largely the same]
-            else if (verboseoutput)
+
+            // fill hExtrapolatedTimeVsTrue
+            hExtrapolatedTimeVsTrue->Fill(final_time - time_match);
+
+            // Continue with the rest of your processing...
+            // [The remaining code after this point stays largely the same]
+            if (verboseoutput)
             {
                 // Print details of matched hit
                 std::cout << "\tMatching segment found: " << segment_match
@@ -615,6 +738,10 @@ while (tree.Next()) {
                           << " module: " << ((bitID_match >> 11) & 0xF)
                           << " station: " << ((bitID_match >> 8) & 0x7)
                           << " time: " << time_match << std::endl;
+            }
+            if (false)
+            {
+                std::cout << "true matched time: " << time_match << std::endl;
             }
 
             //----------------------------------------------------------------------
@@ -664,15 +791,15 @@ while (tree.Next()) {
                     continue;
                 }
 
-                // Check if hit is in allowed segment range and time window
-                if (((clusterizedHits_bitID[j] >> 18 & 0xF) > (segment_match - 1)) &&
-                    ((clusterizedHits_bitID[j] >> 18 & 0xF) < (segment_match + 2)) &&
-                    (clusterizedHits_time[j] > (time_match - 3)) &&
-                    (clusterizedHits_time[j] < (time_match + 3)))
+                // NOTE Check if hit is in allowed segment range and time window
+                if (((clusterizedHits_bitID[j] >> 18 & 0xF) > (segment_match - maxSegmentDifferenceMinus)) &&
+                    ((clusterizedHits_bitID[j] >> 18 & 0xF) < (segment_match + maxSegmentDifferencePlus)) &&
+                    (clusterizedHits_time[j] > (time_match - maxTimeDifference)) &&
+                    (clusterizedHits_time[j] < (time_match + maxTimeDifference)))
                 {
 
-                    // Check if hit is within 7 bars of the matched bar
-                    if (abs((clusterizedHits_bitID[j] >> 22 & 0x3F) - bar_match) < 8)
+                    // NOTE Check if hit is within 7 bars of the matched bar
+                    if (abs((clusterizedHits_bitID[j] >> 22 & 0x3F) - bar_match) < maxBarDifference)
                     {
                         // Add hit to close-by collection
                         close_by_hits_layer.push_back(clusterizedHits_bitID[j] >> 15 & 0x7);
@@ -805,11 +932,11 @@ while (tree.Next()) {
             //----------------------------------------------------------------------
             // Group hits across layers that may form tracks
             //----------------------------------------------------------------------
-            std::vector<std::vector<int>> grouped_hits_layers;   // Layer indices for each group
-            std::vector<std::vector<int>> grouped_hits_bitIDs;   // BitIDs for each group
-            std::vector<std::vector<float>> grouped_hits_times;  // Time values for each group
-            std::vector<std::vector<bool>> grouped_hits_trues;   // Truth-matching flags for each group
-            std::vector<std::vector<bool>> grouped_hits_removed; // Flags for removing hits during filtering
+            std::vector<std::vector<int>> tracklet_hits_layers;   // Layer indices for each group
+            std::vector<std::vector<int>> tracklet_hits_bitIDs;   // BitIDs for each group
+            std::vector<std::vector<float>> tracklet_hits_times;  // Time values for each group
+            std::vector<std::vector<bool>> tracklet_hits_trues;   // Truth-matching flags for each group
+            std::vector<std::vector<bool>> tracklet_hits_removed; // Flags for removing hits during filtering
 
             // Start grouping from hits in layer 0
             for (size_t j = 0; j < close_by_hits_layer.size(); ++j)
@@ -837,16 +964,17 @@ while (tree.Next()) {
                             continue;
                         }
 
-                        // Check time coincidence window (1ns)
-                        if (abs(close_by_hits_time[j] - close_by_hits_time[k]) < 1)
+                        // NOTE Check time coincidence window (1ns)
+                        if (abs(close_by_hits_time[j] - close_by_hits_time[k]) < maxTimeDifference / 2)
                         {
                             // Extract bar indices
                             int bar_layer0 = close_by_hits_bitID[j] >> 22 & 0x3F;
                             int bar_current = close_by_hits_bitID[k] >> 22 & 0x3F;
                             int bar_diff = abs(bar_layer0 - bar_current);
 
-                            // Apply layer-specific constraints on bar difference
-                            // These reflect physical constraints on track curvature
+                            // NOTE Apply layer-specific constraints on bar difference
+                            // NOTE These reflect physical constraints on track curvature
+                            // values have been determined from true studies which set the limits
                             if (layer == 1 && bar_diff > 2)
                                 continue; // Layer 1: max diff = 2
                             if (layer == 2 && bar_diff > 6)
@@ -865,30 +993,30 @@ while (tree.Next()) {
                 }
 
                 // Store completed group
-                grouped_hits_layers.push_back(group_layers);
-                grouped_hits_bitIDs.push_back(group_bitIDs);
-                grouped_hits_times.push_back(group_times);
-                grouped_hits_trues.push_back(group_trues);
-                grouped_hits_removed.push_back(group_removed);
+                tracklet_hits_layers.push_back(group_layers);
+                tracklet_hits_bitIDs.push_back(group_bitIDs);
+                tracklet_hits_times.push_back(group_times);
+                tracklet_hits_trues.push_back(group_trues);
+                tracklet_hits_removed.push_back(group_removed);
             }
 
             //----------------------------------------------------------------------
-            // Match hit groups to valid segment combinations
+            // Match hit tracklets to valid segment combinations
             //----------------------------------------------------------------------
             // Vector to store matched (group_index, combination_index) pairs
             std::vector<std::pair<int, int>> matched_combinations;
 
             // Compare each group against valid segment combinations
-            for (size_t group_idx = 0; group_idx < grouped_hits_layers.size(); ++group_idx)
+            for (size_t group_idx = 0; group_idx < tracklet_hits_layers.size(); ++group_idx)
             {
-                // Skip groups with insufficient hits
-                if (grouped_hits_layers[group_idx].size() < 3)
+                // Skip tracklets with insufficient hits
+                if (tracklet_hits_layers[group_idx].size() < 3)
                 {
                     continue;
                 }
 
                 // Get segment ID from layer 0 hit in this group
-                int first_segment = grouped_hits_bitIDs[group_idx][0] >> 18 & 0xF;
+                int first_segment = tracklet_hits_bitIDs[group_idx][0] >> 18 & 0xF;
 
                 // Compare against each valid segment combination
                 for (size_t comb_idx = 0; comb_idx < vec_segment_combinations.size(); ++comb_idx)
@@ -909,10 +1037,10 @@ while (tree.Next()) {
                     bool matches_combination[3] = {false, false, false};
 
                     // Check hits in the group against pattern
-                    for (size_t hit_idx = 0; hit_idx < grouped_hits_layers[group_idx].size(); ++hit_idx)
+                    for (size_t hit_idx = 0; hit_idx < tracklet_hits_layers[group_idx].size(); ++hit_idx)
                     {
-                        int layer = grouped_hits_layers[group_idx][hit_idx];
-                        int segment = grouped_hits_bitIDs[group_idx][hit_idx] >> 18 & 0xF;
+                        int layer = tracklet_hits_layers[group_idx][hit_idx];
+                        int segment = tracklet_hits_bitIDs[group_idx][hit_idx] >> 18 & 0xF;
 
                         if (layer == 1)
                         {
@@ -961,16 +1089,17 @@ while (tree.Next()) {
                     matched_combinations.push_back(std::make_pair(group_idx, comb_idx));
 
                     // Keep hits that match the combination pattern (unmark them for removal)
-                    for (size_t hit_idx = 0; hit_idx < grouped_hits_layers[group_idx].size(); ++hit_idx)
+                    for (size_t hit_idx = 0; hit_idx < tracklet_hits_layers[group_idx].size(); ++hit_idx)
                     {
-                        int layer = grouped_hits_layers[group_idx][hit_idx];
-                        int segment = grouped_hits_bitIDs[group_idx][hit_idx] >> 18 & 0xF;
+                        int layer = tracklet_hits_layers[group_idx][hit_idx];
+                        int segment = tracklet_hits_bitIDs[group_idx][hit_idx] >> 18 & 0xF;
 
                         if ((layer == 1 && segment == expected_segment_layer1) ||
                             (layer == 2 && segment == expected_segment_layer2) ||
                             (layer == 3 && segment == expected_segment_layer3))
                         {
-                            grouped_hits_removed[group_idx][hit_idx] = false;
+                            // NOTE this boolean is important, it tracks that the hit is part of a valid combination of segments
+                            tracklet_hits_removed[group_idx][hit_idx] = false;
                         }
                     }
                 }
@@ -978,16 +1107,18 @@ while (tree.Next()) {
             //----------------------------------------------------------------------
             // Count and analyze reconstructed track candidates
             //----------------------------------------------------------------------
-            // Count groups with sufficient valid hits after filtering
+            // Count tracklets with sufficient valid hits after filtering
             int validGroupCount = 0;
-            for (size_t groupIdx = 0; groupIdx < grouped_hits_layers.size(); ++groupIdx)
+            int validGroupCountTrue = 0;
+            for (size_t groupIdx = 0; groupIdx < tracklet_hits_layers.size(); ++groupIdx)
             {
                 int validHitsInGroup = 0;
+                int validHitsInGroupTrue = 0;
 
                 if (verboseoutput)
                 {
                     std::cout << "\t\t\tgroup " << groupIdx;
-                    if (grouped_hits_layers[groupIdx].size() < 3)
+                    if (tracklet_hits_layers[groupIdx].size() < 3)
                     {
                         std::cout << " not enough hits in group";
                     }
@@ -995,18 +1126,18 @@ while (tree.Next()) {
                 }
 
                 // Count hits that passed the filtering criteria
-                for (size_t hitIdx = 0; hitIdx < grouped_hits_layers[groupIdx].size(); ++hitIdx)
+                for (size_t hitIdx = 0; hitIdx < tracklet_hits_layers[groupIdx].size(); ++hitIdx)
                 {
                     if (verboseoutput)
                     {
                         std::cout << "\t\t\t\thit " << hitIdx
-                                  << " layer: " << grouped_hits_layers[groupIdx][hitIdx]
-                                  << " bar: " << (grouped_hits_bitIDs[groupIdx][hitIdx] >> 22 & 0x3F)
-                                  << " segment " << (grouped_hits_bitIDs[groupIdx][hitIdx] >> 18 & 0xF)
-                                  << " time: " << grouped_hits_times[groupIdx][hitIdx]
-                                  << " true: " << grouped_hits_trues[groupIdx][hitIdx];
+                                  << " layer: " << tracklet_hits_layers[groupIdx][hitIdx]
+                                  << " bar: " << (tracklet_hits_bitIDs[groupIdx][hitIdx] >> 22 & 0x3F)
+                                  << " segment " << (tracklet_hits_bitIDs[groupIdx][hitIdx] >> 18 & 0xF)
+                                  << " time: " << tracklet_hits_times[groupIdx][hitIdx]
+                                  << " true: " << tracklet_hits_trues[groupIdx][hitIdx];
 
-                        if (grouped_hits_removed[groupIdx][hitIdx])
+                        if (tracklet_hits_removed[groupIdx][hitIdx])
                         {
                             std::cout << " removed";
                         }
@@ -1017,30 +1148,47 @@ while (tree.Next()) {
                         std::cout << std::endl;
                     }
 
-                    if (!grouped_hits_removed[groupIdx][hitIdx])
+                    if (!tracklet_hits_removed[groupIdx][hitIdx])
                     {
                         validHitsInGroup++;
+                        if (tracklet_hits_trues[groupIdx][hitIdx])
+                        {
+                            validHitsInGroupTrue++;
+                        }
                     }
                 }
 
-                // Count groups with enough valid hits for track reconstruction
+                // Count tracklets with enough valid hits for track reconstruction
                 if (validHitsInGroup >= 3)
                 {
                     validGroupCount++;
+                    if (validHitsInGroupTrue >= 1)
+                    {
+                        validGroupCountTrue++;
+                    }
                 }
             }
-            hNGroups->Fill(validGroupCount);
+
+            // fill hNTracklets with the number of tracklets that follow the correct segment pattern, have at least 3 hits and are in the correct time window
+            hNTracklets->Fill(validGroupCount);
+            hNTrackletsTrue->Fill(validGroupCountTrue);
 
             //----------------------------------------------------------------------
-            // Fit tracks to hit groups and analyze track quality
+            // Fit tracks to hit tracklets and analyze track quality
             //----------------------------------------------------------------------
-            int successfulFitCount = 0; // Counter for groups with good tracklet fits
+            int successfulFitCount = 0;                // Counter for tracklets with good tracklet fits
+            int successfulFitCountTimeCut = 0;         // Counter for tracklets with good tracklet fits
+            int successfulFitCountSlopeAndTimeCut = 0; // Counter for tracklets with good tracklet fits
+            int successfulFitCountTrue = 0;            // Counter for tracklets with good tracklet fits
+            int successfulFitCountTimeCutTrue = 0;     // Counter for tracklets with good tracklet fits
+            int successfulFitCountSlopeAndTimeCutTrue = 0; // Counter for tracklets with good tracklet fits
+
 
             // Process each hit group and perform track fitting
-            for (size_t groupIdx = 0; groupIdx < grouped_hits_layers.size(); ++groupIdx)
+            for (size_t groupIdx = 0; groupIdx < tracklet_hits_layers.size(); ++groupIdx)
             {
-                // Skip groups with too few hits
-                if (grouped_hits_layers[groupIdx].size() < 3)
+                // Skip tracklets with too few hits
+                if (tracklet_hits_layers[groupIdx].size() < 3)
                 {
                     continue;
                 }
@@ -1050,6 +1198,8 @@ while (tree.Next()) {
 
                 // Create graph for fitting hit positions
                 TGraphErrors *trackGraph = new TGraphErrors();
+                bool track_contains_true_hit = false;
+                double track_time = 10000000;
 
                 // Create additional graphs for truth-matched hits if we haven't hit the limit
                 if (nSlopeFits < 29)
@@ -1059,17 +1209,22 @@ while (tree.Next()) {
 
                 // Fill the graph with valid hits
                 int validHitCount = 0;
-                for (size_t hitIdx = 0; hitIdx < grouped_hits_layers[groupIdx].size(); ++hitIdx)
+                for (size_t hitIdx = 0; hitIdx < tracklet_hits_layers[groupIdx].size(); ++hitIdx)
                 {
                     // Skip hits that were filtered out
-                    if (grouped_hits_removed[groupIdx][hitIdx])
+                    if (tracklet_hits_removed[groupIdx][hitIdx])
                     {
                         continue;
                     }
 
                     // Extract layer and bar information
-                    int layer = grouped_hits_layers[groupIdx][hitIdx];
-                    int bar = grouped_hits_bitIDs[groupIdx][hitIdx] >> 22 & 0x3F;
+                    int layer = tracklet_hits_layers[groupIdx][hitIdx];
+                    int bar = tracklet_hits_bitIDs[groupIdx][hitIdx] >> 22 & 0x3F;
+                    double time = tracklet_hits_times[groupIdx][hitIdx];
+                    if (time < track_time)
+                    {
+                        track_time = time;
+                    }
 
                     // Add point to main graph
                     // X = layer position offset, Y = bar number * scale factor
@@ -1081,10 +1236,14 @@ while (tree.Next()) {
                     trackGraph->SetPointError(validHitCount, xError, yError);
 
                     // For truth-matched hits, also add to the truth graph with smaller errors
-                    if (grouped_hits_trues[groupIdx][hitIdx] && nSlopeFits < 29)
+                    if (tracklet_hits_trues[groupIdx][hitIdx])
                     {
-                        gSlopeFits_true[nSlopeFits]->SetPoint(validHitCount, layer_offsets[layer], 5 * bar);
-                        gSlopeFits_true[nSlopeFits]->SetPointError(validHitCount, 0.5, 0.5);
+                        track_contains_true_hit = true;
+                        if (nSlopeFits < 29)
+                        {
+                            gSlopeFits_true[nSlopeFits]->SetPoint(validHitCount, layer_offsets[layer], 5 * bar);
+                            gSlopeFits_true[nSlopeFits]->SetPointError(validHitCount, 0.5, 0.5);
+                        }
                     }
 
                     validHitCount++;
@@ -1213,10 +1372,46 @@ while (tree.Next()) {
                 double angle = tracklet_vec.Angle(mom_vec_match);
                 hAngleDiffModules->Fill(moduleMatch, angle);
 
+                // calculate the angle between the tracklet and the final direction
+                double angle2 = tracklet_vec.Angle(final_direction);
+                hAngleDiffFinalModules->Fill(moduleMatch, angle2);
+
+                // Calculate the time difference between the tracklet and the true time
+                double time_diff = final_time - track_time;
+                // std::cout << "time diff " << time_diff << " track_time: " << track_time << " final_time: " << final_time << " time_match: " << time_match << std::endl;
+                hExtrapolatedTimeVsTracklet->Fill(time_diff);
+
                 // Count tracks with good angular agreement (< 0.2 rad ≈ 11.5°)
-                if (angle < 0.2)
+                if (angle < maxAngleDifference)
                 {
                     successfulFitCount++;
+                    if(track_contains_true_hit)
+                    {
+                        successfulFitCountTrue++;
+                    }
+                }
+                if (abs(time_diff) < 2.5)
+                {
+                    successfulFitCountTimeCut++;
+                    if(track_contains_true_hit)
+                    {
+                        successfulFitCountTimeCutTrue++;
+                    }
+                }
+                if (angle < maxAngleDifference && abs(time_diff) < 2.5)
+                {
+                    successfulFitCountSlopeAndTimeCut++;
+                    if(track_contains_true_hit)
+                    {
+                        successfulFitCountSlopeAndTimeCutTrue++;
+                    }
+                    hMatchdYdZCut->Fill(point_match.y - final_position.Y(),
+                                        point_match.z - final_position.Z());
+                    hMatchdXdZCut->Fill(point_match.x - final_position.X(),
+                                        point_match.z - final_position.Z());
+                    hMatchdXCut->Fill(point_match.x - final_position.X());
+                    hMatchdYCut->Fill(point_match.y - final_position.Y());
+                    hMatchdZCut->Fill(point_match.z - final_position.Z());
                 }
 
                 // Output detailed comparison if in verbose mode
@@ -1232,9 +1427,17 @@ while (tree.Next()) {
                 // Clean up
                 delete trackGraph;
                 delete fitFunction;
-            }
+            } // end of tracklet fitting loop
+
             // Fill histogram with number of successful track fits
-            hNGroupsSlope->Fill(successfulFitCount);
+            hNTrackletsSlope->Fill(successfulFitCount);
+            hNTrackletsTime->Fill(successfulFitCountTimeCut);
+            hNTrackletsSlopeAndTimeCut->Fill(successfulFitCountSlopeAndTimeCut);
+            // Fill histograms with number of successful track fits with at least one true hit
+            hNTrackletsSlopeTrue->Fill(successfulFitCountTrue);
+            hNTrackletsTimeTrue->Fill(successfulFitCountTimeCutTrue);
+            hNTrackletsSlopeAndTimeCutTrue->Fill(successfulFitCountSlopeAndTimeCutTrue);
+
         }
     } // End of particle loop and event processing
 
@@ -1271,12 +1474,85 @@ while (tree.Next()) {
     //----------------------------------------------------------------------
     // Create and save track group analysis plots
     //----------------------------------------------------------------------
-    // Plot distribution of track groups per particle
+    // Plot distribution of track tracklets per particle
     TCanvas c3("c3", "Group Counts", 800, 600);
-    hNGroups->GetXaxis()->SetTitle("Number of groups");
-    hNGroups->GetYaxis()->SetTitle("Counts");
-    hNGroups->Draw();
-    c3.SaveAs(Form("%shNGroups.pdf", outputdir.Data()));
+    hNTracklets->GetXaxis()->SetTitle("Number of tracklets");
+    hNTracklets->GetYaxis()->SetTitle("Counts");
+    hNTracklets->Draw();
+    c3.SaveAs(Form("%shNTracklets.pdf", outputdir.Data()));
+
+    TCanvas c3b("c3b", "Group Counts", 800, 600);
+    hNTrackletsTrue->GetXaxis()->SetTitle("Number of tracklets with at least one true hit");
+    hNTrackletsTrue->GetYaxis()->SetTitle("Counts");
+    hNTrackletsTrue->Draw();
+    c3b.SaveAs(Form("%shNTrackletsTrue.pdf", outputdir.Data()));
+
+    // Plot distribution of successful track fits per particle
+    TCanvas c3x("c3x", "Group Counts", 800, 600);
+    hNTrackletsSlope->GetXaxis()->SetTitle(Form("Number of tracklets with successful tracklet fit and angle < %1.1f rad",maxAngleDifference));
+    hNTrackletsSlope->GetYaxis()->SetTitle("Counts");
+    hNTrackletsSlope->Draw();
+    c3x.SaveAs(Form("%shNTrackletsSlope.pdf", outputdir.Data()));
+
+    // plot with at least one true hit
+    TCanvas c3c("c3c", "Group Counts", 800, 600);
+    hNTrackletsSlopeTrue->GetXaxis()->SetTitle(Form("Number of tracklets with successful tracklet fit and angle < %1.1f rad and at least one true hit",maxAngleDifference));
+    hNTrackletsSlopeTrue->GetYaxis()->SetTitle("Counts");
+    hNTrackletsSlopeTrue->Draw();
+    c3c.SaveAs(Form("%shNTrackletsSlopeTrue.pdf", outputdir.Data()));
+
+    // Plot distribution of successful track fits per particle
+    TCanvas c3y("c3y", "Group Counts", 800, 600);
+    hNTrackletsTime->GetXaxis()->SetTitle("Number of tracklets with successful tracklet fit and time difference < 2.5 ns");
+    hNTrackletsTime->GetYaxis()->SetTitle("Counts");
+    hNTrackletsTime->Draw();
+    c3y.SaveAs(Form("%shNTrackletsTime.pdf", outputdir.Data()));
+
+    // plot with at least one true hit
+    TCanvas c3d("c3d", "Group Counts", 800, 600);
+    hNTrackletsTimeTrue->GetXaxis()->SetTitle("Number of tracklets with successful tracklet fit and time difference < 2.5 ns and at least one true hit");
+    hNTrackletsTimeTrue->GetYaxis()->SetTitle("Counts");
+    hNTrackletsTimeTrue->Draw();
+    c3d.SaveAs(Form("%shNTrackletsTimeTrue.pdf", outputdir.Data()));
+
+    // Plot distribution of successful track fits per particle
+    TCanvas c3z("c3z", "Group Counts", 800, 600);
+    hNTrackletsSlopeAndTimeCut->GetXaxis()->SetTitle(Form("Number of tracklets with successful tracklet fit and angle < %1.1f rad and time difference < 2.5 ns",maxAngleDifference));
+    hNTrackletsSlopeAndTimeCut->GetYaxis()->SetTitle("Counts");
+    hNTrackletsSlopeAndTimeCut->Draw();
+    c3z.SaveAs(Form("%shNTrackletsSlopeAndTimeCut.pdf", outputdir.Data()));
+
+    // plot with at least one true hit
+    TCanvas c3e("c3e", "Group Counts", 800, 600);
+    hNTrackletsSlopeAndTimeCutTrue->GetXaxis()->SetTitle(Form("Number of tracklets with successful tracklet fit and angle < %1.1f rad and time difference < 2.5 ns and at least one true hit",maxAngleDifference));
+    hNTrackletsSlopeAndTimeCutTrue->GetYaxis()->SetTitle("Counts");
+    hNTrackletsSlopeAndTimeCutTrue->Draw();
+    c3e.SaveAs(Form("%shNTrackletsSlopeAndTimeCutTrue.pdf", outputdir.Data()));
+
+    // plot all four above on one canvas with a legend
+    TCanvas c3a("c3a", "Group Counts", 800, 600);
+    hNTracklets->SetLineWidth(2);
+    hNTrackletsSlope->SetLineWidth(2);
+    hNTrackletsTime->SetLineWidth(2);
+    hNTrackletsSlopeAndTimeCut->SetLineWidth(2);
+    hNTracklets->SetLineColor(kBlack);
+    hNTrackletsSlope->SetLineColor(kRed);
+    hNTrackletsTime->SetLineColor(kBlue);
+    hNTrackletsSlopeAndTimeCut->SetLineColor(kGreen);
+    hNTrackletsSlopeAndTimeCut->Draw();
+    hNTracklets->Draw("same");
+    hNTrackletsSlope->Draw("same");
+    hNTrackletsTime->Draw("same");
+    TLegend *leg = new TLegend(0.35, 0.65, 0.55, 0.85);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->SetTextSize(0.04);
+    leg->AddEntry(hNTracklets, "All tracklets", "l");
+    leg->AddEntry(hNTrackletsSlope, Form("Angle < %1.1f rad",maxAngleDifference), "l");
+    leg->AddEntry(hNTrackletsTime, "Time difference < 2.5 ns", "l");
+    leg->AddEntry(hNTrackletsSlopeAndTimeCut, Form("Angle < %1.1f rad and time difference < 2.5 ns",maxAngleDifference), "l");
+    leg->Draw();
+    c3a.SaveAs(Form("%shNTrackletsAll.pdf", outputdir.Data()));
 
     // Plot examples of track fits with before/after outlier removal
     TCanvas c4("c4", "Track Fitting Examples", 1800, 1600);
@@ -1344,12 +1620,26 @@ while (tree.Next()) {
     hAngleDiffModules->Draw("colz");
     c5.SaveAs(Form("%shAngleDiffModules.pdf", outputdir.Data()));
 
-    // Plot distribution of successful track fits per particle
-    TCanvas c6("c6", "Track Fit Statistics", 800, 600);
-    hNGroupsSlope->GetXaxis()->SetTitle("Number of groups with successful tracklet fit");
-    hNGroupsSlope->GetYaxis()->SetTitle("Counts");
-    hNGroupsSlope->Draw();
-    c6.SaveAs(Form("%shNGroupsSlope.pdf", outputdir.Data()));
+    // Plot angle difference between reconstructed tracklet and final direction
+    TCanvas c5x("c5x", "Angular Accuracy", 800, 600);
+    hAngleDiffFinalModules->GetXaxis()->SetTitle("Module");
+    hAngleDiffFinalModules->GetYaxis()->SetTitle("Angle difference [rad]");
+    hAngleDiffFinalModules->Draw("colz");
+    c5x.SaveAs(Form("%shAngleDiffFinalModules.pdf", outputdir.Data()));
+
+    // Plot time difference between extrapolation and tracklet
+    TCanvas c6x("c6x", "Time Difference", 800, 600);
+    hExtrapolatedTimeVsTracklet->GetXaxis()->SetTitle("Time difference (extrapol - tracklets) [ns]");
+    hExtrapolatedTimeVsTracklet->GetYaxis()->SetTitle("Counts");
+    hExtrapolatedTimeVsTracklet->Draw();
+    c6x.SaveAs(Form("%shExtrapolatedTimeVsTracklet.pdf", outputdir.Data()));
+
+    // Plot time difference between extrapolated and true time
+    TCanvas c6y("c6y", "Time Difference", 800, 600);
+    hExtrapolatedTimeVsTrue->GetXaxis()->SetTitle("Time difference (extrapol - true) [ns]");
+    hExtrapolatedTimeVsTrue->GetYaxis()->SetTitle("Counts");
+    hExtrapolatedTimeVsTrue->Draw();
+    c6y.SaveAs(Form("%shExtrapolatedTimeVsTrue.pdf", outputdir.Data()));
 
     //----------------------------------------------------------------------
     // Create and save track matching accuracy plots
@@ -1362,6 +1652,14 @@ while (tree.Next()) {
     hMatchdYdZ->Draw("colz");
     c7.SaveAs(Form("%shMatchdYdZ.pdf", outputdir.Data()));
 
+    // Plot X-Z position matching accuracy after cuts
+    TCanvas c7a("c7a", "Y-Z Position Matching", 800, 600);
+    c7a.SetLogz(); // Logarithmic scale for better visibility of distributions
+    hMatchdYdZCut->GetXaxis()->SetTitle("Y position difference [mm]");
+    hMatchdYdZCut->GetYaxis()->SetTitle("Z position difference [mm]");
+    hMatchdYdZCut->Draw("colz");
+    c7a.SaveAs(Form("%shMatchdYdZCut.pdf", outputdir.Data()));
+
     // Plot X-Z position matching accuracy
     TCanvas c8("c8", "X-Z Position Matching", 800, 600);
     c8.SetLogz();
@@ -1369,6 +1667,14 @@ while (tree.Next()) {
     hMatchdXdZ->GetYaxis()->SetTitle("Z position difference [mm]");
     hMatchdXdZ->Draw("colz");
     c8.SaveAs(Form("%shMatchdXdZ.pdf", outputdir.Data()));
+
+    // Plot X position matching accuracy after cuts
+    TCanvas c8a("c8a", "X-Z Position Matching", 800, 600);
+    c8a.SetLogz();
+    hMatchdXdZCut->GetXaxis()->SetTitle("X position difference [mm]");
+    hMatchdXdZCut->GetYaxis()->SetTitle("Z position difference [mm]");
+    hMatchdXdZCut->Draw("colz");
+    c8a.SaveAs(Form("%shMatchdXdZCut.pdf", outputdir.Data()));
 
     // Plot X, Y, Z position matching distributions separately
     TCanvas c9("c9", "X Position Matching", 800, 600);
@@ -1388,6 +1694,25 @@ while (tree.Next()) {
     hMatchdZ->GetYaxis()->SetTitle("Counts");
     hMatchdZ->Draw();
     c11.SaveAs(Form("%shMatchdZ.pdf", outputdir.Data()));
+
+    // Plot X, Y, Z position matching distributions separately after cuts
+    TCanvas c9a("c9a", "X Position Matching", 800, 600);
+    hMatchdXCut->GetXaxis()->SetTitle("X position difference [mm]");
+    hMatchdXCut->GetYaxis()->SetTitle("Counts");
+    hMatchdXCut->Draw();
+    c9a.SaveAs(Form("%shMatchdXCut.pdf", outputdir.Data()));
+
+    TCanvas c10a("c10a", "Y Position Matching", 800, 600);
+    hMatchdYCut->GetXaxis()->SetTitle("Y position difference [mm]");
+    hMatchdYCut->GetYaxis()->SetTitle("Counts");
+    hMatchdYCut->Draw();
+    c10a.SaveAs(Form("%shMatchdYCut.pdf", outputdir.Data()));
+
+    TCanvas c11a("c11a", "Z Position Matching", 800, 600);
+    hMatchdZCut->GetXaxis()->SetTitle("Z position difference [mm]");
+    hMatchdZCut->GetYaxis()->SetTitle("Counts");
+    hMatchdZCut->Draw();
+    c11a.SaveAs(Form("%shMatchdZCut.pdf", outputdir.Data()));
 
     //----------------------------------------------------------------------
     // Create and save detector coverage and extrapolation plots
