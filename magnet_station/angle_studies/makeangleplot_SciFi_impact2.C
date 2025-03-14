@@ -65,6 +65,11 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
     const int nModules = 9;
     
 
+    TH2F *hXZHits = new TH2F("hXZHits", "XZ of all hits", 125, minZ-1500, maxZ, 100, -4000, 4000);
+    TH2F *hYZHits = new TH2F("hYZHits", "YZ of all hits", 125, minZ-1500, maxZ, 100, -1500, 1500);
+    TH2F *hXZHitsinFTFromMS = new TH2F("hXZHitsinFTFromMS", "XZ of hits in FT from MS", 125, minZ-1500, maxZ, 100, -4000, 4000);
+    TH2F *hYZHitsinFTFromMS = new TH2F("hYZHitsinFTFromMS", "YZ of hits in FT from MS", 125, minZ-1500, maxZ, 100, -1500, 1500);
+
     TH2F *hYZHitsinSupport = new TH2F("hYZHitsinSupport", "YZ of hits in plane", 125, minZ-1500, maxZ, 100, -1500, 1500);
     TH2F *hXYHitsinFTFromSupport = new TH2F("hXYHitsinFTFromSupport", "XY of hits in FT from support", 100, -5000, 5000, 100, -5000, 5000);
     TH2F *hXYHitsinFTFromSupportDaughter = new TH2F("hXYHitsinFTFromSupportDaughter", "XY of hits in FT from support Daughter", 100, -5000, 5000, 100, -5000, 5000);
@@ -74,6 +79,7 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
     TH2F *hAccPartHitSuppAndFTDaughter = new TH2F("hAccPartHitSuppAndFTDaughter", "Acceptance of particles hitting MS Supports and FT tracker from Daughter", 125, 0, 20, 60, 1.8, 4.5);
     TH2F *hAccPartHitMSAndFT = new TH2F("hAccPartHitMSAndFT", "Acceptance of particles hitting MS and FT tracker", 125, 0, 20, 60, 1.8, 4.5);
     TH2F *hAccPartHitMSAndFTDaughter = new TH2F("hAccPartHitMSAndFTDaughter", "Acceptance of particles hitting MS and FT tracker from Daughter", 125, 0, 20, 60, 1.8, 4.5);
+
 
     int curr_entry = 0;
     bool verbositysetting = 0;
@@ -88,11 +94,16 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
 
     int npartwithMotherhitinMS = 0;
     int npartwithMotherhitinMSsupp = 0;
+    int npartwithGrandMotherhitinMS = 0;
+    int npartwithGrandMotherhitinMSsupp = 0;
 
     int npartswithhitinFT = 0;
     int npartwithouthitinMS = 0;
 
     int nHits_MSbars = 0;
+
+    //create vector to save FT hit positions for the current particle
+    std::vector<TVector3> ftHits;
     while (tree.Next())
     {
         // cout << "Entry: " << curr_entry << endl;
@@ -115,17 +126,24 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
             bool particleHitAnyMS = 0;
             bool particleHitMS = 0;
             bool particleMotherHitMS = 0;
+            bool particleGrandMotherHitMS = 0;
 
             bool particleHitSupport = 0;
             bool particleMotherHitSupport = 0;
+            bool particleGrandMotherHitSupport = 0;
             bool particlehitinFT = 0;
+
+            ftHits.clear();
 
             // loop over all hits in ft
             for (auto k = 0U; k < ft_id.GetSize(); ++k)
             {
+                hXZHits->Fill(ft_vz[k], ft_vx[k]);
+                hYZHits->Fill(ft_vz[k], ft_vy[k]);
                 if (ft_id[k] == key[i])
                 {
                     particlehitinFT = 1;
+                    ftHits.push_back(TVector3(ft_vx[k], ft_vy[k], ft_vz[k]));
                 }
             } // NOTE END LOOP OVER FT HITS
 
@@ -135,23 +153,49 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
                 //get isfiber and issupp
                 int isfiber = (ms_bitID[k] >> 28) & 0x3; // 2 bit
                 int issupp = (ms_bitID[k] >> 30) & 0x3; // 2 bit
-
+                bool hitsupport = isfiber || issupp;
+                hXZHits->Fill(ms_vz[k], ms_vx[k]);
+                hYZHits->Fill(ms_vz[k], ms_vy[k]);
                 if (ms_id[k] == key[i])
                 {
                     particleHitMS = 1;
-                    if(isfiber || issupp){
+                    if(hitsupport){
                         particleHitSupport = 1;
                     }
                 }
-                if (parent_key[i]>-2000 && ms_id[k] == parent_key[i])// || ms_id[k] == child1_key[i] || ms_id[k] == child2_key[i])
+                if (parent_key[i]>-2000)// || ms_id[k] == child1_key[i] || ms_id[k] == child2_key[i])
                 {
-                    particleMotherHitMS = 1;
-                    if(isfiber || issupp){
-                        particleMotherHitSupport = 1;
+                    if(ms_id[k] == parent_key[i]){
+                        particleMotherHitMS = 1;
+                        if(hitsupport){
+                            particleMotherHitSupport = 1;
+                        }
+                    }
+                    //loop over particles again and find the grandMother
+                    for (auto l = 0U; l < pt.GetSize(); ++l)
+                    {
+                        if (parent_key[l] > -2000 && key[l] == parent_key[i] && ms_id[k] == parent_key[l])
+                        {
+                            particleGrandMotherHitMS = 1;
+                            if(hitsupport){
+                                particleGrandMotherHitSupport = 1;
+                            }
+                        }
                     }
                 }
-                if(particleHitSupport || particleMotherHitSupport || particleHitMS || particleMotherHitMS){
+                
+                if(particleHitSupport || particleMotherHitSupport || particleHitMS || particleMotherHitMS || particleGrandMotherHitSupport || particleGrandMotherHitMS){
                     particleHitAnyMS = 1;
+                    if(particlehitinFT){
+                        hXZHitsinFTFromMS->Fill(ms_vz[k], ms_vx[k]);
+                        hYZHitsinFTFromMS->Fill(ms_vz[k], ms_vy[k]);
+
+                        //loop over ftHits and fill histograms
+                        for (auto l = 0; l < ftHits.size(); l++)
+                        {
+                            hXYHitsinFTFromMS->Fill(ftHits[l].X(), ftHits[l].Y());
+                        }
+                    }
                 }
             } // NOTE END LOOP OVER MS HITS
 
@@ -173,11 +217,15 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
                 npartwithhitinMS++;
             if (particleMotherHitMS)
                 npartwithMotherhitinMS++;
+            if (particleGrandMotherHitMS)
+                npartwithGrandMotherhitinMS++;
             if (particleHitSupport)
                 npartwithhitinMSsupp++;
             if (particleMotherHitSupport)
                 npartwithMotherhitinMSsupp++;
-            if(!particleHitMS && !particleMotherHitMS && !particleHitSupport && !particleMotherHitSupport){
+            if (particleGrandMotherHitSupport)
+                npartwithGrandMotherhitinMSsupp++;
+            if(!particleHitMS && !particleMotherHitMS && !particleHitSupport && !particleMotherHitSupport && !particleGrandMotherHitMS && !particleGrandMotherHitSupport){
                 npartwithouthitinMS++;
             }
         } // NOTE END LOOP OVER PARTICLES
@@ -188,8 +236,8 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
     // if(npartswithhitinFT>0) cout << "Particles with hits in support+MS+FT: " << npartwithhitinFTandMS << " Particles with hits in FT: " << npartswithhitinFT << " Ratio: " << (float)npartwithhitinFTandMS / (float)npartswithhitinFT << endl;
     if(npartwithouthitinMS>0) cout << "Particles with hits in support+MS: " << npartwithhitinMS << " Particles without hits in MS: " << npartwithouthitinMS << " Ratio: " << (float)npartwithhitinMS / (float)npartwithouthitinMS << endl;
 
-    float totalMShits = npartwithhitinMS + npartwithMotherhitinMS;
-    float totalMShitsSupp = npartwithhitinMSsupp + npartwithMotherhitinMSsupp;
+    float totalMShits = npartwithhitinMS + npartwithMotherhitinMS + npartwithGrandMotherhitinMS;
+    float totalMShitsSupp = npartwithhitinMSsupp + npartwithMotherhitinMSsupp + npartwithGrandMotherhitinMSsupp;
 
     cout << "Total MS hits: " << totalMShits << " Total MS hits in support: " << totalMShitsSupp << " Ratio: " << totalMShitsSupp / totalMShits << endl;
 
@@ -205,6 +253,45 @@ void makeangleplot_SciFi_impact2(TString inputfile = "/home/niviths/Downloads/ma
     hAccPartHitMSAndFT->Draw("colz");
     c8->SaveAs(Form("%shAccPartHitMSAndFT.pdf", outputdir.Data()));
 
+    //plot hXZHits
+    TCanvas *c1 = new TCanvas("c1", "c1", 800, 600);
+    gStyle->SetOptStat(0);
+    hXZHits->GetXaxis()->SetTitle("Z [mm]");
+    hXZHits->GetYaxis()->SetTitle("X [mm]");
+    hXZHits->Draw("colz");
+    c1->SaveAs(Form("%shXZHits.pdf", outputdir.Data()));
+
+    //plot hYZHits
+    TCanvas *c2 = new TCanvas("c2", "c2", 800, 600);
+    gStyle->SetOptStat(0);
+    hYZHits->GetXaxis()->SetTitle("Z [mm]");
+    hYZHits->GetYaxis()->SetTitle("Y [mm]");
+    hYZHits->Draw("colz");
+    c2->SaveAs(Form("%shYZHits.pdf", outputdir.Data()));
+
+    //plot hXZHitsinFTFromMS
+    TCanvas *c3 = new TCanvas("c3", "c3", 800, 600);
+    gStyle->SetOptStat(0);
+    hXZHitsinFTFromMS->GetXaxis()->SetTitle("Z [mm]");
+    hXZHitsinFTFromMS->GetYaxis()->SetTitle("X [mm]");
+    hXZHitsinFTFromMS->Draw("colz");
+    c3->SaveAs(Form("%shXZHitsinFTFromMS.pdf", outputdir.Data()));
+
+    //plot hYZHitsinFTFromMS
+    TCanvas *c4 = new TCanvas("c4", "c4", 800, 600);
+    gStyle->SetOptStat(0);
+    hYZHitsinFTFromMS->GetXaxis()->SetTitle("Z [mm]");
+    hYZHitsinFTFromMS->GetYaxis()->SetTitle("Y [mm]");
+    hYZHitsinFTFromMS->Draw("colz");
+    c4->SaveAs(Form("%shYZHitsinFTFromMS.pdf", outputdir.Data()));
+
+    //plot hXYHitsinFTFromMS
+    TCanvas *c5 = new TCanvas("c5", "c5", 800, 600);
+    gStyle->SetOptStat(0);
+    hXYHitsinFTFromMS->GetXaxis()->SetTitle("X [mm]");
+    hXYHitsinFTFromMS->GetYaxis()->SetTitle("Y [mm]");
+    hXYHitsinFTFromMS->Draw("colz");
+    c5->SaveAs(Form("%shXYHitsinFTFromMS.pdf", outputdir.Data()));
 
     fin.Close();
 

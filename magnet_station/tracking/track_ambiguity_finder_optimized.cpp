@@ -141,7 +141,7 @@ double layer_offsets[4] = {
  * @param doTree Flag to enable trajectory tree creation for detailed analysis
  * @return Status code (0 for success)
  */
-int track_ambiguity_finder_optimized(bool doTree = false)
+int track_ambiguity_finder_optimized(bool isPbPb = false, bool doTree = false)
 {
     //----------------------------------------------------------------------
     // Configuration and initialization
@@ -150,8 +150,8 @@ int track_ambiguity_finder_optimized(bool doTree = false)
 
     // Input simulation file
     // const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250305_pp_addedUTinfo/20250305_pp_addedUTinfo.root";
-    const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_PbPb_addUTinfo/20250311_PbPb_addUTinfo.root";
-    // const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_pp_newOutput/20250311_pp_newOutput.root";
+    // const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_PbPb_addUTinfo/20250311_PbPb_addUTinfo.root";
+    const char *inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_pp_newOutput/20250311_pp_newOutput.root";
     TFile fin(inputFile);
     TTree *ntup = (TTree *)fin.Get("ntup");
     std::cout << "Input file contains " << ntup->GetEntries() << " entries" << std::endl;
@@ -176,12 +176,19 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     system("mkdir -p " + outputdir);
 
     // Set matching windows for hit pattern analysis
-    const double matchingWindow = 1000;      // Matching window size in mm
-    const int maxBarDifference = 50;         // Maximum allowed bar difference
-    const int maxSegmentDifferencePlus = 2;  // Maximum allowed segment difference
-    const int maxSegmentDifferenceMinus = 1; // Maximum allowed segment difference
-    const int maxTimeDifference = 5;         // Maximum allowed time difference [ns]
-    const double maxAngleDifference = 0.3;   // Maximum allowed angle difference [rad]
+    double matchingWindow = 1000;      // Matching window size in mm
+    int maxBarDifference = 50;         // Maximum allowed bar difference
+    int maxSegmentDifferencePlus = 2;  // Maximum allowed segment difference
+    int maxSegmentDifferenceMinus = 1; // Maximum allowed segment difference
+    int maxTimeDifference = 5;         // Maximum allowed time difference [ns]
+    double maxAngleDifference = 0.25;   // Maximum allowed angle difference [rad]
+    if(isPbPb){
+        maxBarDifference = 50;
+        maxSegmentDifferencePlus = 2;
+        maxSegmentDifferenceMinus = 1;
+        maxTimeDifference = 5;
+        maxAngleDifference = 0.3;
+    }
 
     //----------------------------------------------------------------------
     // Set up tree reader and branches for input data
@@ -460,8 +467,13 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     while (tree.Next())
     {
         // Limit the number of events processed for faster development/testing
-        if (numEvt > 10)
-            break;
+        if (isPbPb){
+            if(numEvt > 10)
+                break;
+        } else{
+            // if (numEvt > 500)
+            //     break;
+        }
 
         std::cout << "Event " << numEvt << " with " << pid.GetSize() << " particles" << std::endl;
         numEvt++;
@@ -794,8 +806,11 @@ int track_ambiguity_finder_optimized(bool doTree = false)
                 // NOTE Check if hit is in allowed segment range and time window
                 if (((clusterizedHits_bitID[j] >> 18 & 0xF) > (segment_match - maxSegmentDifferenceMinus)) &&
                     ((clusterizedHits_bitID[j] >> 18 & 0xF) < (segment_match + maxSegmentDifferencePlus)) &&
-                    (clusterizedHits_time[j] > (time_match - maxTimeDifference)) &&
-                    (clusterizedHits_time[j] < (time_match + maxTimeDifference)))
+                    // NOTE use the extrapolation time instead of the true hit time here now
+                    (clusterizedHits_time[j] > (final_time - maxTimeDifference)) &&
+                    (clusterizedHits_time[j] < (final_time + maxTimeDifference)))
+                    // (clusterizedHits_time[j] > (time_match - maxTimeDifference)) &&
+                    // (clusterizedHits_time[j] < (time_match + maxTimeDifference)))
                 {
 
                     // NOTE Check if hit is within 7 bars of the matched bar
@@ -1539,20 +1554,23 @@ int track_ambiguity_finder_optimized(bool doTree = false)
     hNTrackletsSlope->SetLineColor(kRed);
     hNTrackletsTime->SetLineColor(kBlue);
     hNTrackletsSlopeAndTimeCut->SetLineColor(kGreen);
-    hNTrackletsSlopeAndTimeCut->Draw();
-    hNTracklets->Draw("same");
+    //set x axis tile
+    hNTracklets->GetXaxis()->SetTitle("Number of tracklet candidates for extrapolated track");
+    hNTracklets->Draw();
     hNTrackletsSlope->Draw("same");
     hNTrackletsTime->Draw("same");
+    hNTrackletsSlopeAndTimeCut->Draw("same");
     TLegend *leg = new TLegend(0.35, 0.65, 0.55, 0.85);
     leg->SetBorderSize(0);
     leg->SetFillStyle(0);
     leg->SetTextSize(0.04);
     leg->AddEntry(hNTracklets, "All tracklets", "l");
     leg->AddEntry(hNTrackletsSlope, Form("Angle < %1.1f rad",maxAngleDifference), "l");
-    leg->AddEntry(hNTrackletsTime, "Time difference < 2.5 ns", "l");
-    leg->AddEntry(hNTrackletsSlopeAndTimeCut, Form("Angle < %1.1f rad and time difference < 2.5 ns",maxAngleDifference), "l");
+    leg->AddEntry(hNTrackletsTime, "{#Delta}t < 2.5 ns", "l");
+    leg->AddEntry(hNTrackletsSlopeAndTimeCut, Form("Angle < %1.1f rad and {#Delta}t < 2.5 ns",maxAngleDifference), "l");
     leg->Draw();
     c3a.SaveAs(Form("%shNTrackletsAll.pdf", outputdir.Data()));
+    c3a.SaveAs(Form("%shNTrackletsAll.root", outputdir.Data()));
 
     // Plot examples of track fits with before/after outlier removal
     TCanvas c4("c4", "Track Fitting Examples", 1800, 1600);

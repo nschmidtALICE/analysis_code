@@ -11,12 +11,23 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <TTreeReader.h>
+#include <TTreeReaderArray.h>
+#include <TString.h>
+#include <TLegend.h>
+#include <TMath.h>
+#include <TProfile.h>
+#include <TProfile2D.h>
+#include <TGraph.h>
+#include <TStyle.h>
 
 // void makeangleplot_occupancy(TString inputfile = "/home/niviths/Downloads/magnetStationSims/2100_wtf/minimumBias_MS_MagDown_2100plus.root") // tilt
 // void makeangleplot_occupancy(TString inputfile = "/home/niviths/Downloads/magnetStationSims/minimumBias_MS_MagDown_PbPb.root") // tilt
 // void makeangleplot_occupancy(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250216/minimumBias_MS_MagDown_20250216.root") // tilt
-void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250218_8cm_inward_lastPanelsNarrow/minimumBias_MS_MagDown_20250218_8cm_inward_lastPanelsNarrow.root") // tilt
+// void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250218_8cm_inward_lastPanelsNarrow/minimumBias_MS_MagDown_20250218_8cm_inward_lastPanelsNarrow.root") // tilt
 // void makeangleplot_occupancy(TString inputfile = "/home/niviths/Downloads/magnetStationSims/minimumBias_MS_MagDown_10015plus.root") // tilt
+void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250311_PbPb_addUTinfo/20250311_PbPb_addUTinfo.root") // tilt
+// void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloads/magnetStationSims/20250311_pp_newOutput/20250311_pp_newOutput.root") // tilt
 {
     TFile fin(inputfile, "READ");
     cout << "Opened file " << inputfile << endl;
@@ -66,8 +77,12 @@ void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloa
 
     double binningYOccupancyPlot[9] = {0, 3, 9, 18, 30, 45, 63, 92, 100};
     TH2F* hOccupancyPlotStation[4];
+    TH2F* hOccupancyPlotStationTimeBins[4][10];
     for(int i = 0; i < 4; i++){
         hOccupancyPlotStation[i] = new TH2F(Form("hOccupancyPlotStation%d",i), Form("Occupancy plot for station %d",i), 57*7+2*31, 0, 57*7+2*31, 8, binningYOccupancyPlot);
+        for(int j = 0; j < 10; j++){
+            hOccupancyPlotStationTimeBins[i][j] = new TH2F(Form("hOccupancyPlotStation%dTimeBin%d",i,j), Form("Occupancy plot for station %d time bin %d",i,j), 57*7+2*31, 0, 57*7+2*31, 8, binningYOccupancyPlot);
+        }
     }
 
     //Define a logarithmic binning from 0.1 to 10 GeV with 100 bins
@@ -106,17 +121,21 @@ void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloa
     int nHits_MSbars = 0;
     int currentEventNumber = 0;
     cout << "Number of entries: " << tree.GetEntries() << endl;
+    int nUpdateEvents = 1000;
+    if(tree.GetEntries() < 1000){
+        nUpdateEvents = 10;
+    }
     while (tree.Next())
     {
     
         curr_entry++;
-        if (curr_entry % 10 == 0)
+        if (curr_entry % nUpdateEvents == 0)
             cout << "Entry: " << curr_entry << endl;
             if(fillOnce==0){
                 break;
             }   
-        cout <<  pt.GetSize() << endl;
-        if( pt.GetSize()<25000) continue;
+        // cout <<  pt.GetSize() << endl;
+        // if( pt.GetSize()<25000) continue;
         for (auto i = 0U; i < pt.GetSize(); ++i)
         {
             if(fillOnce==0){
@@ -137,9 +156,9 @@ void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloa
                                 maxTimeBinCount = count;
                                 maxTimeBin = j;
                             }
-                            cout << "Time bin: " << j << " with " << count << " entries" << endl;
+                            // cout << "Time bin: " << j << " with " << count << " entries" << endl;
                         }
-                        cout << "Max time bin: " << maxTimeBin << " with " << maxTimeBinCount << " entries" << endl;
+                        // cout << "Max time bin: " << maxTimeBin << " with " << maxTimeBinCount << " entries" << endl;
 
                     //loop over segmentsHit and fill the occupancy plot
                     // cout << "n segments hit: " << segmentsHit.size() << endl;
@@ -166,7 +185,7 @@ void makeangleplot_occupancy_timeBins(TString inputfile = "/home/niviths/Downloa
                                 // cout << "Station: " << station << " Module: " << module << " Segment: " << segment << " Bar: " << bar << endl;
                             }
                         }
-                        fillOnce = 0;
+                        // fillOnce = 0;
                     }
                 }
                 currentEventNumber = ievt[i];
