@@ -791,6 +791,10 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
     std::ofstream outfile("trajectories.dat");
     outfile << "# particle_id step x y z px py pz energy mass charge hit_boundary" << std::endl;
 
+    // Create second ASCII output file with only the final position for each particle
+    std::ofstream finalfile("final_positions.dat");
+    finalfile << "# particle_id x y z px py pz energy mass charge hit_boundary" << std::endl;
+
     // Create MultiGraph objects for combined trajectory visualization
     // These will contain all particle trajectories in different projections
     TMultiGraph *mg_xy = new TMultiGraph("mg_xy", "All Trajectories XY Projection;X (m);Y (m)");
@@ -821,10 +825,13 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
         mass_value = mass;
         charge_value = charge;
 
-        // Create logarithmically spaced momentum values from 0.5 to 5 GeV/c
+        // Create logarithmically spaced momentum values from 2.0 to 2.5 GeV/c
         // This ensures good coverage of both low and high momentum behaviors
-        double log_min = -0.3; // log10(0.5) ≈ -0.3
-        double log_max = 0.7;  // log10(5) ≈ 0.7
+        double log_min = log10(1.0); // log10(2.0) ≈ 0.301
+        double log_max = log10(1.1); // log10(2.5) ≈ 0.397
+
+        // double log_min = -0.3; // log10(0.5) ≈ -0.3
+        // double log_max = 0.7;  // log10(5) ≈ 0.7
         double momentum_magnitude = pow(10.0, log_min + i * ((log_max - log_min) / (nParticles - 1)));
 
         // Set momentum direction (mainly along z-axis with small x component)
@@ -926,6 +933,12 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
                     << (hit_boundary ? 1 : 0) << std::endl;
         }
 
+        // Write final point to ASCII file
+        finalfile << particle_id << " " << x << " " << y << " " << z << " "
+                  << px_out << " " << py_out << " " << pz_out << " "
+                  << energy << " " << mass << " " << charge << " "
+                  << (hit_boundary ? 1 : 0) << std::endl;
+
         // Add this particle's graphs to the multi-graphs for combined visualization
         mg_xy->Add(graph_xy, "l"); // "l" option draws lines
         mg_xz->Add(graph_xz, "l");
@@ -989,6 +1002,7 @@ int track_propagatorRK( int nParticles = 200, bool verboseInfo = false)
     tree->Write();
     rootFile->Close();
     outfile.close();
+    finalfile.close();
 
     // Print completion message with summary
     std::cout << "\n=======================================" << std::endl;
