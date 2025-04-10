@@ -179,7 +179,8 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     {
         std::cout << "Running pp configuration" << std::endl;
         // inputFile = "/home/niviths/Downloads/magnetStationSims/20250311_pp_newOutput/20250311_pp_newOutput.root";
-        inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250328_pp_newSegmentation/20250328_pp_newSegmentation.root";
+        inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250410_fixedModuleOffsets/20250410_fixedModuleOffsets.root";
+        // inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250328_pp_newSegmentation/20250328_pp_newSegmentation.root";
     }
 
     TFile fin(inputFile);
@@ -215,14 +216,14 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     // Set matching windows for hit pattern analysis
     double matchingWindow = 1000;      // Matching window size in mm
     int maxBarDifference = 50;         // Maximum allowed bar difference
-    int maxSegmentDifferencePlus = 2;  // Maximum allowed segment difference
+    int maxSegmentDifferencePlus = 1;  // Maximum allowed segment difference
     int maxSegmentDifferenceMinus = 1; // Maximum allowed segment difference
-    int maxTimeDifference = 5;         // Maximum allowed time difference [ns]
+    int maxTimeDifference = 1;         // Maximum allowed time difference [ns] //TODO CHECK!!! IT WAS 5 BEFORE
     double maxAngleDifference = 0.5;   // was 0.25;  // Maximum allowed angle difference [rad]
     if (isPbPb)
     {
         maxBarDifference = 50;
-        maxSegmentDifferencePlus = 2;
+        maxSegmentDifferencePlus = 1;
         maxSegmentDifferenceMinus = 1;
         maxTimeDifference = 5;
         maxAngleDifference = 0.5; // was 0.3;
@@ -351,11 +352,12 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
         10, -0.50, 9.5);
 
     // Track matching quality analysis
-    double matchWindow = 1000; // Matching window size in mm
+    double matchWindow = 500; // Matching window size in mm
+    double yScaleHisto = 0.5;   // Scaling factor for y-axis in histograms
     TH2D *hMatchdYdZ = new TH2D(
         "hMatchdYdZ",
         "Matched dYdZ",
-        100, -matchWindow / 5, matchWindow / 5,
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto,
         100, -matchWindow, matchWindow);
 
     TH2D *hMatchdXdZ = new TH2D(
@@ -372,7 +374,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     TH1D *hMatchdY = new TH1D(
         "hMatchdY",
         "Matched dY",
-        100, -matchWindow / 5, matchWindow / 5);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
 
     TH1D *hMatchdZ = new TH1D(
         "hMatchdZ",
@@ -392,12 +394,28 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
         hMatchdYModule[i] = new TH1D(
             Form("hMatchdYModule%d", i),
             Form("Matched dY for module %d", i),
-            100, -matchWindow / 5, matchWindow / 5);
+            100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
         hMatchdZModule[i] = new TH1D(
             Form("hMatchdZModule%d", i),
             Form("Matched dZ for module %d", i),
             100, -matchWindow, matchWindow);
     }
+
+    TH1D *hMatchdXIterated = new TH1D(
+        "hMatchdXIterated",
+        "Matched dX after iteration",
+        100, -matchWindow, matchWindow);
+
+    TH1D *hMatchdYIterated = new TH1D(
+        "hMatchdYIterated",
+        "Matched dY after iteration",
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
+
+    TH1D *hMatchdZIterated = new TH1D(
+        "hMatchdZIterated",
+        "Matched dZ after iteration",
+        100, -matchWindow, matchWindow);
+
         //make hMatchdX, hMatchdY, hMatchdZ for each of the 4 stations
     TH1D *hMatchdXStation[4];
     TH1D *hMatchdYStation[4];
@@ -411,7 +429,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
         hMatchdYStation[i] = new TH1D(
             Form("hMatchdYStation%d", i),
             Form("Matched dY for station %d", i),
-            100, -matchWindow / 5, matchWindow / 5);
+            100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
         hMatchdZStation[i] = new TH1D(
             Form("hMatchdZStation%d", i),
             Form("Matched dZ for station %d", i),
@@ -421,36 +439,61 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     TH1D *hMatchdXExtrapolToTracklet = new TH1D(
         "hMatchdXExtrapolToTracklet",
         "Matched dX extrapolated to tracklet",
-        100, -matchWindow, matchWindow);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
 
     TH1D *hMatchdYExtrapolToTracklet = new TH1D(
         "hMatchdYExtrapolToTracklet",
         "Matched dY extrapolated to tracklet",
-        100, -matchWindow / 5, matchWindow / 5);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
 
     TH1D *hMatchdZExtrapolToTracklet = new TH1D(
         "hMatchdZExtrapolToTracklet",
         "Matched dZ extrapolated to tracklet",
-        100, -matchWindow, matchWindow);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
+
+    // make same histograms as above, but for each station separately
+    TH1D *hMatchdXExtrapolToTrackletStation[4];
+    TH1D *hMatchdYExtrapolToTrackletStation[4];
+    TH1D *hMatchdZExtrapolToTrackletStation[4];
+    for (int i = 0; i < 4; i++)
+    {
+        hMatchdXExtrapolToTrackletStation[i] = new TH1D(
+            Form("hMatchdXExtrapolToTrackletStation%d", i),
+            Form("Matched dX extrapolated to tracklet for station %d", i),
+            100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
+        hMatchdYExtrapolToTrackletStation[i] = new TH1D(
+            Form("hMatchdYExtrapolToTrackletStation%d", i),
+            Form("Matched dY extrapolated to tracklet for station %d", i),
+            100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
+        hMatchdZExtrapolToTrackletStation[i] = new TH1D(
+            Form("hMatchdZExtrapolToTrackletStation%d", i),
+            Form("Matched dZ extrapolated to tracklet for station %d", i),
+            100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
+    }
 
     TH1D *hMatchdXExtrapolToTrackletQuality = new TH1D(
         "hMatchdXExtrapolToTrackletQuality",
         "Matched dX extrapolated to tracklet with quality cut",
-        100, -matchWindow, matchWindow);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
     TH1D *hMatchdYExtrapolToTrackletQuality = new TH1D(
         "hMatchdYExtrapolToTrackletQuality",
         "Matched dY extrapolated to tracklet with quality cut",
-        100, -matchWindow / 5, matchWindow / 5);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
     TH1D *hMatchdZExtrapolToTrackletQuality = new TH1D(
         "hMatchdZExtrapolToTrackletQuality",
         "Matched dZ extrapolated to tracklet with quality cut",
-        100, -matchWindow, matchWindow);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
+
+    TH1D *hMomentumScaleFactor = new TH1D(
+        "hMomentumScaleFactor",
+        "Momentum scale factor",
+        200, 0.5, 1.5);
 
     // make the same histograms as the five above for after application of cuts
     TH2D *hMatchdYdZCut = new TH2D(
         "hMatchdYdZCut",
         "Matched dYdZ after cuts",
-        100, -matchWindow / 5, matchWindow / 5,
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto,
         100, -matchWindow, matchWindow);
 
     TH2D *hMatchdXdZCut = new TH2D(
@@ -467,7 +510,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     TH1D *hMatchdYCut = new TH1D(
         "hMatchdYCut",
         "Matched dY after cuts",
-        100, -matchWindow / 5, matchWindow / 5);
+        100, -matchWindow * yScaleHisto, matchWindow * yScaleHisto);
 
     TH1D *hMatchdZCut = new TH1D(
         "hMatchdZCut",
@@ -488,7 +531,8 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     TH2D *hExtrapolatedXZ = new TH2D(
         "hExtrapolatedXZ",
         "Extrapolated XZ",
-        100, -3000, 3000, 100, 4500, 8500);
+        200, -3000, 3000, 200, 4700, 7500);
+        // 100, -3000, 3000, 100, 4500, 8500);
 
     TH2D *hExtrapolatedYZ = new TH2D(
         "hExtrapolatedYZ",
@@ -516,6 +560,39 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
         "hDiffBarPositionToTrueHitPositionZ",
         "Difference between bar position and true hit position Z",
         200, -1000, 1000);
+
+    TH1D *hRelativeDistancedXTracklets = new TH1D(
+        "hRelativeDistancedXTracklets",
+        "Relative distance dX between tracklets",
+       100, -400, 400);
+    TH1D *hRelativeDistancedYTracklets = new TH1D(
+        "hRelativeDistancedYTracklets",
+        "Relative distance dY between tracklets",
+       100, -400, 400);
+    TH1D *hRelativeDistancedZTracklets = new TH1D(
+        "hRelativeDistancedZTracklets",
+        "Relative distance dZ between tracklets",
+       100, -400, 400);
+
+    //make the above histograms for each station separately
+    TH1D *hRelativeDistancedXTrackletsStation[4];
+    TH1D *hRelativeDistancedYTrackletsStation[4];
+    TH1D *hRelativeDistancedZTrackletsStation[4];
+    for (int i = 0; i < 4; i++)
+    {
+        hRelativeDistancedXTrackletsStation[i] = new TH1D(
+            Form("hRelativeDistancedXTrackletsStation%d", i),
+            Form("Relative distance dX between tracklets for station %d", i),
+           100, -400, 400);
+        hRelativeDistancedYTrackletsStation[i] = new TH1D(
+            Form("hRelativeDistancedYTrackletsStation%d", i),
+            Form("Relative distance dY between tracklets for station %d", i),
+           100, -400, 400);
+        hRelativeDistancedZTrackletsStation[i] = new TH1D(
+            Form("hRelativeDistancedZTrackletsStation%d", i),
+            Form("Relative distance dZ between tracklets for station %d", i),
+           100, -400, 400);
+    }
 
     // Momentum smearing analysis
     double maxDiffExtrapolation = 2000; // Maximum extrapolation difference in mm
@@ -582,6 +659,8 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     candidateHitIndices.reserve(5000);
     int maxbartemp = 0;
 
+    bool doIterativePropagation = false; // Flag to enable iterative propagation
+
     while (tree.Next())
     {
         // Limit the number of events processed for faster development/testing
@@ -592,7 +671,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
         }
         else
         {
-            if (numEvt > 500)
+            if (numEvt > 2500)
                 break;
         }
 
@@ -614,8 +693,11 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                     maxbartemp = barIDtemp;
                 TVector3 positionOnBar = getBarPosition(ms_bitID[j] >> 8 & 0x7, ms_bitID[j] >> 11 & 0xF, ms_bitID[j] >> 15 & 0x7, ms_bitID[j] >> 18 & 0xF, barIDtemp);
                 //only fill for station 0 module 2
-                if ((ms_bitID[j] >> 8 & 0x7) == 0 && (ms_bitID[j] >> 11 & 0xF) == 2)
+                if ((ms_bitID[j] >> 8 & 0x7) == 1 && (ms_bitID[j] >> 11 & 0xF) == 2)
                 {
+                    // cout << "barIDtemp: " << barIDtemp << " in module: " << (ms_bitID[j] >> 11 & 0xF) << " in station: " << (ms_bitID[j] >> 8 & 0x7) << endl;
+                    // cout << "\tbr pos: " << positionOnBar.X() << " " << positionOnBar.Y() << " " << positionOnBar.Z() << endl;
+                    // cout << "\tms hit: " << ms_vx[j] << " " << ms_vy[j] << " " << ms_vz[j] << endl;
                     hDiffBarPositionToTrueHitPositionX->Fill(positionOnBar.X() - ms_vx[j]);
                     hDiffBarPositionToTrueHitPositionY->Fill(positionOnBar.Y() - ms_vy[j]);
                     hDiffBarPositionToTrueHitPositionZ->Fill(positionOnBar.Z() - ms_vz[j]);
@@ -644,6 +726,26 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
             {
                 continue;
             }
+
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // //TODO only select charged pions for now
+            // if (pid[i] != 211 && pid[i] != -211)
+            // {
+            //     continue; // Skip particles that are not charged pions
+            // }
 
             //----------------------------------------------------------------------
             // Set up particle properties for propagation - avoid recalculating constants
@@ -936,6 +1038,73 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
             double dyExtrapolSmeared = final_position_plus.Y() - final_position_minus.Y();
             hExtrapolationMomentumSmearingdYdZ->Fill(dyExtrapolSmeared, dzExtrapolSmeared);
 
+
+            bool changedBaseMomentum = false;
+            double momentumScale = 1.0;
+            int nIterations = 0;
+            if(doIterativePropagation)
+            {
+                // if(abs(point_match.z - final_position.Z()) < 5){
+                // check if the radial distance in x and z is less than 5mm
+                if( sqrt(pow(point_match.x - final_position.X(), 2) + pow(point_match.z - final_position.Z(), 2)) < 10){
+                    //do nothing, since we're already within 5 mm
+                    hMomentumScaleFactor->Fill(momentumScale);
+                    hMatchdXIterated->Fill(point_match.x - final_position.X());
+                    hMatchdYIterated->Fill(point_match.y - final_position.Y());
+                    hMatchdZIterated->Fill(point_match.z - final_position.Z());
+                } else {
+                    //if the extrapolated radial distance in x and z is outside of the match window, we need to change the base momentum
+                    double deltaXZ = sqrt(pow(point_match.x - final_position.X(), 2) + pow(point_match.z - final_position.Z(), 2));
+                    // cout << "deltaXZ: " << deltaXZ << "\tdeltaX: " << point_match.x - final_position.X() << " deltaZ: " << point_match.z - final_position.Z() << endl;
+                    
+                    while (abs(deltaXZ) > 10 && nIterations<100)
+                    {
+                        nIterations++;
+                        // Calculate the new momentum based on the deltaXZ
+                        // Use a simple linear approximation for the momentum adjustment
+                        // Adjust the momentum by a small factor (e.g., 0.1%)
+                        int sign = (point_match.z - final_position.Z()) > 0 ? 1 : -1;
+                        momentumScale = momentumScale + 0.5*sign*deltaXZ / sqrt(pow(final_position.X(), 2) + pow(final_position.Z(), 2));
+                        // cout << "\tIteration: " << nIterations << "\tmomentumScale: " << momentumScale << endl;
+
+                        const double momentum_magnitudeMod = momentumScale * p[i] / 1000.0;
+                        const double total_energyMod = sqrt(momentum_magnitudeMod * momentum_magnitudeMod + particle_mass * particle_mass);
+
+                        // Create momentum vector (convert MeV/c to GeV/c)
+                        const TVector3 momentumMod = direction * momentum_magnitudeMod;
+
+                        // Create four-momentum vectors for all three cases at once
+                        TLorentzVector four_momentumMod(momentumMod.X(), momentumMod.Y(), momentumMod.Z(), total_energyMod);
+
+                        std::vector<State> trajectoryMod = propagator.propagate(
+                            initial_position, four_momentumMod, initial_time, 8.0, 50000);
+
+                        double deltaX = point_match.x - trajectoryMod.back().position.X() * 1000;
+                        double deltaY = point_match.y - trajectoryMod.back().position.Y() * 1000;
+                        double deltaZ = point_match.z - trajectoryMod.back().position.Z() * 1000;
+                        // compare trajectoryMod enpoint with point_match
+                        deltaXZ = sqrt(pow(deltaX, 2) + pow(deltaZ, 2));
+                        // cout << "\tdeltaXZMod: " << deltaXZ << "\t\tdeltaXMod: " << deltaX << " deltaZMod: " << deltaZ << endl;
+
+                        if (abs(deltaXZ) < 10){
+                            changedBaseMomentum = true;
+                            // Fill the iterated histograms
+                            hMatchdXIterated->Fill(deltaX);
+                            hMatchdYIterated->Fill(deltaY);
+                            hMatchdZIterated->Fill(deltaZ);
+                            break;
+                        }
+
+                    }
+                }
+
+            }
+            if(changedBaseMomentum)
+            {
+                // Fill the momentum scale factor histogram
+                hMomentumScaleFactor->Fill(momentumScale);
+                cout << "\tmomentumScale: " << momentumScale << " after " << nIterations << " iterations" << endl;
+            }
             //----------------------------------------------------------------------
             // Find nearby hits in same detector region
             //----------------------------------------------------------------------
@@ -959,8 +1128,8 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                 }
 
                 // NOTE Check if hit is in allowed segment range and time window
-                if (((clusterizedHits_bitID[j] >> 18 & 0xF) > (segment_match - maxSegmentDifferenceMinus)) &&
-                    ((clusterizedHits_bitID[j] >> 18 & 0xF) < (segment_match + maxSegmentDifferencePlus)) &&
+                if (((clusterizedHits_bitID[j] >> 18 & 0xF) >= (segment_match - maxSegmentDifferenceMinus)) &&
+                    ((clusterizedHits_bitID[j] >> 18 & 0xF) <= (segment_match + maxSegmentDifferencePlus)) &&
                     // NOTE use the extrapolation time instead of the true hit time here now
                     (clusterizedHits_time[j] > (final_time - maxTimeDifference)) &&
                     (clusterizedHits_time[j] < (final_time + maxTimeDifference)))
@@ -1135,7 +1304,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                         }
 
                         // NOTE Check time coincidence window (1ns)
-                        if (abs(close_by_hits_time[j] - close_by_hits_time[k]) < maxTimeDifference / 2)
+                        if (abs(close_by_hits_time[j] - close_by_hits_time[k]) < maxTimeDifference) //TODO was /2
                         {
                             // Extract bar indices
                             int bar_layer0 = close_by_hits_bitID[j] >> 22 & 0x3F;
@@ -1526,6 +1695,9 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
             int successfulFitCountTimeCutTrue = 0;         // Counter for tracklets with good tracklet fits
             int successfulFitCountSlopeAndTimeCutTrue = 0; // Counter for tracklets with good tracklet fits
 
+            // Create a vector to store the hit positions of the first layer hits to determine the delta distance between the found tracklets
+            std::vector<Point> ms_hit_positions;
+            std::vector<bool> ms_hit_positions_true;
             // Process each hit group and perform track fitting
             for (size_t groupIdx = 0; groupIdx < tracklet_hits_layers.size(); ++groupIdx)
             {
@@ -1732,7 +1904,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                         successfulFitCountTrue++;
                     }
                 }
-                if (abs(time_diff) < maxTimeDifference / 2)
+                if (abs(time_diff) < maxTimeDifference)
                 {
                     successfulFitCountTimeCut++;
                     if (track_contains_true_hit)
@@ -1740,7 +1912,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                         successfulFitCountTimeCutTrue++;
                     }
                 }
-                if (angle2 < maxAngleDifference && abs(time_diff) < maxTimeDifference / 2)
+                if (angle2 < maxAngleDifference && abs(time_diff) < maxTimeDifference)
                 {
                     successfulFitCountSlopeAndTimeCut++;
                     if (track_contains_true_hit)
@@ -1754,6 +1926,15 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                     hMatchdXCut->Fill(point_match.x - final_position.X());
                     hMatchdYCut->Fill(point_match.y - final_position.Y());
                     hMatchdZCut->Fill(point_match.z - final_position.Z());
+                }
+
+                if(track_contains_true_hit)
+                {
+                    ms_hit_positions_true.push_back(true);
+                } 
+                else
+                {
+                    ms_hit_positions_true.push_back(false);
                 }
 
                 // Output detailed comparison if in verbose mode
@@ -1773,6 +1954,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                 // loop over ms hits and find corresponding hit to layer 0 hit of tracklet. get position from this hit and compare to extrapolated track position
                 if (!isPbPb)
                 {
+
                     // Find layer 0 hit of this tracklet and compare its actual position to extrapolated track position
                     for (size_t hitIdx = 0; hitIdx < tracklet_hits_layers[groupIdx].size(); ++hitIdx)
                     {
@@ -1796,6 +1978,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                                 {
                                     // Get the actual position of the hit
                                     Point actual_hit_pos(ms_vx[j], ms_vy[j], ms_vz[j]);
+                                    ms_hit_positions.push_back(actual_hit_pos);
 
                                     // Calculate position differences
                                     // double dx = actual_hit_pos.x - final_position.X();
@@ -1809,9 +1992,12 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                                     hMatchdXExtrapolToTracklet->Fill(dx);
                                     hMatchdYExtrapolToTracklet->Fill(dy);
                                     hMatchdZExtrapolToTracklet->Fill(dz);
+                                    hMatchdXExtrapolToTrackletStation[stationMatch]->Fill(dx);
+                                    hMatchdYExtrapolToTrackletStation[stationMatch]->Fill(dy);
+                                    hMatchdZExtrapolToTrackletStation[stationMatch]->Fill(dz);
 
                                     // If this tracklet meets the quality criteria, record in separate histograms
-                                    if (angle2 < maxAngleDifference && abs(time_diff) < maxTimeDifference / 2)
+                                    if (angle2 < maxAngleDifference && abs(time_diff) < maxTimeDifference)
                                     {
                                         // You can create additional histograms for quality-selected tracks
                                         // Example:
@@ -1829,6 +2015,27 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
                     }
                 }
             } // end of tracklet fitting loop
+
+            //loop over the hit positions and fill the histogram with the distance to the extrapolated track position
+            for (size_t i = 0; i < ms_hit_positions.size(); ++i)
+            {
+                for (size_t j = 0; j < ms_hit_positions.size(); ++j)
+                {
+                    if (i == j)
+                        continue; // Skip the same hit
+
+                    double dx = ms_hit_positions[i].x - ms_hit_positions[j].x;
+                    double dy = ms_hit_positions[i].y - ms_hit_positions[j].y;
+                    double dz = ms_hit_positions[i].z - ms_hit_positions[j].z;
+
+                    hRelativeDistancedXTracklets->Fill(dx);
+                    hRelativeDistancedYTracklets->Fill(dy);
+                    hRelativeDistancedZTracklets->Fill(dz);
+                    hRelativeDistancedXTrackletsStation[stationMatch]->Fill(dx);
+                    hRelativeDistancedYTrackletsStation[stationMatch]->Fill(dy);
+                    hRelativeDistancedZTrackletsStation[stationMatch]->Fill(dz);
+                }
+            }
 
             // Fill histogram with number of successful track fits
             hNTrackletsSlope->Fill(successfulFitCount);
@@ -2287,6 +2494,39 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     leg2->Draw();
     c11.SaveAs(Form("%shMatchdZ.pdf", outputdir.Data()));
 
+    //plot hMatchdZIterated, hMatchdYIterated, hMatchdXIterated
+    TCanvas c11a2("c11a2", "Z Position Matching", 800, 600);
+    hMatchdZIterated->GetXaxis()->SetTitle("Z position difference [mm]");
+    hMatchdZIterated->GetYaxis()->SetTitle("Counts");
+    hMatchdZIterated->Draw();
+    //add a gaussian fit around 0 to the histogram
+    TF1 *gaus2 = new TF1("gaus2", "gaus", -200, 150);
+    hMatchdZIterated->Fit(gaus2, "R");
+    gaus2->SetLineColor(kRed);
+    gaus2->SetLineWidth(2);
+    gaus2->Draw("same");
+    //add a legend with the mean value
+    TLegend *leg6a = new TLegend(0.15, 0.65, 0.35, 0.85);
+    leg6a->SetBorderSize(0);
+    leg6a->SetFillStyle(0);
+    leg6a->SetTextSize(0.04);
+    leg6a->AddEntry((TObject *)0, Form("mean: %.2f", gaus2->GetParameter(1)), "");
+    leg6a->AddEntry((TObject *)0, Form("sigma: %.2f", gaus2->GetParameter(2)), "");
+    leg6a->Draw();
+    c11a2.SaveAs(Form("%shMatchdZIterated.pdf", outputdir.Data()));
+
+    TCanvas c11b2("c11b2", "Y Position Matching", 800, 600);
+    hMatchdYIterated->GetXaxis()->SetTitle("Y position difference [mm]");
+    hMatchdYIterated->GetYaxis()->SetTitle("Counts");
+    hMatchdYIterated->Draw();
+    c11b2.SaveAs(Form("%shMatchdYIterated.pdf", outputdir.Data()));
+
+    TCanvas c11c2("c11c2", "X Position Matching", 800, 600);
+    hMatchdXIterated->GetXaxis()->SetTitle("X position difference [mm]");
+    hMatchdXIterated->GetYaxis()->SetTitle("Counts");
+    hMatchdXIterated->Draw();
+    c11c2.SaveAs(Form("%shMatchdXIterated.pdf", outputdir.Data()));
+
     // plot hDiffBarPositionToTrueHitPositionX, hDiffBarPositionToTrueHitPositionY, hDiffBarPositionToTrueHitPositionZ
     TCanvas c12a("c12a", "X Position Matching", 800, 600);
     hDiffBarPositionToTrueHitPositionX->GetXaxis()->SetTitle("X position difference [mm]");
@@ -2348,6 +2588,189 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     hMatchdZExtrapolToTrackletQuality->Draw();
     c11f.SaveAs(Form("%shMatchdZExtrapolToTrackletQuality.pdf", outputdir.Data()));
 
+    //plot all four stations in one plot for hMatchdXExtrapolToTrackletStation
+    TCanvas c11g("c11g", "X Position Matching", 800, 600);
+    hMatchdXExtrapolToTrackletStation[0]->SetLineColor(kRed);
+    hMatchdXExtrapolToTrackletStation[1]->SetLineColor(kBlue);
+    hMatchdXExtrapolToTrackletStation[2]->SetLineColor(kGreen);
+    hMatchdXExtrapolToTrackletStation[3]->SetLineColor(kBlack);
+    hMatchdXExtrapolToTrackletStation[0]->SetLineWidth(2);
+    hMatchdXExtrapolToTrackletStation[1]->SetLineWidth(2);
+    hMatchdXExtrapolToTrackletStation[2]->SetLineWidth(2);
+    hMatchdXExtrapolToTrackletStation[3]->SetLineWidth(2);
+    hMatchdXExtrapolToTrackletStation[0]->GetXaxis()->SetTitle("X position difference [mm]");
+    hMatchdXExtrapolToTrackletStation[0]->GetYaxis()->SetTitle("Counts");
+    hMatchdXExtrapolToTrackletStation[0]->Draw();
+    hMatchdXExtrapolToTrackletStation[1]->Draw("same");
+    hMatchdXExtrapolToTrackletStation[2]->Draw("same");
+    hMatchdXExtrapolToTrackletStation[3]->Draw("same");
+    TLegend *leg6 = new TLegend(0.15, 0.65, 0.35, 0.85);
+    leg6->SetBorderSize(0);
+    leg6->SetFillStyle(0);
+    leg6->SetTextSize(0.04);
+    leg6->AddEntry(hMatchdXExtrapolToTrackletStation[0], "Station 0", "l");
+    leg6->AddEntry(hMatchdXExtrapolToTrackletStation[1], "Station 1", "l");
+    leg6->AddEntry(hMatchdXExtrapolToTrackletStation[2], "Station 2", "l");
+    leg6->AddEntry(hMatchdXExtrapolToTrackletStation[3], "Station 3", "l");
+    leg6->Draw();
+    c11g.SaveAs(Form("%shMatchdXExtrapolToTrackletStationAll.pdf", outputdir.Data()));
+
+    //plot all four stations in one plot for hMatchdYExtrapolToTrackletStation
+    TCanvas c11h("c11h", "Y Position Matching", 800, 600);
+    hMatchdYExtrapolToTrackletStation[0]->SetLineColor(kRed);
+    hMatchdYExtrapolToTrackletStation[1]->SetLineColor(kBlue);
+    hMatchdYExtrapolToTrackletStation[2]->SetLineColor(kGreen);
+    hMatchdYExtrapolToTrackletStation[3]->SetLineColor(kBlack);
+    hMatchdYExtrapolToTrackletStation[0]->SetLineWidth(2);
+    hMatchdYExtrapolToTrackletStation[1]->SetLineWidth(2);
+    hMatchdYExtrapolToTrackletStation[2]->SetLineWidth(2);
+    hMatchdYExtrapolToTrackletStation[3]->SetLineWidth(2);
+    hMatchdYExtrapolToTrackletStation[0]->GetXaxis()->SetTitle("Y position difference [mm]");
+    hMatchdYExtrapolToTrackletStation[0]->GetYaxis()->SetTitle("Counts");
+    hMatchdYExtrapolToTrackletStation[0]->Draw();
+    hMatchdYExtrapolToTrackletStation[1]->Draw("same");
+    hMatchdYExtrapolToTrackletStation[2]->Draw("same");
+    hMatchdYExtrapolToTrackletStation[3]->Draw("same");
+    TLegend *leg7 = new TLegend(0.15, 0.65, 0.35, 0.85);
+    leg7->SetBorderSize(0);
+    leg7->SetFillStyle(0);
+    leg7->SetTextSize(0.04);
+    leg7->AddEntry(hMatchdYExtrapolToTrackletStation[0], "Station 0", "l");
+    leg7->AddEntry(hMatchdYExtrapolToTrackletStation[1], "Station 1", "l");
+    leg7->AddEntry(hMatchdYExtrapolToTrackletStation[2], "Station 2", "l");
+    leg7->AddEntry(hMatchdYExtrapolToTrackletStation[3], "Station 3", "l");
+    leg7->Draw();
+    c11h.SaveAs(Form("%shMatchdYExtrapolToTrackletStationAll.pdf", outputdir.Data()));
+
+    //plot all four stations in one plot for hMatchdZExtrapolToTrackletStation
+    TCanvas c11i("c11i", "Z Position Matching", 800, 600);
+    hMatchdZExtrapolToTrackletStation[0]->SetLineColor(kRed);
+    hMatchdZExtrapolToTrackletStation[1]->SetLineColor(kBlue);
+    hMatchdZExtrapolToTrackletStation[2]->SetLineColor(kGreen);
+    hMatchdZExtrapolToTrackletStation[3]->SetLineColor(kBlack);
+    hMatchdZExtrapolToTrackletStation[0]->SetLineWidth(2);
+    hMatchdZExtrapolToTrackletStation[1]->SetLineWidth(2);
+    hMatchdZExtrapolToTrackletStation[2]->SetLineWidth(2);
+    hMatchdZExtrapolToTrackletStation[3]->SetLineWidth(2);
+    hMatchdZExtrapolToTrackletStation[0]->GetXaxis()->SetTitle("Z position difference [mm]");
+    hMatchdZExtrapolToTrackletStation[0]->GetYaxis()->SetTitle("Counts");
+    hMatchdZExtrapolToTrackletStation[0]->Draw();
+    hMatchdZExtrapolToTrackletStation[1]->Draw("same"); 
+    hMatchdZExtrapolToTrackletStation[2]->Draw("same");
+    hMatchdZExtrapolToTrackletStation[3]->Draw("same");
+    TLegend *leg8 = new TLegend(0.15, 0.65, 0.35, 0.85);
+    leg8->SetBorderSize(0);
+    leg8->SetFillStyle(0);
+    leg8->SetTextSize(0.04);
+    leg8->AddEntry(hMatchdZExtrapolToTrackletStation[0], "Station 0", "l");
+    leg8->AddEntry(hMatchdZExtrapolToTrackletStation[1], "Station 1", "l");
+    leg8->AddEntry(hMatchdZExtrapolToTrackletStation[2], "Station 2", "l");
+    leg8->AddEntry(hMatchdZExtrapolToTrackletStation[3], "Station 3", "l");
+    leg8->Draw();
+    c11i.SaveAs(Form("%shMatchdZExtrapolToTrackletStationAll.pdf", outputdir.Data()));
+
+    //plot hRelativeDistancedXTracklets
+    TCanvas c11j("c11j", "X Position Matching", 800, 600);
+    hRelativeDistancedXTracklets->GetXaxis()->SetTitle("X position difference of found tracklets [mm]");
+    hRelativeDistancedXTracklets->GetYaxis()->SetTitle("Counts");
+    hRelativeDistancedXTracklets->Draw();
+    c11j.SaveAs(Form("%shRelativeDistancedXTracklets.pdf", outputdir.Data()));
+
+    // plot hRelativeDistancedYTracklets
+    TCanvas c11k("c11k", "Y Position Matching", 800, 600);
+    hRelativeDistancedYTracklets->GetXaxis()->SetTitle("Y position difference of found tracklets [mm]");
+    hRelativeDistancedYTracklets->GetYaxis()->SetTitle("Counts");
+    hRelativeDistancedYTracklets->Draw();
+    c11k.SaveAs(Form("%shRelativeDistancedYTracklets.pdf", outputdir.Data()));
+
+    // plot hRelativeDistancedZTracklets
+    TCanvas c11l("c11l", "Z Position Matching", 800, 600);
+    hRelativeDistancedZTracklets->GetXaxis()->SetTitle("Z position difference of found tracklets [mm]");
+    hRelativeDistancedZTracklets->GetYaxis()->SetTitle("Counts");
+    hRelativeDistancedZTracklets->Draw();
+    c11l.SaveAs(Form("%shRelativeDistancedZTracklets.pdf", outputdir.Data()));
+
+    // plot hRelativeDistancedXTrackletsStation in a single plot
+    TCanvas c11m("c11m", "X Position Matching", 800, 600);
+    hRelativeDistancedXTrackletsStation[0]->SetLineColor(kRed);
+    hRelativeDistancedXTrackletsStation[1]->SetLineColor(kBlue);
+    hRelativeDistancedXTrackletsStation[2]->SetLineColor(kGreen);
+    hRelativeDistancedXTrackletsStation[3]->SetLineColor(kBlack);
+    hRelativeDistancedXTrackletsStation[0]->SetLineWidth(2);
+    hRelativeDistancedXTrackletsStation[1]->SetLineWidth(2);
+    hRelativeDistancedXTrackletsStation[2]->SetLineWidth(2);
+    hRelativeDistancedXTrackletsStation[3]->SetLineWidth(2);
+    hRelativeDistancedXTrackletsStation[0]->GetXaxis()->SetTitle("X position difference of found tracklets [mm]");
+    hRelativeDistancedXTrackletsStation[0]->GetYaxis()->SetTitle("Counts");
+    hRelativeDistancedXTrackletsStation[0]->Draw();
+    hRelativeDistancedXTrackletsStation[1]->Draw("same");
+    hRelativeDistancedXTrackletsStation[2]->Draw("same");
+    hRelativeDistancedXTrackletsStation[3]->Draw("same");
+    TLegend *leg9 = new TLegend(0.15, 0.65, 0.35, 0.85);
+    leg9->SetBorderSize(0);
+    leg9->SetFillStyle(0);
+    leg9->SetTextSize(0.04);
+    leg9->AddEntry(hRelativeDistancedXTrackletsStation[0], "Station 0", "l");
+    leg9->AddEntry(hRelativeDistancedXTrackletsStation[1], "Station 1", "l");
+    leg9->AddEntry(hRelativeDistancedXTrackletsStation[2], "Station 2", "l");
+    leg9->AddEntry(hRelativeDistancedXTrackletsStation[3], "Station 3", "l");
+    leg9->Draw();
+    c11m.SaveAs(Form("%shRelativeDistancedXTrackletsStationAll.pdf", outputdir.Data()));
+
+    // Plot hRelativeDistancedYTrackletsStation in a single plot
+TCanvas c11n("c11n", "Y Position Matching", 800, 600);
+hRelativeDistancedYTrackletsStation[0]->SetLineColor(kRed);
+hRelativeDistancedYTrackletsStation[1]->SetLineColor(kBlue);
+hRelativeDistancedYTrackletsStation[2]->SetLineColor(kGreen);
+hRelativeDistancedYTrackletsStation[3]->SetLineColor(kBlack);
+hRelativeDistancedYTrackletsStation[0]->SetLineWidth(2);
+hRelativeDistancedYTrackletsStation[1]->SetLineWidth(2);
+hRelativeDistancedYTrackletsStation[2]->SetLineWidth(2);
+hRelativeDistancedYTrackletsStation[3]->SetLineWidth(2);
+hRelativeDistancedYTrackletsStation[0]->GetXaxis()->SetTitle("Y position difference of found tracklets [mm]");
+hRelativeDistancedYTrackletsStation[0]->GetYaxis()->SetTitle("Counts");
+hRelativeDistancedYTrackletsStation[0]->Draw();
+hRelativeDistancedYTrackletsStation[1]->Draw("same");
+hRelativeDistancedYTrackletsStation[2]->Draw("same");
+hRelativeDistancedYTrackletsStation[3]->Draw("same");
+TLegend *leg10 = new TLegend(0.15, 0.65, 0.35, 0.85);
+leg10->SetBorderSize(0);
+leg10->SetFillStyle(0);
+leg10->SetTextSize(0.04);
+leg10->AddEntry(hRelativeDistancedYTrackletsStation[0], "Station 0", "l");
+leg10->AddEntry(hRelativeDistancedYTrackletsStation[1], "Station 1", "l");
+leg10->AddEntry(hRelativeDistancedYTrackletsStation[2], "Station 2", "l");
+leg10->AddEntry(hRelativeDistancedYTrackletsStation[3], "Station 3", "l");
+leg10->Draw();
+c11n.SaveAs(Form("%shRelativeDistancedYTrackletsStationAll.pdf", outputdir.Data()));
+
+// Plot hRelativeDistancedZTrackletsStation in a single plot
+TCanvas c11o("c11o", "Z Position Matching", 800, 600);
+hRelativeDistancedZTrackletsStation[0]->SetLineColor(kRed);
+hRelativeDistancedZTrackletsStation[1]->SetLineColor(kBlue);
+hRelativeDistancedZTrackletsStation[2]->SetLineColor(kGreen);
+hRelativeDistancedZTrackletsStation[3]->SetLineColor(kBlack);
+hRelativeDistancedZTrackletsStation[0]->SetLineWidth(2);
+hRelativeDistancedZTrackletsStation[1]->SetLineWidth(2);
+hRelativeDistancedZTrackletsStation[2]->SetLineWidth(2);
+hRelativeDistancedZTrackletsStation[3]->SetLineWidth(2);
+hRelativeDistancedZTrackletsStation[0]->GetXaxis()->SetTitle("Z position difference of found tracklets [mm]");
+hRelativeDistancedZTrackletsStation[0]->GetYaxis()->SetTitle("Counts");
+hRelativeDistancedZTrackletsStation[0]->Draw();
+hRelativeDistancedZTrackletsStation[1]->Draw("same");
+hRelativeDistancedZTrackletsStation[2]->Draw("same");
+hRelativeDistancedZTrackletsStation[3]->Draw("same");
+TLegend *leg11 = new TLegend(0.15, 0.65, 0.35, 0.85);
+leg11->SetBorderSize(0);
+leg11->SetFillStyle(0);
+leg11->SetTextSize(0.04);
+leg11->AddEntry(hRelativeDistancedZTrackletsStation[0], "Station 0", "l");
+leg11->AddEntry(hRelativeDistancedZTrackletsStation[1], "Station 1", "l");
+leg11->AddEntry(hRelativeDistancedZTrackletsStation[2], "Station 2", "l");
+leg11->AddEntry(hRelativeDistancedZTrackletsStation[3], "Station 3", "l");
+leg11->Draw();
+c11o.SaveAs(Form("%shRelativeDistancedZTrackletsStationAll.pdf", outputdir.Data()));
+
     // Plot X, Y, Z position matching distributions separately after cuts
     TCanvas c9a("c9a", "X Position Matching", 800, 600);
     hMatchdXCut->GetXaxis()->SetTitle("X position difference [mm]");
@@ -2379,7 +2802,7 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     c12.SaveAs(Form("%shTrueHitXZ.pdf", outputdir.Data()));
 
     // Plot extrapolated positions in X-Z projection
-    TCanvas c13("c13", "Extrapolated Positions X-Z", 800, 600);
+    TCanvas c13("c13", "Extrapolated Positions X-Z", 800, 800);
     c13.SetLogz();
     hExtrapolatedXZ->GetXaxis()->SetTitle("X position [mm]");
     hExtrapolatedXZ->GetYaxis()->SetTitle("Z position [mm]");
@@ -2401,6 +2824,13 @@ int track_ambiguity_finder_clusterizedGhosts(bool isPbPb = true, bool doTree = f
     hExtrapolatedYZ->GetYaxis()->SetTitle("Z position [mm]");
     hExtrapolatedYZ->Draw("colz");
     c15.SaveAs(Form("%shExtrapolatedYZ.pdf", outputdir.Data()));
+
+   //plot hMomentumScaleFactor
+    TCanvas c15a("c15a", "Momentum Scale Factor", 800, 600);
+    hMomentumScaleFactor->GetXaxis()->SetTitle("Momentum scale factor");
+    hMomentumScaleFactor->GetYaxis()->SetTitle("Counts");
+    hMomentumScaleFactor->Draw();
+    c15a.SaveAs(Form("%shMomentumScaleFactor.pdf", outputdir.Data()));
 
     //----------------------------------------------------------------------
     // Create and save momentum sensitivity analysis plots

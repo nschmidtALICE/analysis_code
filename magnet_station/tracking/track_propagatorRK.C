@@ -47,7 +47,7 @@
 
 #include "FieldLoaderAndPlotter.cpp" // Load magnetic field and visualize it
 
-#include "bar_positions_handler.h" // Load bar positions and segment boundaries
+// #include "bar_positions_handler.h" // Load bar positions and segment boundaries
 /**
  * Point class - Simple container for 3D coordinates with time component
  * Used for describing geometry points and boundaries
@@ -128,25 +128,66 @@ public:
 //     {{272.562, 126.487, 719.131}, {289.487, 13.0491, 710.745}, {266.531, 8.24116, 729.451}, {249.606, 121.679, 737.837}}
 // };
 //new design with 25cm modules and adjusted for main frame
+// std::vector<std::vector<Point>> surfaces = {
+//     // Module 0
+//     {{165.767, 106.268, 502.812}, {179.749, 12.5587, 495.885}, {163.175, 8.73151, 514.206}, {149.193, 102.441, 521.134}},
+//     // Module 1
+//     {{178.791, 108.241, 529.84}, {193.067, 12.5587, 522.767}, {176.493, 8.73151, 541.088}, {162.217, 104.414, 548.161}},
+//     // Module 2
+//     {{192.116, 111.235, 557.374}, {206.834, 12.5935, 550.082}, {189.364, 8.69672, 567.535}, {174.646, 107.339, 574.827}},
+//     // Module 3
+//     {{204.698, 116.167, 584.62}, {220.152, 12.5935, 576.964}, {202.682, 8.69672, 594.417}, {187.228, 112.271, 602.073}},
+//     // Module 4
+//     {{217.281, 121.1, 611.866}, {233.471, 12.5935, 603.845}, {216.0, 8.69672, 621.298}, {199.811, 117.203, 629.32}},
+//     // Module 5
+//     {{230.29, 126.062, 639.568}, {247.215, 12.6235, 631.183}, {228.892, 8.66679, 647.724}, {211.967, 122.105, 656.11}},
+//     // Module 6
+//     {{242.872, 130.994, 666.815}, {260.534, 12.6235, 658.064}, {242.211, 8.66679, 674.606}, {224.549, 127.037, 683.356}},
+//     // Module 7
+//     {{255.858, 135.951, 694.537}, {274.256, 12.6484, 685.422}, {255.126, 8.64182, 701.011}, {236.729, 131.944, 710.126}},
+//     // Module 8
+//     {{268.441, 140.883, 721.784}, {287.574, 12.6484, 712.304}, {268.444, 8.64182, 727.892}, {249.311, 136.876, 737.372}}
+// };
+// // these surfaces point to the first layer in each module instead of the center
+// std::vector<std::vector<Point>> surfaces = {
+//     // Module 0
+//     {{170.726, 106.468, 505.078}, {184.708, 12.7581, 498.151}, {168.134, 8.93089, 516.472}, {154.152, 102.641, 523.4}},
+//     // Module 1
+//     {{183.75, 108.441, 532.106}, {198.026, 12.7581, 525.033}, {181.452, 8.93089, 543.354}, {167.176, 104.613, 550.427}},
+//     // Module 2
+//     {{196.961, 111.409, 559.76}, {211.679, 12.767, 552.468}, {194.209, 8.87022, 569.921}, {179.491, 107.512, 577.213}},
+//     // Module 3
+//     {{209.543, 116.341, 587.006}, {224.997, 12.767, 579.35}, {207.527, 8.87022, 596.803}, {192.073, 112.444, 604.459}},
+//     // Module 4
+//     {{222.126, 121.273, 614.252}, {238.316, 12.767, 606.231}, {220.845, 8.87022, 623.684}, {204.656, 117.376, 631.706}},
+//     // Module 5
+//     {{235.015, 126.209, 642.068}, {251.941, 12.7707, 633.683}, {233.618, 8.81398, 650.224}, {216.692, 122.252, 658.61}},
+//     // Module 6
+//     {{247.598, 131.141, 669.315}, {265.259, 12.7707, 660.564}, {246.936, 8.81398, 677.106}, {229.275, 127.184, 685.856}},
+//     // Module 7
+//     {{260.458, 136.071, 697.145}, {278.855, 12.7689, 688.03}, {259.725, 8.76233, 703.618}, {241.328, 132.065, 712.733}},
+//     // Module 8
+//     {{273.041, 141.003, 724.391}, {292.174, 12.7689, 714.912}, {273.044, 8.76233, 730.5}, {253.911, 136.997, 739.979}}
+// };
 std::vector<std::vector<Point>> surfaces = {
     // Module 0
-    {{165.767, 106.268, 502.812}, {179.749, 12.5587, 495.885}, {163.175, 8.73151, 514.206}, {149.193, 102.441, 521.134}},
+    {{165.807, 106.069, 500.546}, {179.789, 12.3594, 493.619}, {163.216, 8.53212, 511.94}, {149.234, 102.242, 518.867}},
     // Module 1
-    {{178.791, 108.241, 529.84}, {193.067, 12.5587, 522.767}, {176.493, 8.73151, 541.088}, {162.217, 104.414, 548.161}},
+    {{178.832, 108.042, 527.574}, {193.108, 12.3594, 520.5}, {176.534, 8.53212, 538.822}, {162.258, 104.215, 545.895}},
     // Module 2
-    {{192.116, 111.235, 557.374}, {206.834, 12.5935, 550.082}, {189.364, 8.69672, 567.535}, {174.646, 107.339, 574.827}},
+    {{192.271, 111.062, 554.988}, {206.989, 12.42, 547.696}, {189.519, 8.52321, 565.149}, {174.801, 107.165, 572.441}},
     // Module 3
-    {{204.698, 116.167, 584.62}, {220.152, 12.5935, 576.964}, {202.682, 8.69672, 594.417}, {187.228, 112.271, 602.073}},
+    {{204.853, 115.994, 582.234}, {220.307, 12.42, 574.578}, {202.837, 8.52321, 592.031}, {187.383, 112.097, 599.687}},
     // Module 4
-    {{217.281, 121.1, 611.866}, {233.471, 12.5935, 603.845}, {216.0, 8.69672, 621.298}, {199.811, 117.203, 629.32}},
+    {{217.436, 120.926, 609.48}, {233.626, 12.42, 601.459}, {216.155, 8.52321, 618.912}, {199.966, 117.029, 626.933}},
     // Module 5
-    {{230.29, 126.062, 639.568}, {247.215, 12.6235, 631.183}, {228.892, 8.66679, 647.724}, {211.967, 122.105, 656.11}},
+    {{230.565, 125.914, 637.069}, {247.49, 12.4763, 628.683}, {229.167, 8.5196, 645.224}, {212.242, 121.958, 653.61}},
     // Module 6
-    {{242.872, 130.994, 666.815}, {260.534, 12.6235, 658.064}, {242.211, 8.66679, 674.606}, {224.549, 127.037, 683.356}},
+    {{243.147, 130.846, 664.315}, {260.809, 12.4763, 655.564}, {242.486, 8.5196, 672.106}, {224.824, 126.89, 680.856}},
     // Module 7
-    {{255.858, 135.951, 694.537}, {274.256, 12.6484, 685.422}, {255.126, 8.64182, 701.011}, {236.729, 131.944, 710.126}},
+    {{256.259, 135.83, 691.93}, {274.656, 12.5279, 682.815}, {255.526, 8.52131, 698.403}, {237.129, 131.824, 707.518}},
     // Module 8
-    {{268.441, 140.883, 721.784}, {287.574, 12.6484, 712.304}, {268.444, 8.64182, 727.892}, {249.311, 136.876, 737.372}}
+    {{268.841, 140.762, 719.176}, {287.975, 12.5279, 709.696}, {268.845, 8.52131, 725.285}, {249.711, 136.756, 734.764}}
 };
 /**
  * Calculate aperture half-width at a given z position
@@ -174,6 +215,131 @@ double getXLimit(double z)
  * @param y Y-position in meters (will be converted to mm internally)
  * @return Point object containing boundary coordinate in meters
  */
+// Point interpolate(double z, double y = 0.0)
+// {
+//     // Convert input z and y from meters to millimeters (internal calculations use mm)
+//     double z_mm = z * 100;
+//     double y_mm = std::abs(y * 100);
+
+//     // Default boundary value when z is outside defined surfaces range
+//     // Uses the getXLimit function for x and fixed y-limit of 155mm
+//     Point default_value(getXLimit(z_mm) / 100, 155.0 / 100, z / 100);
+
+//     // Debug flag (set to true to enable verbose output)
+//     constexpr bool verbosityhere = false;
+
+//     if (verbosityhere) {
+//         std::cout << "Interpolating at z = " << z_mm << ", y = " << y_mm << std::endl;
+//     }
+
+//     // Static cache for surface boundaries - computed once on first call
+//     static std::vector<std::tuple<double, double, double, double>> surface_bounds;
+    
+//     // Initialize surface bounds cache if empty
+//     if (surface_bounds.empty()) {
+//         surface_bounds.reserve(surfaces.size());
+//         for (const auto& surface : surfaces) {
+//             double z_min = std::min({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+//             double z_max = std::max({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+//             double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+//             double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+//             surface_bounds.emplace_back(z_min, z_max, y_min, y_max);
+//         }
+//     }
+
+//     // Search through surface bounds for the matching surface
+//     for (size_t i = 0; i < surface_bounds.size(); ++i) {
+//         const auto& [z_min, z_max, y_min, y_max] = surface_bounds[i];
+        
+//         // Skip if z is outside this surface's range
+//         if (z_mm < z_min || z_mm > z_max)
+//             continue;
+            
+//         if (verbosityhere) {
+//             std::cout << "Surface " << i << " with z_min = " << z_min 
+//                       << ", z_max = " << z_max << std::endl;
+//         }
+
+//         // Clamp y within the module's y range for interpolation
+//         double y_actual = std::max(y_min, std::min(y_max, y_mm));
+        
+//         // Check if we're using exact y or clamped value
+//         bool y_in_range = (y_mm >= y_min && y_mm <= y_max);
+
+//         if (!y_in_range && verbosityhere) {
+//             std::cout << "Warning: y = " << y_mm << " is outside module boundaries ["
+//                       << y_min << ", " << y_max << "]. Using clamped value: "
+//                       << y_actual << std::endl;
+//         }
+
+//         // Get normalized coordinates within the surface (0-1 range)
+//         double z_norm = (z_mm - z_min) / (z_max - z_min);
+//         double y_norm = (y_actual - y_min) / (y_max - y_min);
+
+//         // Reference the actual surface for interpolation
+//         const auto& corners = surfaces[i];
+
+//         // Perform bilinear interpolation in y-z space
+//         double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
+//                    (1 - y_norm) * z_norm * corners[1].x +
+//                    y_norm * (1 - z_norm) * corners[2].x +
+//                    y_norm * z_norm * corners[3].x;
+
+//         // Calculate surface normal vector
+//         // First, get partial derivatives with respect to y_norm and z_norm
+//         double dx_dy = (1 - z_norm) * (corners[2].x - corners[0].x) +
+//                        z_norm * (corners[3].x - corners[1].x);
+//         double dx_dz = (1 - y_norm) * (corners[1].x - corners[0].x) +
+//                        y_norm * (corners[3].x - corners[2].x);
+                       
+//         // Calculate changes in y and z when moving across the surface
+//         double dy = corners[2].y - corners[0].y;
+//         double dz_y = corners[2].z - corners[0].z;
+//         double dz_z = corners[1].z - corners[0].z;
+        
+//         // Create two tangent vectors on the surface
+//         TVector3 tangent_y(dx_dy, dy, dz_y);
+//         TVector3 tangent_z(dx_dz, 0, dz_z);
+        
+//         // Take cross product to get normal vector
+//         TVector3 normal = tangent_y.Cross(tangent_z);
+//         normal = normal.Unit(); // Normalize to get unit vector
+        
+//         // Offset amount: 4cm = 0.04m, negative means moving behind the surface
+//         const double offset = -0.04; // in meters
+        
+//         // Apply offset along normal direction
+//         double x_offset = x / 100 + normal.X() * offset;
+//         double y_offset = y_actual / 100 + normal.Y() * offset;
+//         double z_offset = z / 100 + normal.Z() * offset;
+
+//         if (verbosityhere) {
+//             std::cout << "Interpolated x = " << x << " at y = " << y_mm << ", z = " << z_mm << std::endl;
+//             std::cout << "Normal vector: (" << normal.X() << ", " << normal.Y() << ", " 
+//                       << normal.Z() << ")" << std::endl;
+//             std::cout << "Offset position: (" << x_offset << ", " << y_offset << ", " 
+//                       << z_offset << ")" << std::endl;
+//         }
+
+//         // Return interpolated position with normal offset, in meters
+//         return Point(x_offset, y_offset, z_offset);
+//     }
+
+//     // Warning if z is outside the range of all defined surfaces
+//     if (verbosityhere)
+//         std::cout << "Warning: z = " << z_mm << " is not covered by any surface" << std::endl;
+
+//     // Return default boundary if no matching surface is found
+//     return default_value;
+// }
+/**
+ * Optimized boundary position interpolation using vector math
+ * For any z,y-position, finds the corresponding detector module surface
+ * and calculates the intersection point using vector interpolation
+ * @param z Z-position in meters (will be converted to mm internally)
+ * @param y Y-position in meters (will be converted to mm internally)
+ * @return Point object containing boundary coordinate in meters
+ */
 Point interpolate(double z, double y = 0.0)
 {
     // Convert input z and y from meters to millimeters (internal calculations use mm)
@@ -191,15 +357,18 @@ Point interpolate(double z, double y = 0.0)
         std::cout << "Interpolating at z = " << z_mm << ", y = " << y_mm << std::endl;
     }
 
-    // Static cache for surface boundaries - computed once on first call
+    // Static cache for surface bounds - computed once on first call
     static std::vector<std::tuple<double, double, double, double>> surface_bounds;
     
     // Initialize surface bounds cache if empty
     if (surface_bounds.empty()) {
         surface_bounds.reserve(surfaces.size());
         for (const auto& surface : surfaces) {
+            // Corner order: top left (0), bottom left (1), bottom right (2), top right (3)
+            // Find Z bounds from all corners
             double z_min = std::min({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
             double z_max = std::max({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+            // Find Y bounds from all corners
             double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
             double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
             surface_bounds.emplace_back(z_min, z_max, y_min, y_max);
@@ -216,7 +385,8 @@ Point interpolate(double z, double y = 0.0)
             
         if (verbosityhere) {
             std::cout << "Surface " << i << " with z_min = " << z_min 
-                      << ", z_max = " << z_max << std::endl;
+                      << ", z_max = " << z_max << ", y_min = " << y_min
+                      << ", y_max = " << y_max << std::endl;
         }
 
         // Clamp y within the module's y range for interpolation
@@ -231,24 +401,42 @@ Point interpolate(double z, double y = 0.0)
                       << y_actual << std::endl;
         }
 
-        // Get normalized coordinates within the surface (0-1 range)
-        double z_norm = (z_mm - z_min) / (z_max - z_min);
-        double y_norm = (y_actual - y_min) / (y_max - y_min);
+        // Get the corner points with explicit ordering
+        const auto& topLeft = surfaces[i][0];     // Corner 0: top left
+        const auto& bottomLeft = surfaces[i][1];  // Corner 1: bottom left
+        const auto& bottomRight = surfaces[i][2]; // Corner 2: bottom right
+        const auto& topRight = surfaces[i][3];    // Corner 3: top right
 
-        // Reference the actual surface for interpolation
-        const auto& corners = surfaces[i];
+        // Calculate normalized position within the surface's z range
+        double z_alpha = (z_mm - z_min) / (z_max - z_min);
+        
+        // Calculate normalized position within the surface's y range
+        double y_alpha = (y_actual - y_min) / (y_max - y_min);
+        
+        // Vector interpolation: first interpolate along the top and bottom edges for z
+        double x_top = topLeft.x + z_alpha * (topRight.x - topLeft.x);
+        double x_bottom = bottomLeft.x + z_alpha * (bottomRight.x - bottomLeft.x);
+        
+        // Then interpolate between top and bottom for y
+        double x = x_bottom + y_alpha * (x_top - x_bottom);
+        
+        // Same for y coordinate (needed for accurate return position)
+        double y_interp_top = topLeft.y + z_alpha * (topRight.y - topLeft.y);
+        double y_interp_bottom = bottomLeft.y + z_alpha * (bottomRight.y - bottomLeft.y);
+        double y_interp = y_interp_bottom + y_alpha * (y_interp_top - y_interp_bottom);
+        
+        // Same for z coordinate (maintains accurate position on non-flat surfaces)
+        double z_interp_top = topLeft.z + z_alpha * (topRight.z - topLeft.z);
+        double z_interp_bottom = bottomLeft.z + z_alpha * (bottomRight.z - bottomLeft.z);
+        double z_interp = z_interp_bottom + y_alpha * (z_interp_top - z_interp_bottom);
 
-        // Perform bilinear interpolation in y-z space
-        double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
-                   (1 - y_norm) * z_norm * corners[1].x +
-                   y_norm * (1 - z_norm) * corners[2].x +
-                   y_norm * z_norm * corners[3].x;
-
-        if (verbosityhere)
-            std::cout << "Interpolated x = " << x << " at y = " << y_mm << ", z = " << z_mm << std::endl;
+        if (verbosityhere) {
+            std::cout << "Vector interpolation yields: x = " << x << ", y = " << y_interp
+                      << ", z = " << z_interp << std::endl;
+        }
 
         // Return interpolated position, converting back to meters
-        return Point(x / 100, y_actual / 100, z / 100);
+        return Point(x / 100, y_interp / 100, z_interp / 100);
     }
 
     // Warning if z is outside the range of all defined surfaces
@@ -258,6 +446,90 @@ Point interpolate(double z, double y = 0.0)
     // Return default boundary if no matching surface is found
     return default_value;
 }
+// Point interpolate(double z, double y = 0.0) //function without moving along the normal vector by 4cm to get to the first layer
+// {
+//     // Convert input z and y from meters to millimeters (internal calculations use mm)
+//     double z_mm = z * 100;
+//     double y_mm = std::abs(y * 100);
+
+//     // Default boundary value when z is outside defined surfaces range
+//     // Uses the getXLimit function for x and fixed y-limit of 155mm
+//     Point default_value(getXLimit(z_mm) / 100, 155.0 / 100, z / 100);
+
+//     // Debug flag (set to true to enable verbose output)
+//     constexpr bool verbosityhere = false;
+
+//     if (verbosityhere) {
+//         std::cout << "Interpolating at z = " << z_mm << ", y = " << y_mm << std::endl;
+//     }
+
+//     // Static cache for surface boundaries - computed once on first call
+//     static std::vector<std::tuple<double, double, double, double>> surface_bounds;
+    
+//     // Initialize surface bounds cache if empty
+//     if (surface_bounds.empty()) {
+//         surface_bounds.reserve(surfaces.size());
+//         for (const auto& surface : surfaces) {
+//             double z_min = std::min({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+//             double z_max = std::max({surface[0].z, surface[1].z, surface[2].z, surface[3].z});
+//             double y_min = std::min({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+//             double y_max = std::max({surface[0].y, surface[1].y, surface[2].y, surface[3].y});
+//             surface_bounds.emplace_back(z_min, z_max, y_min, y_max);
+//         }
+//     }
+
+//     // Search through surface bounds for the matching surface
+//     for (size_t i = 0; i < surface_bounds.size(); ++i) {
+//         const auto& [z_min, z_max, y_min, y_max] = surface_bounds[i];
+        
+//         // Skip if z is outside this surface's range
+//         if (z_mm < z_min || z_mm > z_max)
+//             continue;
+            
+//         if (verbosityhere) {
+//             std::cout << "Surface " << i << " with z_min = " << z_min 
+//                       << ", z_max = " << z_max << std::endl;
+//         }
+
+//         // Clamp y within the module's y range for interpolation
+//         double y_actual = std::max(y_min, std::min(y_max, y_mm));
+        
+//         // Check if we're using exact y or clamped value
+//         bool y_in_range = (y_mm >= y_min && y_mm <= y_max);
+
+//         if (!y_in_range && verbosityhere) {
+//             std::cout << "Warning: y = " << y_mm << " is outside module boundaries ["
+//                       << y_min << ", " << y_max << "]. Using clamped value: "
+//                       << y_actual << std::endl;
+//         }
+
+//         // Get normalized coordinates within the surface (0-1 range)
+//         double z_norm = (z_mm - z_min) / (z_max - z_min);
+//         double y_norm = (y_actual - y_min) / (y_max - y_min);
+
+//         // Reference the actual surface for interpolation
+//         const auto& corners = surfaces[i];
+
+//         // Perform bilinear interpolation in y-z space
+//         double x = (1 - y_norm) * (1 - z_norm) * corners[0].x +
+//                    (1 - y_norm) * z_norm * corners[1].x +
+//                    y_norm * (1 - z_norm) * corners[2].x +
+//                    y_norm * z_norm * corners[3].x;
+
+//         if (verbosityhere)
+//             std::cout << "Interpolated x = " << x << " at y = " << y_mm << ", z = " << z_mm << std::endl;
+
+//         // Return interpolated position, converting back to meters
+//         return Point(x / 100, y_actual / 100, z / 100);
+//     }
+
+//     // Warning if z is outside the range of all defined surfaces
+//     if (verbosityhere)
+//         std::cout << "Warning: z = " << z_mm << " is not covered by any surface" << std::endl;
+
+//     // Return default boundary if no matching surface is found
+//     return default_value;
+// }
 // /**
 //  * Interpolate boundary position at a given z,y coordinate pair
 //  * For any z,y-position, finds the corresponding detector module surface
