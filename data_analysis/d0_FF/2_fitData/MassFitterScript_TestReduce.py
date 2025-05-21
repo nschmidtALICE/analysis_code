@@ -73,17 +73,23 @@ class FitSpectraObject:
         
         # Select appropriate input file based on particle and data/MC
         if self.isMC:
-            self.ntupleFile = f"{base_path}D0_MC/D0_MC_filtered.root"
+            self.ntupleFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_MC_output_D0FF_filterV1.root"
         else:
             # self.ntupleFile = "/media/niviths/local/download_ganga/2025_05_Pbp/1103152_filterV1.root"
-            self.ntupleFile = "/media/niviths/local/download_ganga/2025_05_Pbp/202505Pbp_filterV1.root"
+            self.ntupleFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root"
+            # self.ntupleFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250430_ganga_output/ntuple_filterV1.root"
+            # self.ntupleFile = "/media/niviths/local/download_ganga/2025_05_Pbp/202505Pbp_filterV1.root"
             # self.ntupleFile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/Output01May2025_MeasuredData_D0NewPF_III_filterV1.root"
             # self.ntupleFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250430_ganga_output/ntuple_filterV1.root"
             # self.ntupleFile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/outputs/3/ntuple_JetFrag-1099031_filterV1.root"
             # self.ntupleFile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/Output29Apr2025_MeasuredData_D0NewPF_III_filterV1.root"
         
         # Set up output directories
-        output_dir = f"/media/niviths/local/analysis_code/data_analysis/d0_FF/d0-code/signalFit/{self.dictKey}_FF"
+        #set a different directory for data and MC
+        if self.isMC:
+            output_dir = f"/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/{self.dictKey}_MC"
+        else:
+            output_dir = f"/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/{self.dictKey}_FF"
         self.outfilePath = f"{output_dir}/{self.jetPt[0]}_{self.jetPt[1]}/"
         self.fOutDataName = f"{output_dir}/FitParametersUnBinned{self.dictKey}{obs_tag}_{self.jetPt[0]}_{self.jetPt[1]}"
         self.fOutDataNameB = f"{output_dir}/BinnedSpectra{self.dictKey}{obs_tag}_{self.jetPt[0]}_{self.jetPt[1]}"
@@ -507,16 +513,16 @@ class FitSpectraObject:
                 traceback.print_exc()
                 continue
             
-            # # Mass fit
-            # print(f"Performing mass fit for bin {bin_idx}...")
-            # try:
-            #     self._perform_mass_fit(fitter, bin_data, bin_idx, bin_label)
-            #     print(f"  Mass fit completed for bin {bin_idx}")
-            # except Exception as e:
-            #     print(f"ERROR in mass fit: {str(e)}")
-            #     import traceback
-            #     traceback.print_exc()
-            #     continue
+            # Mass fit
+            print(f"Performing mass fit for bin {bin_idx}...")
+            try:
+                self._perform_mass_fit(fitter, bin_data, bin_idx, bin_label)
+                print(f"  Mass fit completed for bin {bin_idx}")
+            except Exception as e:
+                print(f"ERROR in mass fit: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                continue
             
             # IP chi2 fit 
             print(f"Performing IP chi2 fit for bin {bin_idx}...")

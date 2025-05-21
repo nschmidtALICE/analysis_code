@@ -34,7 +34,7 @@ class PlotGraphsObject:
   
         if iszT=="True" or iszT=="TRUE":
           self.obsTag ="zT"
-          self.xTitle="p_{T}^{D^{0}}/p_{T}^{jet}"
+          self.xTitle="#it{z}_{T} = p_{T}^{D^{0}}/p_{T}^{jet}"
         else:
           self.obsTag ="dR"
           self.xTitle="#DeltaR"
@@ -79,22 +79,38 @@ class PlotGraphsObject:
           self.hMYieldFix       = fInFileHisto.Get("FitMSYieldDCBF")
         else:
           print("->->->Still used the FitMSYieldFixF histogram, please update to  FitMSYieldDCBF, aka run the fitting code again!")
-        self.hTbDecayFraction = fInFileHisto.Get("FitTRes_BDecF")
-        if not is_valid_graph(self.hTbDecayFraction):
-            print("Warning: FitTRes_BDecF is not a valid graph, creating a fallback")
+        self.hIPNonPromptFraction = fInFileHisto.Get("FitIPPromptFracF")
+        if is_valid_graph(self.hIPNonPromptFraction):
+          print("Converting prompt fraction to non-prompt fraction (1-value)")
+          for i in range(self.hIPNonPromptFraction.GetN()):
+              x = self.hIPNonPromptFraction.GetX()[i]
+              y = self.hIPNonPromptFraction.GetY()[i]
+              ex = self.hIPNonPromptFraction.GetEX()[i]
+              ey = self.hIPNonPromptFraction.GetEY()[i]
+              
+              # Set new value: 1-y (convert prompt to non-prompt)
+              self.hIPNonPromptFraction.SetPoint(i, x, 1.0-y)
+              # Error stays the same for 1-y
+              self.hIPNonPromptFraction.SetPointError(i, ex, ey)
+          
+          # Update the name to reflect content
+          self.hIPNonPromptFraction.SetName(f"{self.hIPNonPromptFraction.GetName()}_NonPrompt")
+
+        if not is_valid_graph(self.hIPNonPromptFraction):
+            print("Warning: FitIPPromptFracF is not a valid graph, creating a fallback")
             # Try alternative name patterns that might exist in the file
             alt_names = ["FitIPPromptFrac", "hIPPromptFrac", "FitIPRes_PromptFrac", "BdecayFrac"]
             for name in alt_names:
                 test_graph = fInFileHisto.Get(name)
                 if is_valid_graph(test_graph):
                     print(f"Found alternative B-decay fraction graph: {name}")
-                    self.hTbDecayFraction = test_graph
+                    self.hIPNonPromptFraction = test_graph
                     break
             
             # If still not valid, create a default graph with 50% B-decay fraction
-            if not is_valid_graph(self.hTbDecayFraction):
+            if not is_valid_graph(self.hIPNonPromptFraction):
                 print("Creating default B-decay fraction graph with 50% fraction")
-                self.hTbDecayFraction = self.create_constant_graph(0.5, "FitTRes_BDecF_default")
+                self.hIPNonPromptFraction = self.create_constant_graph(0.5, "FitIPPromptFracF_default")
 
         self.gInclFragFunc    = fInFileHisto.Get("ginclFragFunc")
         self.gDecayFragFunc   = fInFileHisto.Get("decayFragFunc")
@@ -177,7 +193,8 @@ class PlotGraphsObject:
         self.gAccCorrTotal = self.multiplyGraphs(self.gAccCorrTotal,self.gAccCorr6)
                 
         #-Separate the prompt and non-promt fractions
-        self.createPNPFractions(self.hMYield,self.hMYieldSG, self.hMYieldFix, self.hTbDecayFraction,False)
+        # self.createPNPFractions(self.hMYield,self.hMYieldSG, self.hMYieldFix, self.hIPNonPromptFraction,False)
+        self.createPNPFractions(self.hMYield,self.hMYieldSG, self.hMYieldFix, self.hIPNonPromptFraction,True) #todo changed to absolute values
   
     #. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
     #. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
@@ -188,7 +205,7 @@ class PlotGraphsObject:
         #- - - - - - - - - - -
         self.plotYieldResult(isCorrected)
         self.plotCorrFacAcceptance()
-        gBdecay = self.plotBdecayFraction()
+        gBdecay = self.plotNonPromptFraction()
   
         return gBdecay
     ###########################################################################
@@ -311,7 +328,7 @@ class PlotGraphsObject:
         #collaboration = ROOT.TLatex(0.69,0.88,"#bf{LHCb}")
         #collaboration.SetNDC()
         #collaboration.SetTextSize(0.044)
-        #system = ROOT.TLatex(0.69,0.83,"pp  #sqrt{#it{s}} = 13 TeV")
+        #system = ROOT.TLatex(0.69,0.83,"Pb-p  #sqrt{#it{s}} = 8.16 TeV")
         #system.SetNDC()
         #system.SetTextSize(0.044)
 
@@ -345,7 +362,7 @@ class PlotGraphsObject:
         ##self.fOutData.cd()
         ##self.gAccCorr.SetName("{}_{}".format(self.gAccCorr.GetName(),self.ptString))
         ##self.gAccCorr.Write()
-        #return self.hTbDecayFraction
+        #return self.hIPNonPromptFraction
         
     ###########################################################################
     def setHisto(self, histo, MarkerScale, color):
@@ -360,14 +377,14 @@ class PlotGraphsObject:
     ###########################################################################
     # Draw the inclusive yield for all pT ranges
     ###########################################################################
-    def plotBdecayFraction(self,isCorrected=False):
+    def plotNonPromptFraction(self,isCorrected=False):
        
         self.setOptions()
         corrTag=""
         if isCorrected:
           corrTag="_Corr"
         
-        outputFilename = "{}FinFig_BdecayFrac_{}_{}{}.png".format(self.OutfilePath,self.obsTag,self.ptString,corrTag)
+        outputFilename = "{}FinFig_NonPromptFrac_{}_{}{}.png".format(self.OutfilePath,self.obsTag,self.ptString,corrTag)
         
         c = ROOT.TCanvas("c","c: hist",500*2,450*2)
         c.cd()
@@ -402,13 +419,13 @@ class PlotGraphsObject:
           
         MarkerScale=1.6
         #Final Value
-        self.hTbDecayFraction.SetMarkerSize(1.3*MarkerScale)
-        self.hTbDecayFraction.SetMarkerStyle(20)
-        self.hTbDecayFraction.SetMarkerColor(ROOT.kGreen+2)
-        self.hTbDecayFraction.SetLineStyle(1)
-        self.hTbDecayFraction.SetLineWidth(2)
-        self.hTbDecayFraction.SetLineColor(ROOT.kGreen+2)
-        self.hTbDecayFraction.Draw("same EP")
+        self.hIPNonPromptFraction.SetMarkerSize(1.3*MarkerScale)
+        self.hIPNonPromptFraction.SetMarkerStyle(20)
+        self.hIPNonPromptFraction.SetMarkerColor(ROOT.kGreen+2)
+        self.hIPNonPromptFraction.SetLineStyle(1)
+        self.hIPNonPromptFraction.SetLineWidth(2)
+        self.hIPNonPromptFraction.SetLineColor(ROOT.kGreen+2)
+        self.hIPNonPromptFraction.Draw("same EP")
  
         #. . . . . . . . . . . . . . . . . . . . . .
         #. . . . . . . . . . . . . . . . . . . . . .
@@ -429,10 +446,10 @@ class PlotGraphsObject:
         myLegend0.AddEntry(myBlankHisto2,"#it{p}_{T}^{jet}=%s (GeV/#it{c})"%(self.ptRange),"")
         myLegend0.AddEntry(myBlankHisto2,"#it{p}_{T}^{D^{0}}>2 (GeV/#it{c})","")
 
-        collaboration = ROOT.TLatex(0.67,0.88,"#bf{LHCb} in progress")
+        collaboration = ROOT.TLatex(0.64,0.88,"#bf{LHCb} in progress")
         collaboration.SetNDC()
         collaboration.SetTextSize(0.044)
-        system = ROOT.TLatex(0.67,0.83,"pp  #sqrt{#it{s}} = 13 TeV")
+        system = ROOT.TLatex(0.64,0.83,"Pb-p  #sqrt{#it{s}} = 8.16 TeV")
         system.SetNDC()
         system.SetTextSize(0.044)
 
@@ -444,7 +461,7 @@ class PlotGraphsObject:
         c.SaveAs(outputFilename)
         c.Close()
         
-        return self.hTbDecayFraction
+        return self.hIPNonPromptFraction
     ###########################################################################
     # Draw the inclusive yield for all pT ranges
     ###########################################################################
@@ -569,10 +586,10 @@ class PlotGraphsObject:
         for i in range(0,len(yieldArray)):
           myLegend1.AddEntry(yieldArray[i],"  %s (GeV/%s)" % (pTArray[i].replace("_", "-"),"#it{c}"),"LP")
 
-        collaboration = ROOT.TLatex(0.67,0.88,"#bf{LHCb} in progress")
+        collaboration = ROOT.TLatex(0.64,0.88,"#bf{LHCb} in progress")
         collaboration.SetNDC()
         collaboration.SetTextSize(0.044)
-        system = ROOT.TLatex(0.67,0.83,"pp  #sqrt{#it{s}} = 13 TeV")
+        system = ROOT.TLatex(0.64,0.83,"Pb-p  #sqrt{#it{s}} = 8.16 TeV")
         system.SetNDC()
         system.SetTextSize(0.044)
         if normType!=2:
@@ -867,10 +884,10 @@ class PlotGraphsObject:
       MarkerScale=1.6
       #labelOffset1 = 0.16
       labelOffset2 = 0.23+0.2-0.3
-      collaboration = ROOT.TLatex(0.67,0.88,"#bf{LHCb} in progress")
+      collaboration = ROOT.TLatex(0.64,0.88,"#bf{LHCb} in progress")
       collaboration.SetNDC()
       collaboration.SetTextSize(0.044*scale)
-      system = ROOT.TLatex(0.67,0.83,"pp  #sqrt{#it{s}} = 13 TeV")
+      system = ROOT.TLatex(0.64,0.83,"Pb-p  #sqrt{#it{s}} = 8.16 TeV")
       system.SetNDC()
       system.SetTextSize(0.044*scale)
       
@@ -982,17 +999,17 @@ class PlotGraphsObject:
             return self.create_empty_graph()
 
     ###########################################################################
-    def createPNPFractions(self, hyield, hyieldVar1, hyieldVar2, hBdecFrac, Absolute):
+    def createPNPFractions(self, hyield, hyieldVar1, hyieldVar2, hNonPromptFrac, Absolute):
       """Create prompt and non-prompt fraction graphs with proper error handling"""
       
       # Check if input objects are valid graphs
-      if not all(is_valid_graph(x) for x in [hyield, hyieldVar1, hyieldVar2, hBdecFrac]):
+      if not all(is_valid_graph(x) for x in [hyield, hyieldVar1, hyieldVar2, hNonPromptFrac]):
           print("Error: One or more input graphs are not valid")
           missing = []
           if not is_valid_graph(hyield): missing.append("hyield")
           if not is_valid_graph(hyieldVar1): missing.append("hyieldVar1")
           if not is_valid_graph(hyieldVar2): missing.append("hyieldVar2") 
-          if not is_valid_graph(hBdecFrac): missing.append("hBdecFrac")
+          if not is_valid_graph(hNonPromptFrac): missing.append("hNonPromptFrac")
           print(f"Missing valid graphs: {', '.join(missing)}")
           
           # Create empty graphs as fallback
@@ -1005,7 +1022,7 @@ class PlotGraphsObject:
           return
     
       pointsA = hyield.GetN()
-      pointsB = hBdecFrac.GetN()
+      pointsB = hNonPromptFrac.GetN()
       
       if pointsA != pointsB:
           print(f"Warning: Different number of points between graphs: {pointsA} vs {pointsB}")
@@ -1058,8 +1075,8 @@ class PlotGraphsObject:
           yErrVar1_arr.append(hyieldVar1.GetEY()[i])
           yieldValVar2_arr.append(hyieldVar2.GetY()[i])
           yErrVar2_arr.append(hyieldVar2.GetEY()[i])
-          fracVal_arr.append(hBdecFrac.GetY()[i])
-          fracValE_arr.append(hBdecFrac.GetEY()[i])
+          fracVal_arr.append(hNonPromptFrac.GetY()[i])
+          fracValE_arr.append(hNonPromptFrac.GetEY()[i])
       
       # Now process the data
       npYield = [[0 for _ in range(NbOfVariations)] for _ in range(common_points)]
@@ -1084,6 +1101,7 @@ class PlotGraphsObject:
           yErr_arr[i] *= 1./scale
           npYield[i][0] = yieldVal_arr[i]*fracVal_arr[i]
           pYield[i][0] = yieldVal_arr[i]*(1-fracVal_arr[i])
+          print(f"Yield: {yieldVal_arr[i]}, Fraction: {fracVal_arr[i]}, npYield: {npYield[i][0]}, pYield: {pYield[i][0]}")
           npYieldE[i][0] = self.propagateError(yieldVal_arr[i], fracVal_arr[i], yErr_arr[i], fracValE_arr[i], 1)
           pYieldE[i][0] = self.propagateError(yieldVal_arr[i], (1-fracVal_arr[i]), yErr_arr[i], fracValE_arr[i], 1)
           
@@ -1107,6 +1125,7 @@ class PlotGraphsObject:
       # Find max values safely
       max1 = max(yieldVal_arr) if len(yieldVal_arr) > 0 else 0
       max2 = max(yieldValVar1_arr) if len(yieldValVar1_arr) > 0 else 0
+      # print(f"Max1: {max1}, Max2: {max2}")
       maxTot = max(max1, max2)
     
       # Set maximums
@@ -1205,14 +1224,9 @@ def plotRawSignalYields(resonance, ptRange,isZt):
 
   print("is binned var")
   
-  if resonance=="Psi2S":
-    #pTRangeArray = ["5_10","10_15","15_20","20_30","30_40","40_100"]#pre March 22
-    #pTRangeArray = ["5_10","10_15","15_20","20_30","30_40","40_60"]
-    pTRangeArray = ["2_5","5_10","10_15","15_20","20_30","30_40"]
-  else:
     #pTRangeArray = ["5_10","10_15","15_20","20_50"]#pre march 22
-    #pTRangeArray = ["5_10","10_15","15_20","20_30"]
-    pTRangeArray = ["2_5","5_10","10_15","15_20","20_30"]
+  pTRangeArray = ["5_10","10_15","15_20","20_30"]
+    # pTRangeArray = ["2_5","5_10","10_15","15_20","20_30"]
 
   yieldArray   = []
   yieldArrayP  = []
@@ -1244,7 +1258,7 @@ def plotRawSignalYields(resonance, ptRange,isZt):
             CyieldArrayP.append(gObj[i].graphPCorr)
             CyieldArrayNP.append(gObj[i].graphNPCorr)
         #accArray.append(hacc1)
-        bFracArray.append(gObj[i].hTbDecayFraction)
+        bFracArray.append(gObj[i].hIPNonPromptFraction)
         
     
     #- - - - - - - - - - - - - -

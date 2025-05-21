@@ -66,10 +66,10 @@ class RMplotter:
         self.diagonal_lineDark=Diagonal_lineD
 
         # if "X3872" in self.dictKey or "All" in self.dictKey :
-          #self.pTBinning  = [5,10,15,20,30] #  new-future
-          self.pTBinning  = [0, 5,10,15,20,30,200] #  new-future
-          self.zTBinArray = [0.2,0.5,0.65,0.75,0.85,0.95,1]
-          #self.zTBinArray = [0,0.5,1,1.1]
+        #self.pTBinning  = [5,10,15,20,30] #  new-future
+        self.pTBinning  = [0, 5,10,15,20,30,200] #  new-future
+        self.zTBinArray = [0.2,0.5,0.65,0.75,0.85,0.95,1]
+        #self.zTBinArray = [0,0.5,1,1.1]
         # else:
         #   #self.pTBinning  = [0,5,10,15,20,30,40,60,200]#new-future
         #   self.pTBinning  = [0,5,10,15,20,30,40,60,200]#new-future
@@ -87,7 +87,7 @@ class RMplotter:
     #------------------------------------------------------------
     def setupInputOutput(self):
      
-      inputDir="/Users/Eliane/LHCb/Outfiles/X3872_MC"
+      inputDir="/media/niviths/local/analysis_code/data_analysis/d0_FF/3_makeResponseMatrix"
 
       #-MC samples
       #fFileName  = "{}/allMedley277-288.root".format(inputDir) #Bdecay
@@ -96,7 +96,7 @@ class RMplotter:
       #fFileName  = "{}/job277_AllFilteredNV.root".format(inputDir)
       #fFileName  = "{}/AllBdecay.root".format(inputDir)
       #-Latest Data Apr-July
-      fFileName  = "{}/All_PromptX3872.root".format(inputDir)
+      fFileName  = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1.root"
       #fFileName  = "{}/16_17_18AllBdecay.root".format(inputDir)
       #-MC with new filter. Only fiducial volume cuts applied for MC
       #fFileName  = "{}/Prompt_Aug22/all_X3872_2016_2018.root".format(inputDir)
@@ -106,7 +106,7 @@ class RMplotter:
       
       #-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-
       #outputDirFig = "./FiguresRM_NP_TT/"
-      outputDirFig = "{}/Prompt_Aug22/".format(inputDir)
+      outputDirFig = "{}/D0_FF_ResMatr/".format(inputDir)
 
       if not os.path.exists(outputDirFig):
         os.makedirs(outputDirFig)
@@ -125,13 +125,13 @@ class RMplotter:
       pt_tagDet    = ROOT.RooRealVar("tagPtDet","tagPtDet",0,80)
       etaDet       = ROOT.RooRealVar("etaDet","etaDet",1.5,5.5)
       phiDet       = ROOT.RooRealVar("phiDet","phiDet",-3.5,3.5)
-      tagMDet      = ROOT.RooRealVar("tagMDet","tagMDet",3.5,4)
+      tagMDet      = ROOT.RooRealVar("tagMDet","tagMDet",1.81, 1.935)
       zTDet        = ROOT.RooRealVar("zTDet","zTDet",0,1.01)
       pt_jetPart   = ROOT.RooRealVar("jetPtPart","jetPtPart",0,500)
       pt_tagPart   = ROOT.RooRealVar("tagPtPart","tagPtPart",0,80)
       etaPart      = ROOT.RooRealVar("etaPart","etaPart",1.5,5.5)
       phiPart      = ROOT.RooRealVar("phiPart","phiPart",-3.5,3.5)
-      tagMPart     = ROOT.RooRealVar("tagMPart","tagMPart",3.5,4)
+      tagMPart     = ROOT.RooRealVar("tagMPart","tagMPart",1.81, 1.935)
       zTPart       = ROOT.RooRealVar("zTPart","zTPart",0,1.01)
       nConstDet    = ROOT.RooRealVar("nConstDet","nConstDet",0,50)
       nConstPart   = ROOT.RooRealVar("nConstPart","nConstPart",0,50)
@@ -155,7 +155,7 @@ class RMplotter:
       #cutString = "dR > -1 && MCassocType==1 && nConstDet>1"
         #Cuts for RM quality
       
-      MassCut             = (3.5,4)
+      MassCut             = (1.81, 1.935)
       cutString   = "tagMPart > {} && tagMPart < {} ".format(MassCut[0],MassCut[1])
       cutString += " && dR > -1 && nConstDet>1"#  && etaDet>2.5 && etaDet<4"
 
@@ -183,8 +183,8 @@ class RMplotter:
       
       print("------------------------")
       #check how much statistic is lost due to the reduction
-      tagMDet      = ROOT.RooRealVar("tagMDet","tagMDet",3.5,4)
-      tagMPart     = ROOT.RooRealVar("tagMPart","tagMPart",3.5,4)
+      tagMDet      = ROOT.RooRealVar("tagMDet","tagMDet",1.81, 1.935)
+      tagMPart     = ROOT.RooRealVar("tagMPart","tagMPart",1.81, 1.935)
       
       self.plotQAPlots(dataReduced,tagMDet,tagMPart,"Mass")
 
@@ -338,10 +338,18 @@ class RMplotter:
       #-for better comparison
       globalMax = max(maxArray)
       #globalMax = 1000
-      globalMin = min(i for i in maxArray if i > 0) #find minimum actual value
-      #globalMin = 1 #find minimum actual value
-      print("Found global min and max: {}, {}".format(globalMin,globalMax))
-
+      try:
+          # Check if any positive values exist in the array
+          positive_values = [i for i in maxArray if i > 0]
+          if positive_values:
+              globalMin = min(positive_values)  # find minimum actual value
+          else:
+              print("Warning: No positive values found in response matrix. Using default minimum.")
+              globalMin = 1e-6  # Set a reasonable default minimum
+      except Exception as e:
+          print(f"Error finding minimum value: {e}")
+          globalMin = 1e-6  # Set a default minimum
+    
       #Nx = len(self.pTBinning)-1
       #Ny = len(self.pTBinning)-1
       lMargin=0.08 #was 0.05
