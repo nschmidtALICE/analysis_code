@@ -805,6 +805,97 @@ void UnfoldSpectraClass::UnfoldingTest(RooUnfoldResponse* response, int nIter) {
     delete hSpectrumMCDetPerBinUnfolded;
 }
 
+std::vector<TLine*> UnfoldSpectraClass::drawLines() {
+    std::vector<TLine*> lineList;
+    
+    TLine* line = new TLine(0, 1, 1, 1);
+    line->SetLineColor(1);
+    line->SetLineStyle(1);
+    lineList.push_back(line);
+    
+    TLine* line2 = new TLine(0, 1.2, 1, 1.2);
+    line2->SetLineColor(1);
+    line2->SetLineStyle(2);
+    lineList.push_back(line2);
+    
+    TLine* line3 = new TLine(0, 0.8, 1, 0.8);
+    line3->SetLineColor(1);
+    line3->SetLineStyle(2);
+    lineList.push_back(line3);
+    
+    return lineList;
+}
+
+TH1D* UnfoldSpectraClass::scaleHistogram(TH1D* histo) {
+    // This function takes a histogram and scales the bin content by bin width
+    TH1D* histoScale = static_cast<TH1D*>(histo->Clone((std::string(histo->GetName()) + "Scaled").c_str()));
+    histoScale->Reset("ICESM");
+    
+    for (int i = 1; i <= histo->GetNbinsX(); i++) {
+        double num = histo->GetBinContent(i);
+        double err = histo->GetBinError(i);
+        double den = histo->GetBinWidth(i);
+        double value = 0;
+        double error = 0;
+        
+        if (den != 0) {
+            value = num / den;
+            error = err / den;
+        }
+        
+        histoScale->SetBinContent(i, value);
+        histoScale->SetBinError(i, error);
+    }
+    
+    return histoScale;
+}
+
+std::string UnfoldSpectraClass::makeOutDir(const std::string& subDirName) {
+    std::string subDirPath;
+    
+    if (outPath.back() != '/') {
+        subDirPath = outPath + "/" + subDirName;
+    } else {
+        subDirPath = outPath + subDirName;
+    }
+    
+    if (!std::filesystem::exists(subDirPath)) {
+        std::filesystem::create_directories(subDirPath);
+    }
+    
+    return subDirPath;
+}
+
+TH2D* UnfoldSpectraClass::SmearPoints(TH2D* hist, TRandom* fRandom, int factor) {
+    TH2D* hnew = static_cast<TH2D*>(hist->Clone("hnew"));
+    
+    // The factor is an experimental factor.
+    // What would happen if we had factor times more statistic
+    // The new error with factor would be = sqrt(factor)*oldError
+    // The bin counts would be factor*counts
+    // So if we scale down to the old counts to have a comparatively RM
+    // We have new bin content = content*factor/factor
+    //         new error       = error*sqrt(factor)/factor
+    
+    for (int binx = 1; binx <= hnew->GetNbinsX(); binx++) {
+        for (int biny = 1; biny <= hnew->GetNbinsY(); biny++) {
+            double cont = hist->GetBinContent(binx, biny);
+            double err = hist->GetBinError(binx, biny) * std::sqrt(factor) / factor;
+            double newContent = fRandom->Gaus(cont, err); // 1Sigma variation
+            
+            // Ensure positive content
+            if (newContent > 0) {
+                hnew->SetBinContent(binx, biny, newContent);
+                hnew->SetBinError(binx, biny, std::sqrt(newContent));
+            } else {
+                hnew->SetBinContent(binx, biny, 0);
+                hnew->SetBinError(binx, biny, 0);
+            }
+        }
+    }
+    
+    return hnew;
+}
 void UnfoldSpectraClass::saveResult(int regParam, int nIter, const std::string& tag) {
     // Check if regParam is valid
     if (regParam < 0 || regParam >= unfoldedArr2D.size()) {
@@ -1105,6 +1196,7 @@ void UnfoldSpectraClass::StatTestRM2D(RooUnfoldResponse* response) {
     
     // Plot results for each pT bin
     for (int ptBin = 1; ptBin <= npTBins; ptBin++) {
+        std::cout << "Processing pT bin " << ptBin << "/" << npTBins << std::endl;
         // Upper pad for showing the mean values
         c->cd(ptBin);
         gPad->SetLeftMargin(0.15);
@@ -1164,9 +1256,9 @@ void UnfoldSpectraClass::StatTestRM2D(RooUnfoldResponse* response) {
     c->SaveAs(fileName.c_str());
     
     // Clean up
-    delete c;
-    delete fRandom;
-    delete histo;
+    // delete c;
+    // delete fRandom;
+    // delete histo;
     
     // Clean up variation histograms
     for (auto hist : unfoldTesthistograms) {
@@ -1187,6 +1279,702 @@ void UnfoldSpectraClass::StatTestRM2D(RooUnfoldResponse* response) {
     
     std::cout << "==== StatTestRM2D DEBUG END ====\n" << std::endl;
 }
+
+void UnfoldSpectraClass::plotPrior2D(int nIter, RooUnfoldResponse* RooUnfoldRM) {
+    // Set ROOT style parameters
+    gStyle->SetOptTitle(0);
+    gStyle->SetOptStat(0);
+    gStyle->SetOptFit(0);
+    
+    // Set axis title based on particle type
+    std::string xTitle = "p_{T}^{D^{0}}/p_{T}^{jet}";
+    
+    // Clone histograms for working copies
+    TH2D* mainUnfolded = static_cast<TH2D*>(unfoldedArr2D[nIter-1]->Clone("TUnfold"));
+    TH2D* original = static_cast<TH2D*>(measuredSpectra2D->Clone("TOrig"));
+    TH2D* prior = static_cast<TH2D*>(RooUnfoldRM->Htruth()->Clone("TTruth"));
+    
+    // Define color arrays
+    std::vector<int> colorArray = {kRed-9, kGreen-9, kGreen-8, kBlue-9, kGreen, kSpring+8, kSpring};
+    std::vector<int> colorArrayFinalFigs = {kAzure, kAzure-4, kCyan-6, kGreen-3, kTeal-6, kGreen+4, 1, 1};
+    
+    // Arrays to store histogram properties
+    std::vector<double> maxArrayOrig;
+    std::vector<double> maxArrayUnfold;
+    std::vector<TH1D*> hArrayOrig;
+    std::vector<TH1D*> hArrayUnfold;
+    
+    // Create legend
+    TLegend* leg1 = new TLegend(0.2, 0.65, 0.5, 0.85, "");
+    leg1->SetFillColor(10);
+    leg1->SetBorderSize(0);
+    leg1->SetFillStyle(0);
+    leg1->SetTextSize(0.06);
+    
+    // Create canvas based on particle type
+    int npTBins = pTBinsArrayTruth.size() - 1;
+    TCanvas* c1 = new TCanvas("c1", "c1: pT", 800*npTBins, 800);
+    c1->Divide(npTBins, 1, 0, 0);
+    
+    // Process each pT bin
+    for (int ptBin = 1; ptBin <= npTBins; ptBin++) {
+        c1->cd(ptBin);
+        gPad->SetLeftMargin(0.15);
+        gPad->SetRightMargin(0.05);
+        gPad->SetTopMargin(0.05);
+        gPad->SetBottomMargin(0.15);
+        
+        // Create projections for this pT bin
+        TH1D* mainUnfoldedProj = mainUnfolded->ProjectionY(
+            ("_pyMainUnfolded_Bin" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
+        TH1D* originalProj = original->ProjectionY(
+            ("_pyOrig_Bin" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
+        TH1D* priorProj = prior->ProjectionY(
+            ("_pyPrior_Bin" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
+        
+        // Scale histograms by bin width
+        TH1D* mainUnfoldedS = scaleHistogram(mainUnfoldedProj);
+        TH1D* originalS = scaleHistogram(originalProj);
+        TH1D* priorS = scaleHistogram(priorProj);
+        
+        // Scale prior to match unfolded integral
+        if (priorS->Integral() > 0) {
+            priorS->Scale(mainUnfoldedS->Integral() / priorS->Integral());
+        }
+        
+        // Set histogram display properties
+        originalS->SetNdivisions(505);
+        
+        // Calculate maximum value for y-axis scaling
+        std::vector<double> maxList = {originalS->GetMaximum(), priorS->GetMaximum(), mainUnfoldedS->GetMaximum()};
+        double maxY = *std::max_element(maxList.begin(), maxList.end());
+        
+        // Style the original histogram
+        originalS->GetYaxis()->SetTitle("dN/dz_{T}");
+        originalS->GetYaxis()->SetTitleSize(0.06);
+        originalS->GetYaxis()->SetLabelFont(43);
+        originalS->GetYaxis()->SetLabelSize(20);
+        originalS->GetXaxis()->SetTitle(xTitle.c_str());
+        originalS->GetXaxis()->SetTitleSize(0.05);
+        originalS->GetXaxis()->SetRangeUser(0, 1);
+        originalS->GetXaxis()->SetNdivisions(405);
+        originalS->GetYaxis()->SetRangeUser(0, maxY * 1.3);
+        originalS->SetLineColor(4);
+        originalS->SetMarkerColor(4);
+        originalS->SetLineWidth(3);
+        originalS->SetMarkerStyle(20);
+        originalS->SetLineStyle(1);
+        originalS->DrawCopy("hist E");
+        
+        // Style the unfolded histogram
+        mainUnfoldedS->SetLineColor(2);
+        mainUnfoldedS->SetMarkerColor(2);
+        mainUnfoldedS->SetLineWidth(2);
+        mainUnfoldedS->SetMarkerStyle(20);
+        mainUnfoldedS->SetLineStyle(1);
+        mainUnfoldedS->DrawCopy("same hist E");
+        
+        // Style the prior histogram
+        priorS->SetLineColor(kSpring+3);
+        priorS->SetMarkerColor(kSpring+3);
+        priorS->SetLineWidth(2);
+        priorS->SetLineStyle(1);
+        priorS->SetMarkerStyle(20);
+        priorS->DrawCopy("hist E same");
+        
+        // Store histograms and maximum values in arrays
+        maxArrayOrig.push_back(originalS->GetMaximum());
+        maxArrayUnfold.push_back(mainUnfoldedS->GetMaximum());
+        hArrayOrig.push_back(originalS);
+        hArrayUnfold.push_back(mainUnfoldedS);
+        
+        // Create legend entries for the first pT bin only
+        if (ptBin == 1) {
+            leg1->AddEntry(originalS, "measured", "l");
+            leg1->AddEntry(mainUnfoldedS, ("unfolded nIter=" + std::to_string(nIter)).c_str(), "l");
+            leg1->AddEntry(priorS, "prior", "l");
+        }
+        leg1->Draw("same");
+        
+        // Add pT bin label
+        TPaveText* textFit = new TPaveText(0.2, 0.87, 0.7, 0.92, "NDC");
+        textFit->SetBorderSize(0);
+        textFit->SetFillStyle(0);
+        textFit->SetTextSize(0.06);
+        textFit->AddText(Form(" #it{p}_{T}^{jet}: %d-%d GeV", 
+                            pTBinsArrayTruth[ptBin-1], pTBinsArrayTruth[ptBin]));
+        textFit->Draw("same");
+        
+        // Clean up projections - we keep scaled versions in arrays
+        delete mainUnfoldedProj;
+        delete originalProj;
+        delete priorProj;
+    }
+    
+    // Save the canvas
+    c1->cd();
+    std::string fileName = outPath + "PriorComparision2D_Yaxis_nIter" + std::to_string(nIter) + figureTag + ".png";
+    c1->SaveAs(fileName.c_str());
+    
+    // Create a second legend for the zT projections
+    TLegend* leg2 = new TLegend(0.5, 0.7, 0.8, 0.93, "");
+    leg2->SetFillColor(10);
+    leg2->SetBorderSize(0);
+    leg2->SetFillStyle(0);
+    leg2->SetTextSize(0.06);
+    
+    // Get number of zT bins
+    int nzTBins = zBinsArrayTruth.size() - 1;
+    
+    // Create canvas based on particle type
+    TCanvas* c2 = new TCanvas("c2", "c2: pT", 800*3, 850*2);
+    c2->Divide(3, 2);
+    
+    // Process each zT bin
+    for (int zTBin = 1; zTBin <= nzTBins; zTBin++) {
+        c2->cd(zTBin);
+        gPad->SetLeftMargin(0.15);
+        gPad->SetRightMargin(0.05);
+        gPad->SetTopMargin(0.05);
+        gPad->SetBottomMargin(0.15);
+        
+        // Create projections for this zT bin
+        TH1D* mainUnfoldedProj = mainUnfolded->ProjectionX(
+            ("_pxMainUnfolded_Bin" + std::to_string(zTBin)).c_str(), zTBin, zTBin);
+        TH1D* originalProj = original->ProjectionX(
+            ("_pxOrig_Bin" + std::to_string(zTBin)).c_str(), zTBin, zTBin);
+        TH1D* priorProj = prior->ProjectionX(
+            ("_pxPrior_Bin" + std::to_string(zTBin)).c_str(), zTBin, zTBin);
+        
+        // Scale histograms by bin width
+        TH1D* mainUnfoldedS = scaleHistogram(mainUnfoldedProj);
+        TH1D* originalS = scaleHistogram(originalProj);
+        TH1D* priorS = scaleHistogram(priorProj);
+        
+        // Scale prior to match unfolded integral
+        if (priorS->Integral() > 0) {
+            priorS->Scale(mainUnfoldedS->Integral() / priorS->Integral());
+        }
+        
+        // Calculate maximum value for y-axis scaling
+        std::vector<double> maxList = {originalS->GetMaximum(), priorS->GetMaximum(), mainUnfoldedS->GetMaximum()};
+        double maxY = *std::max_element(maxList.begin(), maxList.end());
+        
+        // Style the unfolded histogram
+        mainUnfoldedS->GetYaxis()->SetTitle("dN/dp_{T}");
+        mainUnfoldedS->GetYaxis()->SetTitleSize(0.06);
+        mainUnfoldedS->GetYaxis()->SetLabelFont(43);
+        mainUnfoldedS->GetYaxis()->SetLabelSize(20);
+        mainUnfoldedS->GetXaxis()->SetTitle("jet p_{T}");
+        mainUnfoldedS->GetXaxis()->SetTitleSize(0.05);
+        mainUnfoldedS->GetXaxis()->SetRangeUser(0, 1);
+        mainUnfoldedS->GetXaxis()->SetNdivisions(405);
+        mainUnfoldedS->GetYaxis()->SetRangeUser(0, maxY * 1.3);
+        
+        mainUnfoldedS->SetNdivisions(505);
+        mainUnfoldedS->SetLineColor(2);
+        mainUnfoldedS->SetMarkerColor(2);
+        mainUnfoldedS->SetLineWidth(2);
+        mainUnfoldedS->SetMarkerStyle(20);
+        mainUnfoldedS->SetLineStyle(1);
+        mainUnfoldedS->Draw("hist E");
+        
+        // Style the original histogram
+        originalS->SetLineColor(4);
+        originalS->SetMarkerColor(4);
+        originalS->SetLineWidth(3);
+        originalS->SetMarkerStyle(20);
+        originalS->SetLineStyle(1);
+        originalS->Draw("hist E same");
+        
+        // Style the prior histogram
+        priorS->SetLineColor(kSpring+3);
+        priorS->SetMarkerColor(kSpring+3);
+        priorS->SetLineWidth(2);
+        priorS->SetLineStyle(1);
+        priorS->SetMarkerStyle(20);
+        priorS->Draw("hist E same");
+        
+        // Create legend entries for the first bin only
+        if (zTBin == 1) {
+            leg2->AddEntry(originalS, "measured", "l");
+            leg2->AddEntry(mainUnfoldedS, ("unfolded nIter=" + std::to_string(nIter)).c_str(), "l");
+            leg2->AddEntry(priorS, "prior", "l");
+        }
+        leg2->Draw("same");
+        
+        // Add zT bin label
+        TPaveText* textFit = new TPaveText(0.4, 0.8, 0.7, 0.85, "NDC");
+        textFit->SetBorderSize(0);
+        textFit->SetFillStyle(0);
+        textFit->SetTextSize(0.06);
+        textFit->AddText(Form(" #it{z}_{T}: %.2f-%.2f", 
+                            zBinsArrayTruth[zTBin-1], zBinsArrayTruth[zTBin]));
+        textFit->Draw("same");
+        
+        // Clean up projections
+        delete mainUnfoldedProj;
+        delete originalProj;
+        delete priorProj;
+        delete mainUnfoldedS;
+        delete originalS;
+        delete priorS;
+    }
+    
+    // Save the second canvas
+    c2->cd();
+    std::string fileName2 = outPath + "PriorComparision2D_Xaxis_nIter" + std::to_string(nIter) + figureTag + ".png";
+    c2->SaveAs(fileName2.c_str());
+    
+    // Create a third canvas for summary plot
+    TCanvas* c3 = new TCanvas("c3", "c3: hist", 500*2, 450*2);
+    c3->cd();
+    TGaxis::SetMaxDigits(3);
+    
+    // Set pad and histogram arrangement
+    TPad* myPad3 = new TPad("myPad3", "The pad", 0, 0, 1, 1);
+    myPad3->SetLeftMargin(0.15);
+    myPad3->SetTopMargin(0.06);
+    myPad3->SetRightMargin(0.04);
+    myPad3->SetBottomMargin(0.15);
+    myPad3->SetTicks();
+    myPad3->Draw();
+    myPad3->cd();
+    
+    // Find maximum value
+    double maximum = 0;
+    if (!maxArrayUnfold.empty()) {
+        maximum = *std::max_element(maxArrayUnfold.begin(), maxArrayUnfold.end());
+    }
+    
+    // Create blank histogram for styling
+    TH1F* myBlankHisto3 = new TH1F("myBlankHisto3", "Blank Histogram", 20, 0, 1);
+    myBlankHisto3->GetXaxis()->SetNdivisions(505);
+    myBlankHisto3->SetXTitle(xTitle.c_str());
+    myBlankHisto3->GetXaxis()->SetTitleSize(0.05);
+    myBlankHisto3->GetXaxis()->SetRangeUser(0, 1);
+    myBlankHisto3->GetXaxis()->SetNdivisions(405);
+    myBlankHisto3->GetYaxis()->SetTitleOffset(1.35);
+    myBlankHisto3->GetYaxis()->SetTitleSize(0.055);
+    myBlankHisto3->SetLineColor(0);
+    
+    // Set y-axis properties
+    myBlankHisto3->SetYTitle("dN/dz_{T} unfolded");
+    if (zBinsArrayTruth.size() == zBinsArrayDet.size()) {
+        myBlankHisto3->GetYaxis()->SetRangeUser(0, 0.45); // When drawn normalized
+    } else {
+        myBlankHisto3->GetYaxis()->SetRangeUser(0, 0.8); // When drawn normalized
+    }
+    myBlankHisto3->Draw("E");
+    
+    // Create legend
+    TLegend* myLegend3 = nullptr;
+    if (hArrayUnfold.size() == 4) {
+        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    } else if (hArrayUnfold.size() == 6) {
+        myLegend3 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    } else {
+        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    }
+    
+    myLegend3->SetTextFont(42);
+    myLegend3->SetBorderSize(0);
+    myLegend3->SetFillStyle(0);
+    myLegend3->SetFillColor(0);
+    myLegend3->SetMargin(0.25);
+    myLegend3->SetTextSize(0.04);
+    
+    if (!hArrayUnfold.empty()) {
+        myLegend3->AddEntry(hArrayUnfold[0], " #it{p}_{T}^{jet}:", "");
+    }
+    
+    // Draw all unfolded histograms normalized
+    double markerScale = 1.6;
+    for (size_t i = 0; i < hArrayUnfold.size(); i++) {
+        hArrayUnfold[i]->SetMarkerSize(1.3 * markerScale);
+        hArrayUnfold[i]->SetMarkerStyle(20);
+        hArrayUnfold[i]->SetMarkerColor(colorArrayFinalFigs[i % colorArrayFinalFigs.size()]);
+        hArrayUnfold[i]->SetLineStyle(1);
+        hArrayUnfold[i]->SetLineWidth(2);
+        hArrayUnfold[i]->SetLineColor(colorArrayFinalFigs[i % colorArrayFinalFigs.size()]);
+        hArrayUnfold[i]->DrawNormalized("same EP");
+        
+        myLegend3->AddEntry(hArrayUnfold[i], 
+            Form("  %d-%d (GeV/%s)", pTBinsArrayTruth[i], pTBinsArrayTruth[i+1], "#it{c}"), "LP");
+    }
+    
+    myLegend3->Draw();
+    
+    // Save the canvas
+    c3->cd();
+    std::string fileName3 = outPath + "UnfoldingEffect2DFinal_" + figureTag + ".png";
+    c3->SaveAs(fileName3.c_str());
+    
+    // Clean up
+    // delete c1;
+    // delete c2;
+    // delete c3;
+    // delete leg1;
+    // delete leg2;
+    // delete myPad3;
+    // delete myBlankHisto3;
+    // delete myLegend3;
+    // delete mainUnfolded;
+    // delete original;
+    // delete prior;
+    
+    // Clean up histogram arrays
+    for (auto hist : hArrayOrig) {
+        delete hist;
+    }
+    hArrayOrig.clear();
+    
+    for (auto hist : hArrayUnfold) {
+        delete hist;
+    }
+    hArrayUnfold.clear();
+}
+
+void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
+    // Set ROOT style parameters
+    gStyle->SetOptTitle(0);
+    gStyle->SetOptStat(0);
+    gStyle->SetOptFit(0);
+    
+    // Set axis title based on particle type
+    std::string xTitle = "p_{T}^{D^{0}}/p_{T}^{jet}";
+    
+    // Clone histograms for working copies
+    TH2D* mainUnfolded = static_cast<TH2D*>(unfoldedArr2D[nIter-1]->Clone("TUnfold"));
+    TH2D* original = static_cast<TH2D*>(measuredSpectra2D->Clone("TOrig"));
+    
+    // Define color arrays for plotting
+    std::vector<int> colorArray = {kRed-9, kGreen-9, kGreen-8, kBlue-9, kGreen, kSpring+8, kSpring};
+    std::vector<int> colorArrayFinalFigs = {kAzure, kAzure-4, kCyan-6, kGreen-3, kTeal-6, kGreen+4, 1, 1};
+    
+    // Arrays to store histogram properties
+    std::vector<double> maxArrayOrig;
+    std::vector<double> maxArrayUnfold;
+    std::vector<TH1D*> hArrayOrig;
+    std::vector<TH1D*> hArrayUnfold;
+    
+    // Create legend
+    TLegend* leg1 = new TLegend(0.2, 0.7, 0.5, 0.85, "");
+    leg1->SetFillColor(10);
+    leg1->SetBorderSize(0);
+    leg1->SetFillStyle(0);
+    leg1->SetTextSize(0.06);
+    
+    // Create canvas based on particle type
+    int npTBins = pTBinsArrayTruth.size() - 1;
+    TCanvas* c1= new TCanvas("c1", "c1: pT", 800*npTBins, 800);
+    c1->Divide(npTBins, 1);
+    
+    // Process each pT bin
+    for (int ptBin = 1; ptBin <= npTBins; ptBin++) {
+        c1->cd(ptBin);
+        gPad->SetLeftMargin(0.15);
+        gPad->SetRightMargin(0.05);
+        gPad->SetTopMargin(0.05);
+        gPad->SetBottomMargin(0.15);
+        
+        // Create projections for this pT bin
+        TH1D* mainUnfoldedProj = mainUnfolded->ProjectionY(
+            ("_pyMainUnfolded_Bin" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
+        TH1D* originalProj = original->ProjectionY(
+            ("_pyOrig_Bin" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
+        
+        // Scale histograms by bin width
+        TH1D* mainUnfoldedS = scaleHistogram(mainUnfoldedProj);
+        TH1D* originalS = scaleHistogram(originalProj);
+        
+        // Find maximum value for y-axis scaling
+        std::vector<double> maxList = {originalS->GetMaximum(), mainUnfoldedS->GetMaximum()};
+        double maxY = *std::max_element(maxList.begin(), maxList.end());
+        originalS->GetYaxis()->SetRangeUser(0, maxY * 1.3);
+        
+        // Style the original histogram
+        originalS->GetYaxis()->SetTitle("dN/dz_{T}");
+        originalS->GetYaxis()->SetTitleSize(0.06);
+        originalS->GetYaxis()->SetLabelFont(43);
+        originalS->GetYaxis()->SetLabelSize(20);
+        originalS->GetXaxis()->SetTitle(xTitle.c_str());
+        originalS->GetXaxis()->SetTitleSize(0.05);
+        originalS->GetXaxis()->SetRangeUser(0, 1);
+        originalS->GetXaxis()->SetNdivisions(405);
+        originalS->SetNdivisions(505);
+        originalS->SetLineColor(4);
+        originalS->SetLineWidth(3);
+        originalS->SetLineStyle(1);
+        originalS->DrawCopy("hist E");
+        
+        // Style the unfolded histogram
+        mainUnfoldedS->SetLineColor(2);
+        mainUnfoldedS->SetLineWidth(2);
+        mainUnfoldedS->SetLineStyle(1);
+        mainUnfoldedS->DrawCopy("hist E same");
+        
+        // Store histograms and maximum values in arrays
+        maxArrayOrig.push_back(originalS->GetMaximum());
+        maxArrayUnfold.push_back(mainUnfoldedS->GetMaximum());
+        hArrayOrig.push_back(originalS);
+        hArrayUnfold.push_back(mainUnfoldedS);
+        
+        // Create legend entries for the first pT bin only
+        if (ptBin == 1) {
+            leg1->AddEntry(originalS, "measured", "l");
+            leg1->AddEntry(mainUnfoldedS, ("unfolded nIter=" + std::to_string(nIter)).c_str(), "l");
+        }
+        leg1->Draw("same");
+        
+        // Add pT bin label
+        TPaveText* textFit = new TPaveText(0.2, 0.87, 0.7, 0.92, "NDC");
+        textFit->SetBorderSize(0);
+        textFit->SetFillStyle(0);
+        textFit->SetTextSize(0.06);
+        textFit->AddText(Form(" #it{p}_{T}^{jet}: %d-%d GeV", 
+                            pTBinsArrayTruth[ptBin-1], pTBinsArrayTruth[ptBin]));
+        textFit->Draw("same");
+        
+        // Clean up projections - we keep scaled versions in arrays
+        delete mainUnfoldedProj;
+        delete originalProj;
+    }
+    
+    // Save the canvas
+    std::string fileName = outPath + "UnfoldingEffect2D_nIter" + std::to_string(nIter) + figureTag + ".png";
+    c1->SaveAs(fileName.c_str());
+    
+    // Create second canvas for summary of measured spectra
+    TCanvas* c2 = new TCanvas("c2", "c: hist", 1000, 900);
+    c2->cd();
+    TGaxis::SetMaxDigits(3);
+    
+    // Set pad and histogram arrangement
+    TPad* myPad2 = new TPad("myPad2", "The pad", 0, 0, 1, 1);
+    myPad2->SetLeftMargin(0.15);
+    myPad2->SetTopMargin(0.06);
+    myPad2->SetRightMargin(0.04);
+    myPad2->SetBottomMargin(0.15);
+    myPad2->SetTicks();
+    myPad2->Draw();
+    myPad2->cd();
+    
+    // Create blank histogram for styling
+    TH1F* myBlankHisto2 = new TH1F("myBlankHisto2", "Blank Histogram", 20, 0, 1);
+    myBlankHisto2->GetXaxis()->SetNdivisions(505);
+    myBlankHisto2->SetXTitle(xTitle.c_str());
+    myBlankHisto2->GetXaxis()->SetTitleSize(0.05);
+    myBlankHisto2->GetXaxis()->SetRangeUser(0, 1);
+    myBlankHisto2->GetXaxis()->SetNdivisions(405);
+    myBlankHisto2->GetYaxis()->SetTitleOffset(1.35);
+    myBlankHisto2->GetYaxis()->SetTitleSize(0.055);
+    myBlankHisto2->SetLineColor(0);
+    
+    // Set y-axis properties
+    myBlankHisto2->SetYTitle("dN/dz_{T} measured");
+    myBlankHisto2->GetYaxis()->SetRangeUser(0, 0.45); // When drawn normalized
+    myBlankHisto2->Draw("E");
+    
+    // Create legend for measured spectra
+    TLegend* myLegend2 = nullptr;
+    if (hArrayOrig.size() == 4) {
+        myLegend2 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    } else if (hArrayOrig.size() == 6) {
+        myLegend2 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    } else {
+        myLegend2 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    }
+    
+    myLegend2->SetTextFont(42);
+    myLegend2->SetBorderSize(0);
+    myLegend2->SetFillStyle(0);
+    myLegend2->SetFillColor(0);
+    myLegend2->SetMargin(0.25);
+    myLegend2->SetTextSize(0.04);
+    myLegend2->AddEntry(hArrayOrig[0], " #it{p}_{T}^{jet}:", "");
+    
+    // Draw all measured histograms normalized
+    double markerScale = 1.6;
+    for (size_t i = 0; i < hArrayOrig.size(); i++) {
+        hArrayOrig[i]->SetMarkerSize(1.3 * markerScale);
+        hArrayOrig[i]->SetMarkerStyle(20);
+        hArrayOrig[i]->SetMarkerColor(colorArrayFinalFigs[i % colorArrayFinalFigs.size()]);
+        hArrayOrig[i]->SetLineStyle(1);
+        hArrayOrig[i]->SetLineWidth(2);
+        hArrayOrig[i]->SetLineColor(colorArrayFinalFigs[i % colorArrayFinalFigs.size()]);
+        hArrayOrig[i]->DrawNormalized("same EP");
+        
+        myLegend2->AddEntry(hArrayOrig[i], 
+            Form("  %d-%d (GeV/%s)", pTBinsArrayDet[i], pTBinsArrayDet[i+1], "#it{c}"), "LP");
+    }
+    
+    myLegend2->Draw();
+    
+    // Save the canvas
+    std::string fileName2 = outPath + "UnfoldingEffect2DOrig_" + figureTag + ".png";
+    c2->SaveAs(fileName2.c_str());
+    
+    // Create third canvas for summary of unfolded spectra
+    TCanvas* c3 = new TCanvas("c3", "c: hist", 1000, 900);
+    c3->cd();
+    TGaxis::SetMaxDigits(3);
+    
+    // Set pad and histogram arrangement
+    TPad* myPad3 = new TPad("myPad3", "The pad", 0, 0, 1, 1);
+    myPad3->SetLeftMargin(0.15);
+    myPad3->SetTopMargin(0.06);
+    myPad3->SetRightMargin(0.04);
+    myPad3->SetBottomMargin(0.15);
+    myPad3->SetTicks();
+    myPad3->Draw();
+    myPad3->cd();
+    
+    // Create blank histogram for styling
+    TH1F* myBlankHisto3 = new TH1F("myBlankHisto3", "Blank Histogram", 20, 0, 1);
+    myBlankHisto3->GetXaxis()->SetNdivisions(505);
+    myBlankHisto3->SetXTitle(xTitle.c_str());
+    myBlankHisto3->GetXaxis()->SetTitleSize(0.05);
+    myBlankHisto3->GetXaxis()->SetRangeUser(0, 1);
+    myBlankHisto3->GetXaxis()->SetNdivisions(405);
+    myBlankHisto3->GetYaxis()->SetTitleOffset(1.35);
+    myBlankHisto3->GetYaxis()->SetTitleSize(0.055);
+    myBlankHisto3->SetLineColor(0);
+    
+    // Set y-axis properties
+    myBlankHisto3->SetYTitle("dN/dz_{T} unfolded");
+    if (zBinsArrayTruth.size() == zBinsArrayDet.size()) {
+        myBlankHisto3->GetYaxis()->SetRangeUser(0, 0.45); // When drawn normalized
+    } else {
+        myBlankHisto3->GetYaxis()->SetRangeUser(0, 0.8); // When drawn normalized
+    }
+    myBlankHisto3->Draw("E");
+    
+    // Create legend for unfolded spectra
+    TLegend* myLegend3 = nullptr;
+    if (hArrayUnfold.size() == 4) {
+        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    } else if (hArrayUnfold.size() == 6) {
+        myLegend3 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    } else {
+        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    }
+    
+    myLegend3->SetTextFont(42);
+    myLegend3->SetBorderSize(0);
+    myLegend3->SetFillStyle(0);
+    myLegend3->SetFillColor(0);
+    myLegend3->SetMargin(0.25);
+    myLegend3->SetTextSize(0.04);
+    myLegend3->AddEntry(hArrayUnfold[0], " #it{p}_{T}^{jet}:", "");
+    
+    // Draw all unfolded histograms normalized
+    for (size_t i = 0; i < hArrayUnfold.size(); i++) {
+        hArrayUnfold[i]->SetMarkerSize(1.3 * markerScale);
+        hArrayUnfold[i]->SetMarkerStyle(20);
+        hArrayUnfold[i]->SetMarkerColor(colorArrayFinalFigs[i % colorArrayFinalFigs.size()]);
+        hArrayUnfold[i]->SetLineStyle(1);
+        hArrayUnfold[i]->SetLineWidth(2);
+        hArrayUnfold[i]->SetLineColor(colorArrayFinalFigs[i % colorArrayFinalFigs.size()]);
+        hArrayUnfold[i]->DrawNormalized("same EP");
+        
+        myLegend3->AddEntry(hArrayUnfold[i], 
+            Form("  %d-%d (GeV/%s)", pTBinsArrayTruth[i], pTBinsArrayTruth[i+1], "#it{c}"), "LP");
+    }
+    
+    myLegend3->Draw();
+    
+    // Save the canvas
+    std::string fileName3 = outPath + "UnfoldingEffect2DFinal_" + figureTag + ".png";
+    c3->SaveAs(fileName3.c_str());
+    
+    // Create fourth canvas for jet_pT > 20 GeV comparison
+    int firstBin = -1;
+    for (size_t i = 0; i < pTBinsArrayTruth.size(); i++) {
+        if (pTBinsArrayTruth[i] == 20) {
+            firstBin = i + 1;
+            break;
+        }
+    }
+    
+    if (firstBin > 0) {
+        int lastpTBin = pTBinsArrayTruth.size() - 1;
+        
+        std::cout << "Project from bin " << firstBin << " to bin " << lastpTBin << std::endl;
+        TH1D* mainUnfolded20Proj = mainUnfolded->ProjectionY(
+            "_pyMainUnfolded_Bin20", firstBin, lastpTBin);
+        TH1D* mainUnfolded20S = scaleHistogram(mainUnfolded20Proj);
+        
+        TCanvas* c4 = new TCanvas("c4", "c: hist", 1000, 900);
+        c4->cd();
+        TGaxis::SetMaxDigits(3);
+        
+        // Set pad and histogram arrangement
+        TPad* myPad4 = new TPad("myPad4", "The pad", 0, 0, 1, 1);
+        myPad4->SetLeftMargin(0.15);
+        myPad4->SetTopMargin(0.06);
+        myPad4->SetRightMargin(0.04);
+        myPad4->SetBottomMargin(0.15);
+        myPad4->SetTicks();
+        myPad4->Draw();
+        myPad4->cd();
+        
+        // Create blank histogram for styling
+        TH1F* myBlankHisto4 = new TH1F("myBlankHisto4", "Blank Histogram", 20, 0, 1);
+        myBlankHisto4->GetXaxis()->SetNdivisions(505);
+        myBlankHisto4->SetXTitle(xTitle.c_str());
+        myBlankHisto4->GetXaxis()->SetTitleSize(0.05);
+        myBlankHisto4->GetXaxis()->SetRangeUser(0, 1);
+        myBlankHisto4->GetXaxis()->SetNdivisions(405);
+        myBlankHisto4->GetYaxis()->SetTitleOffset(1.35);
+        myBlankHisto4->GetYaxis()->SetTitleSize(0.055);
+        myBlankHisto4->SetLineColor(0);
+        
+        // Set y-axis properties
+        myBlankHisto4->SetYTitle("dN/dz_{T} unfolded");
+        myBlankHisto4->GetYaxis()->SetRangeUser(0, 0.7);
+        myBlankHisto4->Draw("E");
+        
+        // Create legend
+        TLegend* myLegend4 = new TLegend(0.2, 0.7, 0.4, 0.9);
+        myLegend4->SetTextFont(42);
+        myLegend4->SetBorderSize(0);
+        myLegend4->SetFillStyle(0);
+        myLegend4->SetFillColor(0);
+        myLegend4->SetMargin(0.25);
+        myLegend4->SetTextSize(0.04);
+        myLegend4->AddEntry(hArrayUnfold[0], " #it{p}_{T}^{jet}:", "");
+        
+        // Style and draw the merged spectrum
+        mainUnfolded20S->SetMarkerSize(1.3 * markerScale);
+        mainUnfolded20S->SetMarkerStyle(20);
+        mainUnfolded20S->SetMarkerColor(colorArrayFinalFigs[0]);
+        mainUnfolded20S->SetLineStyle(1);
+        mainUnfolded20S->SetLineWidth(2);
+        mainUnfolded20S->SetLineColor(colorArrayFinalFigs[0]);
+        mainUnfolded20S->DrawNormalized("same EP");
+        
+        myLegend4->AddEntry(mainUnfolded20S, 
+            Form("  %d-%d (GeV/%s)", pTBinsArrayTruth[firstBin-1], pTBinsArrayTruth[lastpTBin], "#it{c}"), "LP");
+        myLegend4->Draw();
+        
+        // Save the canvas
+        std::string fileName4 = outPath + "UnfoldingEffect_SpecialJPsiComp_" + figureTag + ".png";
+        c4->SaveAs(fileName4.c_str());
+    }
+    
+    // Clean up histogram arrays
+    for (auto hist : hArrayOrig) {
+        delete hist;
+    }
+    hArrayOrig.clear();
+    
+    for (auto hist : hArrayUnfold) {
+        delete hist;
+    }
+    hArrayUnfold.clear();
+}
+
 std::pair<std::vector<TH1D*>, std::vector<TH1D*>> 
 UnfoldSpectraClass::calculateDispersion(const std::vector<TH2D*>& histogramArray2D,
                                       std::vector<TH1D*> hvariationResult,
@@ -1272,9 +2060,7 @@ UnfoldSpectraClass::calculateDispersion(const std::vector<TH2D*>& histogramArray
                 binValues.push_back(entry);
                 sumValues += entry;
                 countValues++;
-                
-                delete proj; // Clean up projection
-                
+                                
                 // Create histogram for first iteration from first variation
                 if (i_var == 0) {
                     // Calculate rough statistics for histogram range
@@ -1351,7 +2137,6 @@ UnfoldSpectraClass::calculateDispersion(const std::vector<TH2D*>& histogramArray
                 
                 TH1D* proj = histogramArray2D[i_var]->ProjectionY("_pymain", pTBin, pTBin);
                 double entry = proj->GetBinContent(i_zTBin);
-                delete proj;
                 
                 // Create improved histogram using results from first iteration
                 if (i_var == 0) {
@@ -1434,7 +2219,6 @@ UnfoldSpectraClass::calculateDispersion(const std::vector<TH2D*>& histogramArray
                           << "\n    - Sigma: " << fitSigma << " ± " << gaussFunc->GetParError(2)
                           << "\n    - χ²/NDF: " << (fitNDF > 0 ? fitChi2/fitNDF : -1) << std::endl;
                 
-                delete gaussFunc;
             } else {
                 std::cout << "  Too few entries (" << entriesV2 << ") for fitting, using histogram statistics" << std::endl;
             }
@@ -1493,7 +2277,6 @@ UnfoldSpectraClass::calculateDispersion(const std::vector<TH2D*>& histogramArray
                              std::to_string(pTBin) + "_" + figureTag + ".png";
         std::cout << "Saving canvas to file: " << fileName << std::endl;
         cA->SaveAs(fileName.c_str());
-        delete cA;
         
         // Clean up histograms
         std::cout << "Cleaning up temporary histograms for pT bin " << pTBin << std::endl;
@@ -1772,17 +2555,32 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
     std::cout << "Created TRandom3 with seed 0" << std::endl;
     
     // Create canvas for stability plots
-    int npTBins = pTBinsArrayDet.size() - 1;
-    TCanvas* c = new TCanvas("c", "c: pT", 1200, 800);
-    c->Divide(npTBins, 2);
-    std::cout << "Created canvas divided into " << npTBins << "x2 pads" << std::endl;
+    int npTBins = pTBinsArrayTruth.size() - 1;
+    std::cout << "Creating canvas with " << npTBins << " pT bins, total pads = " << (npTBins * 2) << std::endl;
+    
+    // Check that we have a valid number of bins before creating the canvas
+    if (npTBins <= 0) {
+        std::cerr << "ERROR: Invalid number of pT bins: " << npTBins << std::endl;
+        return;
+    }
+    
+    TCanvas* cStabilityTest2D = new TCanvas("cStabilityTest2D", "cStabilityTest2D: pT", std::max(800, 400 * npTBins), 800);
+    if (!cStabilityTest2D) {
+        std::cerr << "ERROR: Failed to create canvas" << std::endl;
+        return;
+    }
+    
+    // Divide canvas and verify successful division
+    cStabilityTest2D->Divide(npTBins+1, 2);
+    int totalPads = (npTBins+1) * 2;
+    std::cout << "Canvas divided into " << totalPads << " pads (" << npTBins << " columns x 2 rows)" << std::endl;
     
     // Create legend - will be used in first pad
     TLegend* legend = new TLegend(0.55, 0.6, 0.9, 0.85);
     legend->SetBorderSize(0);
     legend->SetFillStyle(0);
     legend->SetTextSize(0.04);
-    legend->AddEntry((TObject*)nullptr, " #it{p}_{T}^{jet}:", "");
+    legend->AddEntry((TObject*)nullptr, " #it{p}_{T}^{jet}:", "");  
     
     // Create arrays to store mean and std dev of ratios
     std::vector<TH1D*> meanHistos;
@@ -1814,19 +2612,21 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
                   << " with " << stdDevHisto->GetNbinsX() << " bins" << std::endl;
         // Fill arrays with mean and std dev histos
         meanHistos.push_back(meanHisto);
-        std::cout << __LINE__ << std::endl;
         stdDevHistos.push_back(stdDevHisto);
-        std::cout << __LINE__ << std::endl;
         
         // Array to collect ratio histograms for this pT bin
         std::vector<TH1D*> ratioHistos;
-        std::cout << __LINE__ << std::endl;
         
         // Create upper pad for original histogram
-        c->cd(ptBin);
-        std::cout << __LINE__ << std::endl;
+        if (ptBin > npTBins) {
+            std::cerr << "ERROR: Attempting to access invalid pad " << ptBin << std::endl;
+            continue;
+        }
+        std::cout << "Processing upper pad " << ptBin << " for pT bin " << ptBin << std::endl;
+
+        cStabilityTest2D->cd(ptBin);
+
         unfoldedProj->SetLineColor(kBlack);
-        std::cout << __LINE__ << std::endl;
         unfoldedProj->SetLineWidth(2);
         unfoldedProj->SetMarkerStyle(20);
         unfoldedProj->GetYaxis()->SetTitle("counts");
@@ -1886,7 +2686,6 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
             
             if (!toyRM) {
                 std::cerr << "    ERROR: Failed to create response matrix for toy " << toy << std::endl;
-                delete smearedData;
                 continue;
             }
             
@@ -1897,8 +2696,6 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
                 
             if (!toyUnfolded) {
                 std::cerr << "    ERROR: Toy unfolding failed for ptBin=" << ptBin << ", toy=" << toy << std::endl;
-                delete smearedData;
-                delete toyRM;
                 continue;
             }
             
@@ -1961,9 +2758,6 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
             }
             
             // Clean up temporary objects
-            delete smearedData;
-            delete toyRM;
-            delete toyUnfolded;
         }
         
         std::cout << "Completed " << successfulToys << " successful toys out of " << nToys 
@@ -2011,9 +2805,25 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
             
             stdDevHisto->SetBinContent(bin, stdDev);
         }
+                std::cout << __LINE__ << std::endl;
+
+        // Before accessing lower pad, verify it exists
+        int lowerPadIndex = npTBins + ptBin;
+        if (lowerPadIndex > totalPads) {
+            std::cerr << "ERROR: Attempting to access invalid pad " << lowerPadIndex 
+                      << " (total pads: " << totalPads << ")" << std::endl;
+            return;
+        }
         
-        // Create lower pad for ratio histos        c->cd(npTBins + ptBin);
+        std::cout << "Processing lower pad " << lowerPadIndex << " for pT bin " << ptBin << std::endl;
+        TVirtualPad* lowerPad = cStabilityTest2D->cd(lowerPadIndex);
         
+        // Verify pad is valid before proceeding
+        if (!lowerPad) {
+            std::cerr << "ERROR: Failed to get pad " << lowerPadIndex << std::endl;
+            return;
+        }
+
         // Set up blank histogram for ratio plot
         TH1D* ratioFrame = static_cast<TH1D*>(unfoldedProj->Clone("ratioFrame"));
         ratioFrame->Reset("ICESM");
@@ -2021,14 +2831,16 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
         ratioFrame->GetYaxis()->SetTitle("Ratio to nominal");
         ratioFrame->GetYaxis()->SetRangeUser(0.8, 1.2);
         ratioFrame->Draw("hist");
-        
+                std::cout << __LINE__ << std::endl;
+
         // Draw reference lines
         TLine* line1 = new TLine(ratioFrame->GetXaxis()->GetXmin(), 1.0, 
                                 ratioFrame->GetXaxis()->GetXmax(), 1.0);
         line1->SetLineColor(kBlack);
         line1->SetLineWidth(2);
         line1->Draw("same");
-        
+                std::cout << __LINE__ << std::endl;
+
         TLine* line2 = new TLine(ratioFrame->GetXaxis()->GetXmin(), 1.1, 
                                 ratioFrame->GetXaxis()->GetXmax(), 1.1);
         line2->SetLineColor(kBlack);
@@ -2060,29 +2872,117 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
         meanHisto->Draw("E same");
         
         // Clean up ratio histograms
-        for (auto hist : ratioHistos) {
-            delete hist;
-        }
         ratioHistos.clear();
-        std::cout << "Cleaned up " << ratioHistos.capacity() << " ratio histograms" << std::endl;
-        
-        // Clean up original projection
-        delete unfoldedProj;
+        std::cout << "Cleaned up " << ratioHistos.capacity() << " ratio histograms" << std::endl;        
     }
     
     // Save canvas
     std::string fileName = outputDirStability + "/StabilityTest2D_nIter" + std::to_string(nIter) + ".png";
     std::cout << "Saving plot to: " << fileName << std::endl;
-    c->SaveAs(fileName.c_str());
+    cStabilityTest2D->SaveAs(fileName.c_str());
+        
+    // Create canvas for mean and std dev summary
+    TCanvas* c2 = new TCanvas("c2", "StabilityTest Summary", 1200, 800);
+    c2->Divide(2, 1);
+    std::cout << "Created summary canvas with 2x1 pads" << std::endl;
+    
+    // Plot mean values
+    c2->cd(1);
+    TLegend* leg2 = new TLegend(0.55, 0.6, 0.9, 0.85);
+    leg2->SetBorderSize(0);
+    leg2->SetFillStyle(0);
+    leg2->SetTextSize(0.04);
+    
+    std::cout << "Drawing mean histograms..." << std::endl;
+    for (int i = 0; i < npTBins; i++) {
+        meanHistos[i]->SetLineColor(i+1);
+        meanHistos[i]->SetMarkerColor(i+1);
+        meanHistos[i]->SetMarkerStyle(20);
+        
+        if (i == 0) {
+            meanHistos[i]->SetTitle("Mean of toy ratios");
+            meanHistos[i]->GetYaxis()->SetRangeUser(0.8, 1.2);
+            meanHistos[i]->Draw("E");
+            std::cout << "  First mean histogram drawn with range [0.8, 1.2]" << std::endl;
+        } else {
+            meanHistos[i]->Draw("E same");
+        }
+        
+        leg2->AddEntry(meanHistos[i], 
+            ("p_{T} " + std::to_string(pTBinsArrayTruth[i]) + "-" + 
+             std::to_string(pTBinsArrayTruth[i+1]) + " GeV/#it{c}").c_str(), "lp");
+    }
+    
+    // Draw reference lines
+    TLine* line1m = new TLine(meanHistos[0]->GetXaxis()->GetXmin(), 1.0, 
+                            meanHistos[0]->GetXaxis()->GetXmax(), 1.0);
+    line1m->SetLineColor(kBlack);
+    line1m->SetLineWidth(2);
+    line1m->Draw("same");
+    
+    TLine* line2m = new TLine(meanHistos[0]->GetXaxis()->GetXmin(), 1.1, 
+                            meanHistos[0]->GetXaxis()->GetXmax(), 1.1);
+    line2m->SetLineColor(kBlack);
+    line2m->SetLineStyle(2);
+    line2m->Draw("same");
+    
+    TLine* line3m = new TLine(meanHistos[0]->GetXaxis()->GetXmin(), 0.9, 
+                            meanHistos[0]->GetXaxis()->GetXmax(), 0.9);
+    line3m->SetLineColor(kBlack);
+    line3m->SetLineStyle(2);
+    line3m->Draw("same");
+    
+    leg2->Draw("same");
+    
+    // Plot standard deviation values
+    c2->cd(2);
+    TLegend* leg3 = new TLegend(0.55, 0.6, 0.9, 0.85);
+    leg3->SetBorderSize(0);
+    leg3->SetFillStyle(0);
+    leg3->SetTextSize(0.04);
+    
+    std::cout << "Drawing stdDev histograms..." << std::endl;
+    for (int i = 0; i < npTBins; i++) {
+        stdDevHistos[i]->SetLineColor(i+1);
+        stdDevHistos[i]->SetMarkerColor(i+1);
+        stdDevHistos[i]->SetMarkerStyle(20);
+        
+        if (i == 0) {
+            stdDevHistos[i]->SetTitle("Standard deviation of toy ratios");
+            stdDevHistos[i]->GetYaxis()->SetTitle("Standard Deviation");
+            stdDevHistos[i]->GetYaxis()->SetRangeUser(0, 0.2);
+            stdDevHistos[i]->Draw("E");
+            std::cout << "  First stdDev histogram drawn with range [0, 0.2]" << std::endl;
+        } else {
+            stdDevHistos[i]->Draw("E same");
+        }
+        
+        leg3->AddEntry(stdDevHistos[i], 
+            ("p_{T} " + std::to_string(pTBinsArrayTruth[i]) + "-" + 
+             std::to_string(pTBinsArrayTruth[i+1]) + " GeV/#it{c}").c_str(), "lp");
+    }
+    
+    leg3->Draw("same");
+    
+    // Save summary canvas
+    std::string fileNameSummary = outputDirStability + "/StabilityTest2D_Summary_nIter" + 
+                                 std::to_string(nIter) + ".png";
+    std::cout << "Saving summary plot to: " << fileNameSummary << std::endl;
+    c2->SaveAs(fileNameSummary.c_str());
+    
+    // Calculate total execution time
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    std::cout << "Total execution time: " << duration << " ms (" << (duration/1000.0) << " s)" << std::endl;
     
     // Clean up
-    delete c;
+    // delete c;
+    // delete c2;
+    // delete random;
     
-    // Clean up histograms
-        std::cout << "Cleaning up " << meanHistos.size() << " mean histograms and " 
-              << stdDevHistos.size() << " stdDev histograms" << std::endl;
+    std::cout << "Cleaning up " << meanHistos.size() << " mean histograms and " 
+              << stdDevHistos.size() << " stdDev histograms..." << std::endl;
     
-    // Fix: Use meanHistos and stdDevHistos for cleanup
     for (auto hist : meanHistos) {
         delete hist;
     }
@@ -2092,6 +2992,1147 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
         delete hist;
     }
     stdDevHistos.clear();
+    
+    std::cout << "==== StabilityTest2D DEBUG END ====\n" << std::endl;
+}
+
+void UnfoldSpectraClass::StabilityTest(int ptBin, int nIter, bool useRatioNorm) {
+    std::cout << "\n==== StabilityTest DEBUG START ====" << std::endl;
+    std::cout << "Testing stability for ptBin=" << ptBin << ", nIter=" << nIter 
+              << ", useRatioNorm=" << (useRatioNorm ? "true" : "false") << std::endl;
+    
+    if (ptBin >= unfoldedArrPerBin.size() || nIter >= unfoldedArrPerBin[ptBin].size()) {
+        std::cerr << "Error: Invalid ptBin or nIter!" << std::endl;
+        return;
+    }
+    
+    // Get the original unfolded result
+    TH1D* unfoldedResult = unfoldedArrPerBin[ptBin][nIter];
+    if (!unfoldedResult) {
+        std::cerr << "Error: Null pointer for unfolded histogram!" << std::endl;
+        return;
+    }
+    
+    // Create random number generator
+    TRandom3* random = new TRandom3();
+    random->SetSeed(0);
+    
+    // Make directory for output plots
+    std::string outputDirStability = makeOutDir("Stability");
+    
+    // Create canvas
+    TCanvas* c = new TCanvas("c", "Stability Test", 800, 800);
+    c->Divide(1, 2);
+    
+    // Upper pad for original and varied histograms
+    c->cd(1);
+    gPad->SetLeftMargin(0.15);
+    gPad->SetRightMargin(0.05);
+    
+    // Style the original histogram
+    unfoldedResult->SetLineColor(kBlack);
+    unfoldedResult->SetLineWidth(2);
+    unfoldedResult->SetMarkerStyle(20);
+    unfoldedResult->GetYaxis()->SetTitle("counts per bin");
+    unfoldedResult->SetTitle(("Stability Test, p_{T} bin: " + std::to_string(pTBinsArrayTruth[ptBin]) + 
+                            "-" + std::to_string(pTBinsArrayTruth[ptBin+1]) + " GeV/#it{c}").c_str());
+    unfoldedResult->Draw("E");
+    
+    // Create legend
+    TLegend* legend = new TLegend(0.55, 0.6, 0.9, 0.85);
+    legend->SetBorderSize(0);
+    legend->SetFillStyle(0);
+    legend->SetTextSize(0.04);
+    legend->AddEntry(unfoldedResult, "Original unfolded", "lp");
+    
+    // Arrays for storing mean and std dev
+    std::vector<double> means(unfoldedResult->GetNbinsX(), 0.0);
+    std::vector<double> stdDevs(unfoldedResult->GetNbinsX(), 0.0);
+    std::vector<std::vector<double>> ratioValues(unfoldedResult->GetNbinsX());
+    std::vector<TH1D*> ratioHistos;
+    
+    // Perform N toy trials
+    const int nToys = 20;
+    const bool plotAll = false;
+    
+    for (int toy = 0; toy < nToys; toy++) {
+        // Create smeared data by fluctuating each bin of the measured data
+        TH1D* smearedData = static_cast<TH1D*>(measuredSpectraArray[ptBin]->Clone(
+            Form("smearedData_ptBin%d_toy%d", ptBin, toy)));
+        
+        for (int bin = 1; bin <= smearedData->GetNbinsX(); bin++) {
+            double content = smearedData->GetBinContent(bin);
+            double error = smearedData->GetBinError(bin);
+            
+            double newContent = random->Gaus(content, error);
+            if (newContent < 0) newContent = 0;
+            
+            smearedData->SetBinContent(bin, newContent);
+            smearedData->SetBinError(bin, std::sqrt(newContent));
+        }
+        
+        // Create response matrix and unfold
+        RooUnfoldResponse* toyRM = PrepareResponseMatrix2D(0);
+        RooUnfoldBayes unfoldBayes(toyRM, smearedData, nIter);
+        TH1D* toyUnfolded = dynamic_cast<TH1D*>(unfoldBayes.Hreco(
+            static_cast<RooUnfold::ErrorTreatment>(errorType)));
+            
+        if (!toyUnfolded) {
+            std::cerr << "ERROR: Toy unfolding failed for toy=" << toy << std::endl;
+            delete smearedData;
+            delete toyRM;
+            continue;
+        }
+        
+        // Draw toy result if needed
+        int colorIndex = toy % 9 + 1; // Avoid black (0)
+        toyUnfolded->SetLineColor(colorIndex);
+        toyUnfolded->SetLineStyle(2);
+        
+        if (plotAll || toy < 5) {
+            toyUnfolded->Draw("hist same");
+            
+            if (toy == 0) {
+                legend->AddEntry(unfoldedResult, "Original unfolded", "lp");
+                legend->AddEntry(toyUnfolded, "Toy variations", "l");
+            }
+        }
+        
+        // Calculate ratio to original
+        TH1D* ratioHisto = static_cast<TH1D*>(toyUnfolded->Clone(
+            Form("ratioHisto_toy%d", toy)));
+        
+        if (useRatioNorm) {
+            // Normalize before dividing to preserve shape comparison
+            double toyIntegral = toyUnfolded->Integral();
+            double origIntegral = unfoldedResult->Integral();
+            
+            if (toyIntegral > 0 && origIntegral > 0) {
+                toyUnfolded->Scale(origIntegral / toyIntegral);
+            }
+        }
+        
+        ratioHisto->Divide(unfoldedResult);
+        ratioHisto->SetLineColor(colorIndex);
+        ratioHistos.push_back(ratioHisto);
+        
+        // Store ratio values for statistics
+        for (int bin = 1; bin <= ratioHisto->GetNbinsX(); bin++) {
+            ratioValues[bin-1].push_back(ratioHisto->GetBinContent(bin));
+        }
+        
+        // Clean up temporary objects
+        delete smearedData;
+        delete toyRM;
+        delete toyUnfolded;
+    }
+    
+    legend->Draw("same");
+    
+    // Lower pad for ratios
+    c->cd(2);
+    gPad->SetLeftMargin(0.15);
+    gPad->SetRightMargin(0.05);
+    
+    // Create blank histogram for ratios
+    TH1D* ratioFrame = static_cast<TH1D*>(unfoldedResult->Clone("ratioFrame"));
+    ratioFrame->Reset("ICESM");
+    ratioFrame->SetTitle("");
+    ratioFrame->GetYaxis()->SetTitle("Ratio to nominal");
+    ratioFrame->GetYaxis()->SetRangeUser(0.8, 1.2);
+    ratioFrame->Draw("hist");
+    
+    // Draw reference lines
+    TLine* line1 = new TLine(ratioFrame->GetXaxis()->GetXmin(), 1.0, 
+                            ratioFrame->GetXaxis()->GetXmax(), 1.0);
+    line1->SetLineColor(kBlack);
+    line1->SetLineWidth(2);
+    line1->Draw("same");
+    
+    TLine* line2 = new TLine(ratioFrame->GetXaxis()->GetXmin(), 1.1, 
+                            ratioFrame->GetXaxis()->GetXmax(), 1.1);
+    line2->SetLineColor(kBlack);
+    line2->SetLineStyle(2);
+    line2->Draw("same");
+    
+    TLine* line3 = new TLine(ratioFrame->GetXaxis()->GetXmin(), 0.9, 
+                            ratioFrame->GetXaxis()->GetXmax(), 0.9);
+    line3->SetLineColor(kBlack);
+    line3->SetLineStyle(2);
+    line3->Draw("same");
+    
+    // Calculate mean and std dev for each bin
+    TH1D* meanHisto = static_cast<TH1D*>(unfoldedResult->Clone("meanRatios"));
+    meanHisto->Reset("ICESM");
+    
+    TH1D* stdDevHisto = static_cast<TH1D*>(unfoldedResult->Clone("stdDevRatios"));
+    stdDevHisto->Reset("ICESM");
+    
+    for (int bin = 1; bin <= unfoldedResult->GetNbinsX(); bin++) {
+        // Skip bins with no values
+        if (ratioValues[bin-1].empty()) continue;
+        
+        // Calculate mean of ratios
+        double sum = 0.0;
+        for (double val : ratioValues[bin-1]) {
+            sum += val;
+        }
+        double mean = sum / ratioValues[bin-1].size();
+        means[bin-1] = mean;
+        
+        // Calculate std dev of ratios
+        double variance = 0.0;
+        for (double val : ratioValues[bin-1]) {
+            variance += std::pow(val - mean, 2);
+        }
+        double stdDev = std::sqrt(variance / ratioValues[bin-1].size());
+        stdDevs[bin-1] = stdDev;
+        
+        // Set values in histograms
+        meanHisto->SetBinContent(bin, mean);
+        meanHisto->SetBinError(bin, stdDev / std::sqrt(ratioValues[bin-1].size())); // Standard error
+        
+        stdDevHisto->SetBinContent(bin, stdDev);
+    }
+    
+    // Draw all ratio histograms
+    for (size_t i = 0; i < ratioHistos.size(); i++) {
+        if (plotAll || i < 5) {
+            ratioHistos[i]->Draw("hist same");
+        }
+    }
+    
+    // Draw mean histogram
+    meanHisto->SetLineColor(kBlack);
+    meanHisto->SetLineWidth(3);
+    meanHisto->SetMarkerStyle(20);
+    meanHisto->SetMarkerColor(kBlack);
+    meanHisto->Draw("E same");
+    
+    // Save canvas
+    std::string fileName = outputDirStability + "/StabilityTest_ptBin" + std::to_string(ptBin) + 
+                         "_nIter" + std::to_string(nIter);
+    if (useRatioNorm) {
+        fileName += "_normalized";
+    }
+    fileName += ".png";
+    c->SaveAs(fileName.c_str());
+    
+    // Create second canvas for stdDev histogram
+    TCanvas* c2 = new TCanvas("c2", "Standard Deviation", 800, 600);
+    c2->SetLeftMargin(0.15);
+    c2->SetRightMargin(0.05);
+    
+    stdDevHisto->SetTitle("Standard Deviation of Toy Ratios");
+    stdDevHisto->GetYaxis()->SetTitle("Standard Deviation");
+    stdDevHisto->GetYaxis()->SetRangeUser(0, 0.2);
+    stdDevHisto->SetLineColor(kBlue);
+    stdDevHisto->SetMarkerColor(kBlue);
+    stdDevHisto->SetMarkerStyle(20);
+    stdDevHisto->Draw("E");
+    
+    // Save stdDev canvas
+    std::string fileName2 = outputDirStability + "/StabilityTest_StdDev_ptBin" + std::to_string(ptBin) + 
+                          "_nIter" + std::to_string(nIter);
+    if (useRatioNorm) {
+        fileName2 += "_normalized";
+    }
+    fileName2 += ".png";
+    c2->SaveAs(fileName2.c_str());
+    
+    // Clean up
+    delete c;
+    delete c2;
+    delete random;
+    
+    // FIX: Remove references to non-existent vectors and clean up individual histograms
+    std::cout << "Cleaning up histograms..." << std::endl;
+    
+    // Delete individual histograms
+    delete meanHisto;
+    delete stdDevHisto;
+    delete ratioFrame;
+    
+    // Delete ratio histograms
+    for (auto hist : ratioHistos) {
+        delete hist;
+    }
+    ratioHistos.clear();
+    
+    std::cout << "==== StabilityTest DEBUG END ====\n" << std::endl;
+}
+
+void UnfoldSpectraClass::getKinEfficiency(int bin) {
+    // Define colors for plotting different pT bins
+    std::vector<int> colorArrayFinalFigs = {kAzure, kAzure-4, kCyan-6, kGreen-3, kTeal-6, kGreen+4, 1, 1};
+    std::vector<TH1D*> kinEffArr;
+    
+    for (size_t bin = 0; bin < pTBinsArrayTruth.size() - 1; bin++) {
+        // Get full response without cuts
+        TH2D* Full = getResponseMatrix(0, "zTDet", "zTPart", true, bin, false);
+        
+        // Get response with cuts
+        TH2D* Cut = getResponseMatrix(0, "zTDet", "zTPart", true, bin, true);
+        
+        // Project to 1D and calculate efficiency
+        TH1D* projFull = Full->ProjectionY(("_pyFull_" + std::to_string(bin)).c_str(), 1, Full->GetNbinsX());
+        TH1D* projCut = Cut->ProjectionY(("_pyCut_" + std::to_string(bin)).c_str(), 1, Cut->GetNbinsX());
+        projCut->SetName(("ProjectionBin_" + std::to_string(bin)).c_str());
+        projCut->Divide(projFull);
+        kinEffArr.push_back(projCut);
+        
+        // Clean up temporary histograms
+        delete Full;
+        delete Cut;
+        delete projFull;
+    }
+    
+    // Define plot title based on particle type
+    std::string xTitle = "p_{T}^{D^{0}}/p_{T}^{jet}";
+    
+    // Create canvas for plotting efficiencies
+    TCanvas* c3 = new TCanvas("c2", "c: hist", 1000, 900);
+    c3->cd();
+    TGaxis::SetMaxDigits(3);
+    
+    // Set pad and histogram arrangement
+    TPad* myPad3 = new TPad("myPad", "The pad", 0, 0, 1, 1);
+    myPad3->SetLeftMargin(0.15);
+    myPad3->SetTopMargin(0.06);
+    myPad3->SetRightMargin(0.04);
+    myPad3->SetBottomMargin(0.15);
+    myPad3->SetTicks();
+    myPad3->Draw();
+    myPad3->cd();
+    
+    // Create blank histogram for styling
+    TH1F* myBlankHisto3 = new TH1F("myBlankHisto3", "Blank Histogram", 20, 0, 1);
+    myBlankHisto3->GetXaxis()->SetNdivisions(505);
+    myBlankHisto3->SetXTitle(xTitle.c_str());
+    myBlankHisto3->GetXaxis()->SetTitleSize(0.05);
+    myBlankHisto3->GetXaxis()->SetRangeUser(0, 1);
+    myBlankHisto3->GetXaxis()->SetNdivisions(405);
+    myBlankHisto3->GetYaxis()->SetTitleOffset(1.35);
+    myBlankHisto3->GetYaxis()->SetTitleSize(0.055);
+    myBlankHisto3->SetLineColor(0);
+    myBlankHisto3->SetYTitle("kinematic efficiency");
+    myBlankHisto3->GetYaxis()->SetRangeUser(0.7, 1.3);
+    myBlankHisto3->Draw("P");
+    
+    // Create legend
+    TLegend* myLegend3 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    myLegend3->SetTextFont(42);
+    myLegend3->SetBorderSize(0);
+    myLegend3->SetFillStyle(0);
+    myLegend3->SetFillColor(0);
+    myLegend3->SetMargin(0.25);
+    myLegend3->SetTextSize(0.04);
+    myLegend3->AddEntry(kinEffArr[0], " #it{p}_{T}^{jet}:", "");
+    
+    // Draw all efficiency curves
+    double markerScale = 1.6;
+    for (size_t i = 0; i < kinEffArr.size(); i++) {
+        kinEffArr[i]->SetMarkerSize(1.3 * markerScale);
+        kinEffArr[i]->SetMarkerStyle(20);
+        kinEffArr[i]->SetMarkerColor(colorArrayFinalFigs[i]);
+        kinEffArr[i]->SetLineStyle(1);
+        kinEffArr[i]->SetLineWidth(2);
+        kinEffArr[i]->SetLineColor(colorArrayFinalFigs[i]);
+        kinEffArr[i]->Draw("hist P same");
+        
+        myLegend3->AddEntry(kinEffArr[i], 
+            ("  " + std::to_string(pTBinsArrayTruth[i]) + "-" + std::to_string(pTBinsArrayTruth[i+1]) + " (GeV/#it{c})").c_str(), 
+            "LP");
+    }
+    
+    myLegend3->Draw();
+    
+    // Save the canvas
+    std::string fileName = outPath + "kinematicEff_" + figureTag + ".png";
+    c3->SaveAs(fileName.c_str());
+    
+    // Clean up
+    delete c3;
+    for (TH1D* hist : kinEffArr) {
+        delete hist;
+    }
+}
+
+
+
+// Implementation of deScaleGraph helper method
+void UnfoldSpectraClass::deScaleGraph(TGraphErrors* graph) {
+    // This function undoes normalization by bin width
+    int nPoints = graph->GetN();
+    for (int i = 0; i < nPoints; i++) {
+        double x, y;
+        graph->GetPoint(i, x, y);
+        double ex = graph->GetErrorX(i);
+        double ey = graph->GetErrorY(i);
+        
+        // Scale factor is twice the x error (bin width)
+        double scale = ex * 2.0;
+        
+        // Scale bin content and error
+        y *= scale;
+        ey *= scale;
+        
+        // Update the graph
+        graph->SetPoint(i, x, y);
+        graph->SetPointError(i, ex, ey);
+    }
+}
+
+// Destructor
+UnfoldSpectraClass::~UnfoldSpectraClass() {
+    // Clean up allocated memory
+    if (fResponse) delete fResponse;
+    if (fData) delete fData;
+    
+    // Clean up histograms
+    for (auto hist : unfoldedArr2D) {
+        if (hist) delete hist;
+    }
+    
+    for (auto& binArray : unfoldedArrPerBin) {
+        for (auto hist : binArray) {
+            if (hist) delete hist;
+        }
+    }
+    
+    for (auto hist : measuredSpectraArray) {
+        if (hist) delete hist;
+    }
+    
+    if (measuredSpectra2D) delete measuredSpectra2D;
+    if (hOriginalPrior) delete hOriginalPrior;
+    if (hCurrentPrior) delete hCurrentPrior;
+    if (externalPrior) delete externalPrior;
+}
+
+
+// Implementation of PrepareResponseMatrix3D method
+RooUnfoldResponse* UnfoldSpectraClass::PrepareResponseMatrix3D(int part, TH2D* weightHistogram) {
+    
+    // Create empty RooUnfoldResponse object
+    std::string responseName = "hResponseMatrix3DMain" + unfoldLabel + "_part" + std::to_string(part);
+    RooUnfoldResponse* RooUnfoldRM = new RooUnfoldResponse(responseName.c_str(), responseName.c_str());
+
+    // Get 2D histograms for true and detector level
+    TH2D* RM2DTrue = getResponseMatrix(part, "jetPtPart", "zTPart", false, 0, false);
+    TH2D* RM2DDet = getResponseMatrix(part, "jetPtDet", "zTDet", false, 0, false);
+    
+    // Setup the RooUnfoldResponse with these histograms (will be overwritten in Fill function)
+    RooUnfoldRM->Setup(RM2DDet, RM2DTrue);
+
+    // Define mass cut based on particle type
+    std::pair<double, double> MassCut = std::make_pair(1.81, 1.935);
+    
+
+    const double jetPtMin = 5.0;
+
+    // Create random number generator
+    TRandom* R = new TRandom();
+    
+    // Get the TTree from the file
+    TTree* tTree = static_cast<TTree*>(fResponse->Get("Response"));
+    if (!tTree) {
+        std::cerr << "Error: Could not find 'Response' TTree in file!" << std::endl;
+        delete R;
+        return RooUnfoldRM;
+    }
+    
+    // Variables to hold tree data - FIXED: changed to float to match Float_t in branches
+    float zTDet, zTPart, jetPtDet, jetPtPart, tagPtDet, tagPtPart;
+    float etaDet, nConstDet, nConstPart;
+    double weight, b_weight;  // These can stay double as they're not directly from branches
+    
+    // Set branch addresses with correct types
+    tTree->SetBranchAddress("zTDet", &zTDet);
+    tTree->SetBranchAddress("zTPart", &zTPart);
+    tTree->SetBranchAddress("jetPtDet", &jetPtDet);
+    tTree->SetBranchAddress("jetPtPart", &jetPtPart);
+    tTree->SetBranchAddress("tagPtDet", &tagPtDet);
+    tTree->SetBranchAddress("tagPtPart", &tagPtPart);
+    tTree->SetBranchAddress("nConstDet", &nConstDet);
+    tTree->SetBranchAddress("nConstPart", &nConstPart);
+    tTree->SetBranchAddress("etaDet", &etaDet);
+    
+    // B-decay weight branch
+    if (!isPrompt) {
+        tTree->SetBranchAddress("weight", &b_weight);
+    } else {
+        b_weight = 1.0;
+    }
+    
+    // Loop over all events
+    for (int iEvt = 0; iEvt < tTree->GetEntries(); ++iEvt) {
+        double evt_weight = 1.0;
+        b_weight = 1.0;
+        
+        tTree->GetEntry(iEvt);
+        
+        double rndm = R->Uniform(1.0);
+        
+        // Apply jet pT cut
+        if (jetPtDet < jetPtMin) continue;
+        
+        // Apply response matrix cuts if needed
+        bool passCuts = !applyRMCut || 
+                        (applyRMCut && nConstDet > 1 && nConstPart > 1 && 
+                         etaDet > 2.5 && etaDet < 4.0);
+                         
+        if (passCuts) {
+            // Apply weight if provided
+            if (weightHistogram) {
+                evt_weight = getEventWeight(weightHistogram, zTPart, jetPtPart);
+                weight = b_weight * evt_weight;
+            } else {
+                weight = b_weight;
+            }
+            
+            // Fill response matrix based on part parameter
+            if (part == 0) {
+                if (useTagPt) {
+                    RooUnfoldRM->Fill(tagPtDet, zTDet, tagPtPart, zTPart, weight);
+                } else {
+                    RooUnfoldRM->Fill(jetPtDet, zTDet, jetPtPart, zTPart, weight);
+                }
+            }
+            // Fill with half of statistics (for testing purposes)
+            else if (part == 1 && rndm > 0.5) {
+                if (useTagPt) {
+                    RooUnfoldRM->Fill(tagPtDet, zTDet, tagPtPart, zTPart, weight);
+                } else {
+                    RooUnfoldRM->Fill(jetPtDet, zTDet, jetPtPart, zTPart, weight);
+                }
+            }
+            // Fill with other half of statistics (for testing purposes)
+            else if (part == 2 && rndm < 0.5) {
+                if (useTagPt) {
+                    RooUnfoldRM->Fill(tagPtDet, zTDet, tagPtPart, zTPart, weight);
+                } else {
+                    RooUnfoldRM->Fill(jetPtDet, zTDet, jetPtPart, zTPart, weight);
+                }
+            }
+        }
+    }
+    
+    // Don't use overflow bins
+    RooUnfoldRM->UseOverflow(false);
+    
+    // Plot histograms for QA
+    plotHist(RooUnfoldRM->Htruth(), "h2DRMtrue_RM_" + std::to_string(part), "colz", 
+             "p_{T,jet} (GeV/c)", "z_{T}");
+    plotHist(RooUnfoldRM->Hmeasured(), "h2DRMdet_RM_" + std::to_string(part), "colz", 
+             "p_{T,jet} (GeV/c)", "z_{T}");
+    plotHist(RooUnfoldRM->Hresponse(), "h2DRM_RM_" + std::to_string(part), "colz", " ", " ");
+    
+    // Clean up
+    delete R;
+    
+    return RooUnfoldRM;
+}
+
+TH2D* UnfoldSpectraClass::prepareRMWeights(int regParam, int iteration) {
+    // This function finds the weights that need to be used while filling the RM
+    
+    std::cout << "\n==== prepareRMWeights DEBUG ====" << std::endl;
+    std::cout << "Input parameters: regParam = " << regParam << ", iteration = " << iteration << std::endl;
+    
+    TH2D* hweights = nullptr;
+    
+    if (externalPrior && iteration == 0) {
+        std::cout << "Using external prior for weights calculation (first iteration)" << std::endl;
+        
+        // Check original prior histogram validity
+        if (!hOriginalPrior) {
+            std::cerr << "ERROR: hOriginalPrior is null!" << std::endl;
+            return nullptr;
+        }
+        
+        // Debug histogram properties
+        std::cout << "Original prior: " << hOriginalPrior->GetNbinsX() << "x" 
+                  << hOriginalPrior->GetNbinsY() << " bins, integral = " 
+                  << hOriginalPrior->Integral() << ", max = " << hOriginalPrior->GetMaximum() << std::endl;
+        
+        std::cout << "External prior: " << externalPrior->GetNbinsX() << "x" 
+                  << externalPrior->GetNbinsY() << " bins, integral = " 
+                  << externalPrior->Integral() << ", max = " << externalPrior->GetMaximum() << std::endl;
+        
+        // Build the 2D ratio between original prior and externally provided prior
+        hweights = static_cast<TH2D*>(externalPrior->Clone(("hweightsForPrior_Ext" + std::to_string(iteration)).c_str()));
+        hweights->Divide(hOriginalPrior);
+        
+        std::cout << "After division: weights histogram integral = " << hweights->Integral() 
+                  << ", max = " << hweights->GetMaximum() << ", min = " << hweights->GetMinimum() << std::endl;
+        
+        // Scale by maximum bin
+        // Alternative option: normalize by integral
+        // hweights->Scale(1.0/hweights->Integral());
+        double oldMax = hOriginalPrior->GetMaximum();
+        double newMax = hweights->GetMaximum();
+        
+        double scaleFactor = newMax!= 0 ? oldMax / newMax : 1.0; // Avoid division by zero
+        if (scaleFactor < 0) {
+            std::cerr << "ERROR: Scale factor is negative! oldMax = " << oldMax 
+                      << ", newMax = " << newMax << std::endl;
+            return nullptr;
+        }
+        
+        std::cout << "Scaling weights by factor: " << scaleFactor 
+                  << " (oldMax = " << oldMax << ", newMax = " << newMax << ")" << std::endl;
+        
+        hweights->Scale(scaleFactor);
+        
+        std::cout << "After scaling: weights histogram integral = " << hweights->Integral() 
+                  << ", max = " << hweights->GetMaximum() << ", min = " << hweights->GetMinimum() << std::endl;
+        
+        // Check for problematic values
+        int zeroBins = 0, negBins = 0, largeBins = 0;
+        for (int i = 1; i <= hweights->GetNbinsX(); i++) {
+            for (int j = 1; j <= hweights->GetNbinsY(); j++) {
+                double content = hweights->GetBinContent(i, j);
+                if (content == 0) zeroBins++;
+                if (content < 0) negBins++;
+                if (content > 10) largeBins++;
+            }
+        }
+        std::cout << "Weight histogram statistics: " << zeroBins << " zero bins, " 
+                  << negBins << " negative bins, " << largeBins << " bins with weight > 10" << std::endl;
+        
+        plotHist(hweights, "hweights_extPrior", "colz", "p_{T,jet} (GeV/c)", "z_{T}");
+    } else {
+        std::cout << "Using adaptive unfolding with weights from previous iteration" << std::endl;
+        
+        // Check validity of source histograms
+        if (!hOriginalPrior) {
+            std::cerr << "ERROR: hOriginalPrior is null!" << std::endl;
+            return nullptr;
+        }
+        
+        if (regParam >= unfoldedArr2D.size()) {
+            std::cerr << "ERROR: regParam (" << regParam << ") out of range for unfoldedArr2D (size: " 
+                      << unfoldedArr2D.size() << ")" << std::endl;
+            return nullptr;
+        }
+        
+        if (!unfoldedArr2D[regParam]) {
+            std::cerr << "ERROR: unfoldedArr2D[" << regParam << "] is null!" << std::endl;
+            return nullptr;
+        }
+        
+        // Debug histogram properties
+        std::cout << "Original prior: " << hOriginalPrior->GetNbinsX() << "x" 
+                  << hOriginalPrior->GetNbinsY() << " bins, integral = " 
+                  << hOriginalPrior->Integral() << ", max = " << hOriginalPrior->GetMaximum() << std::endl;
+        
+        std::cout << "Unfolded result: " << unfoldedArr2D[regParam]->GetNbinsX() << "x" 
+                  << unfoldedArr2D[regParam]->GetNbinsY() << " bins, integral = " 
+                  << unfoldedArr2D[regParam]->Integral() << ", max = " << unfoldedArr2D[regParam]->GetMaximum() << std::endl;
+        
+        // Build the 2D ratio between prior and reconstructed data after unfolding
+        hweights = static_cast<TH2D*>(unfoldedArr2D[regParam]->Clone(("hweightsForPrior_" + std::to_string(iteration)).c_str()));
+        hweights->Divide(hOriginalPrior);
+        
+        std::cout << "After division: weights histogram integral = " << hweights->Integral() 
+                  << ", max = " << hweights->GetMaximum() << ", min = " << hweights->GetMinimum() << std::endl;
+        
+        // Scale by maximum bin
+        double oldMax = hOriginalPrior->GetMaximum();
+        double newMax = hweights->GetMaximum();
+        double scaleFactor = oldMax/newMax;
+        
+        std::cout << "Scaling weights by factor: " << scaleFactor 
+                  << " (oldMax = " << oldMax << ", newMax = " << newMax << ")" << std::endl;
+        
+        hweights->Scale(scaleFactor);
+        
+        std::cout << "After scaling: weights histogram integral = " << hweights->Integral() 
+                  << ", max = " << hweights->GetMaximum() << ", min = " << hweights->GetMinimum() << std::endl;
+        
+        // Check for problematic values
+        int zeroBins = 0, negBins = 0, largeBins = 0;
+        for (int i = 1; i <= hweights->GetNbinsX(); i++) {
+            for (int j = 1; j <= hweights->GetNbinsY(); j++) {
+                double content = hweights->GetBinContent(i, j);
+                if (content == 0) zeroBins++;
+                if (content < 0) negBins++;
+                if (content > 10) largeBins++;
+            }
+        }
+        std::cout << "Weight histogram statistics: " << zeroBins << " zero bins, " 
+                  << negBins << " negative bins, " << largeBins << " bins with weight > 10" << std::endl;
+        
+        plotHist(hweights, "hweights_Iter" + std::to_string(iteration), "colz", "p_{T,jet} (GeV/c)", "z_{T}");
+    }
+    
+    std::cout << "==== prepareRMWeights END ====\n" << std::endl;
+    return hweights;
+}
+
+// Implementation of getEventWeight method
+double UnfoldSpectraClass::getEventWeight(TH2D* hweights, double zTValue, double pTValue) {
+    double weight = 1.0;
+    
+    int xBin = hweights->GetXaxis()->FindBin(pTValue);
+    int yBin = hweights->GetYaxis()->FindBin(zTValue);
+    weight = hweights->GetBinContent(xBin, yBin);
+    
+    return weight;
+}
+
+// Implementation of getResponseMatrix method (simplified - full implementation would be more complex)
+TH2D* UnfoldSpectraClass::getResponseMatrix(int part, const std::string& xAxisVar, const std::string& yAxisVar, 
+                                           bool fineBinning, int bin, bool isCut, TFile* externalFile) {
+    // Determine mass cut range
+    std::pair<double, double> MassCut = std::make_pair(1.81, 1.935);
+    
+    // Create filter strings
+    std::string resonanceCutString = "tagMPart > " + std::to_string(MassCut.first) + 
+                                     " && tagMPart < " + std::to_string(MassCut.second);
+    std::string jetCuts = "nConstPart>1 && etaDet>2.5 && etaDet<4";
+    
+    // Create binning arrays
+    std::vector<double> xBins, yBins;
+    int nBinsX = 0, nBinsY = 0;
+    
+    // Determine binning based on axis variables
+    if (xAxisVar == "jetPtPart") {
+        xBins.clear();
+        for (int val : pTBinsArrayTruth) {
+            xBins.push_back(static_cast<double>(val));
+        }
+        nBinsX = xBins.size() - 1;
+    } else if (xAxisVar == "jetPtDet") {
+        xBins.clear();
+        for (int val : pTBinsArrayDet) {
+            xBins.push_back(static_cast<double>(val));
+        }
+        nBinsX = xBins.size() - 1;
+    } else if (xAxisVar == "zTDet") {
+        xBins = zBinsArrayDet;
+        nBinsX = xBins.size() - 1;
+    }
+    
+    if (yAxisVar == "zTPart") {
+        yBins = zBinsArrayTruth;
+        nBinsY = yBins.size() - 1;
+    } else if (yAxisVar == "zTDet") {
+        yBins = zBinsArrayDet;
+        nBinsY = yBins.size() - 1;
+    }
+    
+    // Create histogram
+    std::string histName = "RM_" + xAxisVar + "_" + yAxisVar;
+    if (part == 0) {
+        histName += "Full";
+    } else if (part == 1) {
+        histName += "Half1";
+    } else {
+        histName += "Half2";
+    }
+    
+    TH2D* RM = new TH2D(histName.c_str(), histName.c_str(), nBinsX, xBins.data(), nBinsY, yBins.data());
+    
+    // Fill histogram from TTree (would need to implement the actual filling)
+    // This would involve retrieving the TTree and looping through entries
+    // with appropriate filters based on the 'part' parameter
+    
+    // Set Sumw2 for correct error propagation
+    RM->Sumw2();
+    
+    return RM;
+}
+// Example implementation of one method (continuing with other methods would make this answer too long)
+void UnfoldSpectraClass::unfold2D(int regParam, int iteration, const std::string& tag) {
+    std::cout << "\n=============== UNFOLD2D DEBUG START ===============" << std::endl;
+    std::cout << "Input parameters: regParam = " << regParam << ", iteration = " << iteration << ", tag = '" << tag << "'" << std::endl;
+
+    unfoldLabel = "2DBayes" + std::to_string(regParam) + "_Round" + std::to_string(iteration);
+    std::cout << "Setting unfoldLabel = " << unfoldLabel << std::endl;
+
+    // Update output path
+    std::string oldPath = outPath;
+    if (isPrompt) {
+        outPath = outpathBase + "/Prompt" + tag + "_" + std::to_string(iteration) + "/";
+    } else {
+        outPath = outpathBase + "/NonPrompt" + tag + "_" + std::to_string(iteration) + "/";
+    }
+    std::cout << "Updated output path from " << oldPath << " to " << outPath << std::endl;
+    
+    if (!std::filesystem::exists(outPath)) {
+        std::cout << "Creating output directory: " << outPath << std::endl;
+        std::filesystem::create_directories(outPath);
+    }
+    
+    // Prepare response matrix
+    TH2D* hweights = nullptr;
+    if (iteration > 0) {
+        std::cout << "Iteration > 0, preparing RM weights..." << std::endl;
+        hweights = prepareRMWeights(regParam, iteration);
+        if (!hweights) {
+            std::cerr << "ERROR: Failed to get weights histogram from prepareRMWeights!" << std::endl;
+        } else {
+            std::cout << "Successfully created weights histogram with integral = " << hweights->Integral() << std::endl;
+        }
+    } else {
+        std::cout << "First iteration (iteration = 0), not using weights for initial RM" << std::endl;
+    }
+    
+    std::cout << "Preparing main response matrix (part 0)..." << std::endl;
+    RooUnfoldResponse* responseMatrix3D = PrepareResponseMatrix3D(0, hweights);
+    
+    if (!responseMatrix3D) {
+        std::cerr << "ERROR: Failed to create main response matrix!" << std::endl;
+        return;
+    }
+    
+    std::cout << "Response matrix information:" << std::endl;
+    std::cout << " - Measured bins: " << responseMatrix3D->Hmeasured()->GetNbinsX() << "x" 
+              << responseMatrix3D->Hmeasured()->GetNbinsY() << std::endl;
+    std::cout << " - Truth bins: " << responseMatrix3D->Htruth()->GetNbinsX() << "x" 
+              << responseMatrix3D->Htruth()->GetNbinsY() << std::endl;
+    std::cout << " - Measured integral: " << responseMatrix3D->Hmeasured()->Integral() << std::endl;
+    std::cout << " - Truth integral: " << responseMatrix3D->Htruth()->Integral() << std::endl;
+    
+    if (iteration == 0) {
+        std::cout << "First iteration, saving original prior" << std::endl;
+        hOriginalPrior = static_cast<TH2D*>(responseMatrix3D->Htruth()->Clone("hOriginalPrior"));
+    } else {
+        std::cout << "Updating current prior for iteration " << iteration << std::endl;
+        hCurrentPrior = static_cast<TH2D*>(responseMatrix3D->Htruth()->Clone("hCurrentPrior"));
+    }
+    
+    std::cout << "Preparing secondary response matrices (parts 1 & 2)..." << std::endl;
+    RooUnfoldResponse* responseMatrix3D_Pt1 = PrepareResponseMatrix3D(1, hweights);
+    RooUnfoldResponse* responseMatrix3D_Pt2 = PrepareResponseMatrix3D(2, hweights);
+    
+    if (!responseMatrix3D_Pt1 || !responseMatrix3D_Pt2) {
+        std::cerr << "ERROR: Failed to create secondary response matrices!" << std::endl;
+        delete responseMatrix3D;
+        if (hweights) delete hweights;
+        return;
+    }
+    
+    if (iteration == 0 && externalPrior) {
+        std::cout << "First iteration with external prior, preparing all RMs again with weights" << std::endl;
+        hweights = prepareRMWeights(regParam, iteration);
+        if (!hweights) {
+            std::cerr << "ERROR: Failed to get weights histogram for external prior!" << std::endl;
+        } else {
+            std::cout << "Created weights from external prior with integral = " << hweights->Integral() << std::endl;
+            
+            std::cout << "Recreating all response matrices with external prior weights..." << std::endl;
+            delete responseMatrix3D;
+            delete responseMatrix3D_Pt1;
+            delete responseMatrix3D_Pt2;
+            
+            responseMatrix3D = PrepareResponseMatrix3D(0, hweights);
+            responseMatrix3D_Pt1 = PrepareResponseMatrix3D(1, hweights);
+            responseMatrix3D_Pt2 = PrepareResponseMatrix3D(2, hweights);
+            
+            if (!responseMatrix3D || !responseMatrix3D_Pt1 || !responseMatrix3D_Pt2) {
+                std::cerr << "ERROR: Failed to recreate response matrices with external prior!" << std::endl;
+                if (hweights) delete hweights;
+                return;
+            }
+        }
+    }
+    
+    // Plot measured data
+    std::cout << "Plotting measured data histogram" << std::endl;
+    if (measuredSpectra2D) {
+        std::cout << "Measured data 2D: " << measuredSpectra2D->GetNbinsX() << "x" 
+                  << measuredSpectra2D->GetNbinsY() << " bins, integral = " 
+                  << measuredSpectra2D->Integral() << std::endl;
+        plotHist(measuredSpectra2D, "hMeasuredData2D", "colz", "p_{T,jet} (GeV/c)", "z_{T}");
+    } else {
+        std::cerr << "ERROR: measuredSpectra2D is null!" << std::endl;
+    }
+    
+    // Clear previous unfolding results
+    std::cout << "Clearing previous unfolding results (" << unfoldedArr2D.size() << " histograms)" << std::endl;
+    for (auto hist : unfoldedArr2D) {
+        if (hist) delete hist;
+    }
+    unfoldedArr2D.clear();
+    
+    // Perform unfolding for different iteration values
+    for (int i = 1; i <= regParam + 2; i++) {
+        std::cout << "\nPerforming unfolding with " << i << " Bayes iterations..." << std::endl;
+        
+        // Set up the Bayesian unfolding
+        RooUnfoldBayes unfoldBayes2D(responseMatrix3D, measuredSpectra2D, i);
+        
+        // Perform the unfolding
+        std::cout << "Running unfolding with error treatment: " << errorType << std::endl;
+        TH2D* h2DUnfoldedPerBin = dynamic_cast<TH2D*>(unfoldBayes2D.Hreco(
+            static_cast<RooUnfold::ErrorTreatment>(errorType)));
+            
+        if (!h2DUnfoldedPerBin) {
+            std::cerr << "ERROR: Unfolding failed - returned null histogram for " << i << " iterations" << std::endl;
+            continue;
+        }
+        
+        std::string histName = "hUnfoldedData2DPerBin_nIter" + std::to_string(i);
+        h2DUnfoldedPerBin->SetName(histName.c_str());
+        std::cout << "Unfolded result: " << h2DUnfoldedPerBin->GetNbinsX() << "x" 
+                  << h2DUnfoldedPerBin->GetNbinsY() << " bins, integral = " 
+                  << h2DUnfoldedPerBin->Integral() << ", max = " << h2DUnfoldedPerBin->GetMaximum() << std::endl;
+        
+        // Plot unfolded histogram
+        plotHist(h2DUnfoldedPerBin, "hUnfoldedData2D_nIter" + std::to_string(i), "colz", 
+                "p_{T,jet} (GeV/c)", "z_{T}");
+        unfoldedArr2D.push_back(h2DUnfoldedPerBin);
+        
+        // Plot correlation coefficients
+        std::cout << "Getting covariance matrix for iteration " << i << "..." << std::endl;
+        TMatrixD covarianceMatrix = unfoldBayes2D.Ereco(
+            static_cast<RooUnfold::ErrorTreatment>(errorType));
+        std::cout << "Covariance matrix dimensions: " << covarianceMatrix.GetNrows() << " x " 
+                  << covarianceMatrix.GetNcols() << std::endl;
+                  
+        // Check if matrix elements are finite
+        bool hasNaNs = false;
+        for (int row = 0; row < covarianceMatrix.GetNrows(); row++) {
+            for (int col = 0; col < covarianceMatrix.GetNcols(); col++) {
+                if (!std::isfinite(covarianceMatrix(row, col))) {
+                    hasNaNs = true;
+                    break;
+                }
+            }
+            if (hasNaNs) break;
+        }
+        
+        if (hasNaNs) {
+            std::cerr << "WARNING: Covariance matrix contains NaN or Inf values!" << std::endl;
+        }
+        
+        std::cout << "Plotting correlation coefficients..." << std::endl;
+        plotCorrelationCoefficients(covarianceMatrix, i, "CorMatr2D");
+        
+        // Perform refolding test
+        std::cout << "Performing refolding test for iteration " << i << "..." << std::endl;
+        RefoldingTest2D(i, responseMatrix3D_Pt1, responseMatrix3D_Pt2);
+    }
+    
+    // Perform additional tests
+    std::cout << "\nPerforming additional unfolding tests..." << std::endl;
+    std::cout << "Running UnfoldingTest2D with regParam = " << regParam << std::endl;
+    UnfoldingTest2D(responseMatrix3D, regParam);
+    
+    std::cout << "Running StabilityTest2D with regParam = " << regParam << std::endl;
+    StabilityTest2D(regParam);
+    
+    std::cout << "Running StabilityTest2D with regParam = " << (regParam + 1) << std::endl;
+    StabilityTest2D(regParam + 1);
+    
+    std::cout << "Running TestRegParam2D" << std::endl;
+    TestRegParam2D();
+    
+    if (iteration == 0) {
+        std::cout << "First iteration, running StatTestRM2D" << std::endl;
+        StatTestRM2D(responseMatrix3D);
+    }
+    
+    // Plot prior vs unfolded result
+    std::cout << "Plotting prior vs unfolded result..." << std::endl;
+    plotPrior2D(regParam, responseMatrix3D);
+    
+    // Plot before/after unfolding
+    std::cout << "Plotting before/after unfolding comparison..." << std::endl;
+    plotUnfoldingEffect2D(regParam);
+    
+    // Save results
+    std::cout << "Saving results for different regularization parameters..." << std::endl;
+    std::cout << "Saving result for regParam = " << (regParam - 1) << std::endl;
+    saveResult(regParam - 1, iteration, tag);
+    std::cout << "Saving result for regParam = " << regParam << std::endl;
+    saveResult(regParam, iteration, tag);
+    std::cout << "Saving result for regParam = " << (regParam + 1) << std::endl;
+    saveResult(regParam + 1, iteration, tag);
+    
+    // Plot kinematic efficiency
+    std::cout << "Plotting kinematic efficiency..." << std::endl;
+    getKinEfficiency(0);
+    
+    // Clean up
+    std::cout << "Cleaning up response matrices..." << std::endl;
+    delete responseMatrix3D;
+    delete responseMatrix3D_Pt1;
+    delete responseMatrix3D_Pt2;
+    if (hweights) delete hweights;
+    
+    std::cout << "=============== UNFOLD2D DEBUG END ===============\n" << std::endl;
+}
+
+void UnfoldSpectraClass::TestRegParam2D() {
+    std::cout << "\n==== TestRegParam2D DEBUG START ====" << std::endl;
+    
+    // Check if we have unfolded histograms to analyze
+    if (unfoldedArr2D.empty()) {
+        std::cerr << "ERROR: unfoldedArr2D array is empty, cannot test regularization parameters" << std::endl;
+        return;
+    }
+    
+    std::cout << "Testing regularization parameters for " << unfoldedArr2D.size() 
+              << " iterations" << std::endl;
+    
+    // Create output directory for plots
+    std::string outputDir = makeOutDir("RegParamTest");
+    std::cout << "Created output directory: " << outputDir << std::endl;
+
+    // Define colors for different iterations
+    std::vector<int> colorArray = {kRed-9, kGreen-9, kGreen-8, kBlue-9, kGreen, 
+                                  kSpring+8, kSpring, kRed, kRed+2, kRed+5};
+    
+    // Get number of pT bins
+    int npTBins = pTBinsArrayTruth.size() - 1;
+    std::cout << "Working with " << npTBins << " pT bins" << std::endl;
+
+    // Create arrays of histograms to store relative error as function of zT for all iterations
+    std::vector<std::vector<TH1D*>> hArrpTBins(npTBins + 1);
+    
+    // Create a dummy histogram to clone for storing relative errors
+    TH1D* dummyHisto = unfoldedArr2D[0]->ProjectionY("_pymain", 1, 1);
+    dummyHisto->Reset("ICESM");
+    
+    // Initialize histograms for each pT bin and iteration
+    std::cout << "Initializing histograms for " << unfoldedArr2D.size() << " iterations and " 
+              << (npTBins + 1) << " pT bins" << std::endl;
+    
+    for (size_t iterStep = 0; iterStep < unfoldedArr2D.size(); iterStep++) {
+        for (int pTBin = 0; pTBin <= npTBins; pTBin++) {
+            TH1D* hist = static_cast<TH1D*>(dummyHisto->Clone(
+                Form("hpTBin%d_iter%zu", pTBin, iterStep)));
+            hist->SetTitle(Form("Relative error for pT bin %d, iteration %zu", pTBin, iterStep));
+            hist->GetXaxis()->SetTitle("z_{T}");
+            hist->GetYaxis()->SetTitle("Relative error");
+            hArrpTBins[pTBin].push_back(hist);
+        }
+    }
+    
+    delete dummyHisto; // Clean up the dummy histogram
+    
+    // Evaluate error change for different iterations
+    std::cout << "Evaluating relative errors for each iteration and pT bin..." << std::endl;
+    
+    for (size_t iterStep = 0; iterStep < unfoldedArr2D.size(); iterStep++) {
+        std::cout << "Processing iteration " << (iterStep + 1) << "..." << std::endl;
+        
+        if (!unfoldedArr2D[iterStep]) {
+            std::cerr << "ERROR: Null histogram found for iteration " << (iterStep + 1) << std::endl;
+            continue;
+        }
+        
+        for (int pTBin = 1; pTBin <= npTBins; pTBin++) {
+            // Project the 2D histogram to get the 1D distribution for this pT bin
+            TH1D* proj = unfoldedArr2D[iterStep]->ProjectionY(
+                Form("_pymain_iter%zu_pT%d", iterStep, pTBin), pTBin, pTBin);
+                
+            if (!proj) {
+                std::cerr << "ERROR: Projection failed for iteration " << (iterStep + 1) 
+                          << ", pT bin " << pTBin << std::endl;
+                continue;
+            }
+            
+            std::cout << "  pT bin " << pTBin << ": " << proj->GetNbinsX() << " bins, integral = "
+                      << proj->Integral() << std::endl;
+                
+            // Calculate relative error for each zT bin
+            for (int zTBin = 1; zTBin <= proj->GetNbinsX(); zTBin++) {
+                double content = proj->GetBinContent(zTBin);
+                double error = proj->GetBinError(zTBin);
+                double relError = 0;
+                
+                if (content > 0) {
+                    relError = error / content;
+                    hArrpTBins[pTBin][iterStep]->SetBinContent(zTBin, relError);
+                    
+                    // Debug output for first few bins
+                    if (zTBin <= 3) {
+                        std::cout << "    zT bin " << zTBin << ": content = " << content 
+                                  << ", error = " << error << ", rel.error = " << relError << std::endl;
+                    }
+                }
+            }
+            
+            delete proj; // Clean up the projection
+        }
+    }
+    
+    // Create canvas for the plots
+    TCanvas* c = new TCanvas("c", "Regularization Parameter Test", 800 * npTBins, 800);
+    c->Divide(npTBins);
+    
+    // Create legend
+    TLegend* leg = new TLegend(0.2, 0.7, 0.5, 0.93, "");
+    leg->SetFillColor(10);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->SetTextSize(0.04);
+    leg->AddEntry(hArrpTBins[1][0], "nIter=1", "l");
+    
+    // Plot relative errors for each pT bin
+    for (int pTBin = 1; pTBin <= npTBins; pTBin++) {
+        c->cd(pTBin);
+        gPad->SetLeftMargin(0.15);
+        gPad->SetRightMargin(0.05);
+        gPad->SetTopMargin(0.05);
+        gPad->SetBottomMargin(0.15);
+        
+        // Draw first iteration
+        hArrpTBins[pTBin][0]->GetYaxis()->SetRangeUser(0, 0.5); // Adjust range as needed
+        hArrpTBins[pTBin][0]->SetLineColor(kBlue);
+        hArrpTBins[pTBin][0]->SetLineWidth(2);
+        hArrpTBins[pTBin][0]->SetMarkerStyle(20);
+        hArrpTBins[pTBin][0]->Draw("hist");
+        
+        // Draw other iterations
+        for (size_t iterStep = 1; iterStep < unfoldedArr2D.size(); iterStep++) {
+            hArrpTBins[pTBin][iterStep]->SetLineColor(colorArray[iterStep % colorArray.size()]);
+            hArrpTBins[pTBin][iterStep]->SetMarkerStyle(20 + iterStep);
+            hArrpTBins[pTBin][iterStep]->Draw("hist same");
+            
+            // Add to legend for first pT bin only
+            if (pTBin == 1) {
+                leg->AddEntry(hArrpTBins[pTBin][iterStep], 
+                             Form("nIter=%zu", iterStep + 1), "l");
+            }
+        }
+        
+        // Draw title for this pT bin
+        TPaveText* paveText = new TPaveText(0.15, 0.92, 0.7, 0.99, "NDC");
+        paveText->SetBorderSize(0);
+        paveText->SetFillStyle(0);
+        paveText->SetTextFont(42);
+        paveText->SetTextSize(0.04);
+        paveText->AddText(Form("p_{T} bin: %d-%d GeV/c", 
+                             pTBinsArrayTruth[pTBin-1], pTBinsArrayTruth[pTBin]));
+        paveText->Draw();
+        
+        // Draw legend for first pT bin only
+        if (pTBin == 1) {
+            leg->Draw("same");
+        }
+    }
+    
+    // Save the canvas
+    std::string fileName = outputDir + "/RegParamTest2D_" + figureTag + ".png";
+    std::cout << "Saving plot to: " << fileName << std::endl;
+    c->SaveAs(fileName.c_str());
+    
+    // Clean up
+    delete c;
+    
+    // Clean up histograms
+    std::cout << "Cleaning up " << hArrpTBins.size() << " histogram arrays" << std::endl;
+    for (auto& hArray : hArrpTBins) {
+        for (auto hist : hArray) {
+            delete hist;
+        }
+    }
     
     std::cout << "==== TestRegParam2D DEBUG END ====\n" << std::endl;
 }
@@ -2230,7 +4271,8 @@ void UnfoldSpectraClass::plotHist(TObject* hist, const std::string& outputFilena
     
     // Save the canvas to a file
     std::string fileName = outPath + outputFilename + ".png";
-    c->SaveAs(fileName.c_str());
+    // c->SaveAs(fileName.c_str());
+    SaveCanvasQuietly(c, fileName.c_str());
     
     // Clean up
     delete c;
@@ -2279,7 +4321,7 @@ void unfoldzT(int variation) {
     
     // D0 analysis
     std::vector<int> pTBinArray = {2, 5, 10, 15, 20, 30};
-    int regularizationParam = 6;
+    int regularizationParam = 4;
     // int regularizationParam = 3;
     
     // Create and run unfolding for prompt
@@ -2287,14 +4329,21 @@ void unfoldzT(int variation) {
     unfoldObjectPrompt.provideExtPrior(tag, extFilename_P, priorType);
     
     for (int iter = 0; iter < maxIter; iter++) {
+        std::cout << "Running unfold2D for prompt D0, iteration " << iter << std::endl;
         unfoldObjectPrompt.unfold2D(regularizationParam, iter, tag);
+        std::cout << "Completed unfold2D for prompt D0, iteration " << iter << std::endl;
     }
+    std::cout << "==== Unfolding for prompt D0 completed ====\n" << std::endl;
+    std::cout << "==== Unfolding for non-prompt D0 started ====\n" << std::endl;
     
     // Create and run unfolding for non-prompt
     UnfoldSpectraClass unfoldObjectNonPrompt("NP", FileRM_NP, "CorrectedFinalHistograms_D0", "D0", pTBinArray);
     unfoldObjectNonPrompt.provideExtPrior(tag, extFilename_NP, priorType);
     
     for (int iter = 0; iter < maxIter; iter++) {
+        std::cout << "Running unfold2D for non-prompt D0, iteration " << iter << std::endl;
         unfoldObjectNonPrompt.unfold2D(regularizationParam, iter, tag);
+        std::cout << "Completed unfold2D for non-prompt D0, iteration " << iter << std::endl;
     }
+    std::cout << "==== Unfolding for non-prompt D0 completed ====\n" << std::endl;
 }

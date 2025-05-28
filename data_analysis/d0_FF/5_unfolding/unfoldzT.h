@@ -31,6 +31,8 @@
 #include "TNtuple.h"
 #include "TRandom.h"
 #include <TPaveText.h>
+#include <TROOT.h>
+#include <TDirectory.h>
 // RooUnfold includes
 #include "RooUnfoldResponse.h"
 #include "RooUnfoldBayes.h"
@@ -139,5 +141,12 @@ private:
 // Function declarations for the main procedures
 void unfoldzTDistributionLHCb(int variation);
 void unfoldzTAllDistributionLHCb(int variation);
+
+void SaveCanvasQuietly(TCanvas* canvas, const std::string& filename) {
+    int oldLevel = gErrorIgnoreLevel;
+    gErrorIgnoreLevel = kError;
+    canvas->SaveAs(filename.c_str());
+    gErrorIgnoreLevel = oldLevel;
+}
 
 #endif // UNFOLDSPECTRA_H
