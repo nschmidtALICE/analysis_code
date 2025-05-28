@@ -89,7 +89,14 @@ run_stage1() {
 run_stage2() {
     echo "Running Stage 2: Fit data"
     cd "$BASE_DIR/2_fitData"
-    python3 MassFitterScript_TestReduce.py -m "$MC_MODE"
+    inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root"
+    isMCswitch="false"
+    if [ "$MC_MODE" = "True" ]; then
+        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_17_MC_output_D0FF/1109236/20250514_Pbp_MC_output_D0FF.root"
+        isMCswitch="true"
+    fi
+    root -x -l -b -q MassFitter.C'+("'$inputFileMassFit'",'$isMCswitch')'
+    # python3 MassFitterScript_TestReduce.py -m "$MC_MODE"
     if [ $? -ne 0 ]; then
         echo "Error: Stage 2 failed"
         exit 1
@@ -114,18 +121,18 @@ run_stage4() {
     echo "Running Stage 4: Plot raw yields"
     cd "$BASE_DIR/4_plotRawYields"
     #create a list of pt ranges containing 5_10, 10_15, 15_20, 20_30, 30_50
-    # PT_RANGES=("5_10")
-    PT_RANGES=("5_10" "10_15" "15_20" "20_30" "30_50")
+    PT_RANGES=("5_10")
+    # PT_RANGES=("5_10" "10_15" "15_20" "20_30" "30_50")
     #loop through the pt ranges and run the script for each range
     # for PT_RANGE in "${PT_RANGES[@]}"; do
     #     echo "Running for pt range: $PT_RANGE"
-    #     python plot_RawSignalYields.py -r "$RESONANCE" -p "$PT_RANGE" -z "$ZT_MODE"
+    #     root -x -l -b -q plotRawYields.C'+("'$PT_RANGE'")' #, '$ZT_MODE')'
     #     if [ $? -ne 0 ]; then
     #         echo "Error: Stage 4 failed for pt range $PT_RANGE"
     #         exit 1
     #     fi
     # done
-    python plot_RawSignalYields.py -r "$RESONANCE" -p "" -z "$ZT_MODE"
+    root -x -l -b -q plotRawYields.C'+("")' #, '$ZT_MODE')'
     echo "Stage 4 completed successfully"
 }
 
@@ -157,5 +164,7 @@ case $STAGE in
         exit 1
         ;;
 esac
+# Exit successfully
+echo "Analysis pipeline completed successfully"
 
 exit 0
