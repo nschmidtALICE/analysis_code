@@ -16,7 +16,7 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
     figureTag = "D0_" + promptFlag;
 
     // Set output path
-    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputMay_TagpT_" + resonance;
+    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputJune18_TagpT_" + resonance;
     
     // Set prompt/non-prompt flag
     if (promptFlag == "P") {
@@ -30,10 +30,17 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
     // Set file paths
     applyRMCut = true;
     inFileNRM = inPathRM + inFileNameRM + ".root";
-    inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/RawSignalYields_D0/" + inFileNameData + ".root";
+    inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC/RawSignalYields_D0/" + inFileNameData + ".root";
+    // inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/RawSignalYields_D0/" + inFileNameData + ".root";
 
     // Set binning for input and output spectrum
-    zBinsArrayTruth = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
+    // zBinsArrayTruth = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
+    zBinsArrayTruth = {
+            0.0, 0.05, 0.1, 0.15, 0.2, 
+            0.25, 0.3, 0.35, 0.4, 0.45, 
+            0.5, 0.55, 0.6, 0.65, 0.7, 
+            0.75, 0.8, 0.85, 0.9, 0.95, 
+            1.0};
     
     // Set pT bins
     pTBinsArrayTruth = ptRangeArray;
@@ -988,7 +995,7 @@ void UnfoldSpectraClass::saveResult(int regParam, int nIter, const std::string& 
 
 RooUnfoldResponse* UnfoldSpectraClass::PrepareResponseMatrix2D(int part) {
     // Get the RM from the input file
-    TH2D* RM = getResponseMatrix(part, "zTDet", "zTPart");
+    TH2D* RM = getResponseMatrix(part, "d0_z_det", "d0_z_mc");
     plotHist(RM, RM->GetName(), "colz");
     
     // Get truth-level spectrum (matched) from response matrix projection
@@ -3269,10 +3276,10 @@ void UnfoldSpectraClass::getKinEfficiency(int bin) {
     
     for (size_t bin = 0; bin < pTBinsArrayTruth.size() - 1; bin++) {
         // Get full response without cuts
-        TH2D* Full = getResponseMatrix(0, "zTDet", "zTPart", true, bin, false);
+        TH2D* Full = getResponseMatrix(0, "d0_z_det", "d0_z_mc", true, bin, false);
         
         // Get response with cuts
-        TH2D* Cut = getResponseMatrix(0, "zTDet", "zTPart", true, bin, true);
+        TH2D* Cut = getResponseMatrix(0, "d0_z_det", "d0_z_mc", true, bin, true);
         
         // Project to 1D and calculate efficiency
         TH1D* projFull = Full->ProjectionY(("_pyFull_" + std::to_string(bin)).c_str(), 1, Full->GetNbinsX());
@@ -3419,8 +3426,8 @@ RooUnfoldResponse* UnfoldSpectraClass::PrepareResponseMatrix3D(int part, TH2D* w
     RooUnfoldResponse* RooUnfoldRM = new RooUnfoldResponse(responseName.c_str(), responseName.c_str());
 
     // Get 2D histograms for true and detector level
-    TH2D* RM2DTrue = getResponseMatrix(part, "jetPtPart", "zTPart", false, 0, false);
-    TH2D* RM2DDet = getResponseMatrix(part, "jetPtDet", "zTDet", false, 0, false);
+    TH2D* RM2DTrue = getResponseMatrix(part, "jet_pt_mc", "d0_z_mc", false, 0, false);
+    TH2D* RM2DDet = getResponseMatrix(part, "jet_pt_det", "d0_z_det", false, 0, false);
     
     // Setup the RooUnfoldResponse with these histograms (will be overwritten in Fill function)
     RooUnfoldRM->Setup(RM2DDet, RM2DTrue);
@@ -3443,20 +3450,20 @@ RooUnfoldResponse* UnfoldSpectraClass::PrepareResponseMatrix3D(int part, TH2D* w
     }
     
     // Variables to hold tree data - FIXED: changed to float to match Float_t in branches
-    float zTDet, zTPart, jetPtDet, jetPtPart, tagPtDet, tagPtPart;
-    float etaDet, nConstDet, nConstPart;
+    float d0_z_det, d0_z_mc, jet_pt_det, jet_pt_mc, d0_pt_det, d0_pt_mc;
+    float jet_eta_det, jet_nconst_det, jet_nconst_mc;
     double weight, b_weight;  // These can stay double as they're not directly from branches
     
     // Set branch addresses with correct types
-    tTree->SetBranchAddress("zTDet", &zTDet);
-    tTree->SetBranchAddress("zTPart", &zTPart);
-    tTree->SetBranchAddress("jetPtDet", &jetPtDet);
-    tTree->SetBranchAddress("jetPtPart", &jetPtPart);
-    tTree->SetBranchAddress("tagPtDet", &tagPtDet);
-    tTree->SetBranchAddress("tagPtPart", &tagPtPart);
-    tTree->SetBranchAddress("nConstDet", &nConstDet);
-    tTree->SetBranchAddress("nConstPart", &nConstPart);
-    tTree->SetBranchAddress("etaDet", &etaDet);
+    tTree->SetBranchAddress("d0_z_det", &d0_z_det);
+    tTree->SetBranchAddress("d0_z_mc", &d0_z_mc);
+    tTree->SetBranchAddress("jet_pt_det", &jet_pt_det);
+    tTree->SetBranchAddress("jet_pt_mc", &jet_pt_mc);
+    tTree->SetBranchAddress("d0_pt_det", &d0_pt_det);
+    tTree->SetBranchAddress("d0_pt_mc", &d0_pt_mc);
+    tTree->SetBranchAddress("jet_nconst_det", &jet_nconst_det);
+    tTree->SetBranchAddress("jet_nconst_mc", &jet_nconst_mc);
+    tTree->SetBranchAddress("jet_eta_det", &jet_eta_det);
     
     // B-decay weight branch
     if (!isPrompt) {
@@ -3468,24 +3475,24 @@ RooUnfoldResponse* UnfoldSpectraClass::PrepareResponseMatrix3D(int part, TH2D* w
     // Loop over all events
     for (int iEvt = 0; iEvt < tTree->GetEntries(); ++iEvt) {
         double evt_weight = 1.0;
-        b_weight = 1.0;
         
         tTree->GetEntry(iEvt);
+        b_weight = 1.0; //TODO THIS NEED THE PROPER WEIGHT
         
         double rndm = R->Uniform(1.0);
         
         // Apply jet pT cut
-        if (jetPtDet < jetPtMin) continue;
+        if (jet_pt_det < jetPtMin) continue;
         
         // Apply response matrix cuts if needed
         bool passCuts = !applyRMCut || 
-                        (applyRMCut && nConstDet > 1 && nConstPart > 1 && 
-                         etaDet > 2.5 && etaDet < 4.0);
+                        (applyRMCut && jet_nconst_det > 1 && jet_nconst_mc > 1 && 
+                         jet_eta_det > 2.5 && jet_eta_det < 4.0);
                          
         if (passCuts) {
             // Apply weight if provided
             if (weightHistogram) {
-                evt_weight = getEventWeight(weightHistogram, zTPart, jetPtPart);
+                evt_weight = getEventWeight(weightHistogram, d0_z_mc, jet_pt_mc);
                 weight = b_weight * evt_weight;
             } else {
                 weight = b_weight;
@@ -3494,25 +3501,25 @@ RooUnfoldResponse* UnfoldSpectraClass::PrepareResponseMatrix3D(int part, TH2D* w
             // Fill response matrix based on part parameter
             if (part == 0) {
                 if (useTagPt) {
-                    RooUnfoldRM->Fill(tagPtDet, zTDet, tagPtPart, zTPart, weight);
+                    RooUnfoldRM->Fill(d0_pt_det, d0_z_det, d0_pt_mc, d0_z_mc, weight);
                 } else {
-                    RooUnfoldRM->Fill(jetPtDet, zTDet, jetPtPart, zTPart, weight);
+                    RooUnfoldRM->Fill(jet_pt_det, d0_z_det, jet_pt_mc, d0_z_mc, weight);
                 }
             }
             // Fill with half of statistics (for testing purposes)
             else if (part == 1 && rndm > 0.5) {
                 if (useTagPt) {
-                    RooUnfoldRM->Fill(tagPtDet, zTDet, tagPtPart, zTPart, weight);
+                    RooUnfoldRM->Fill(d0_pt_det, d0_z_det, d0_pt_mc, d0_z_mc, weight);
                 } else {
-                    RooUnfoldRM->Fill(jetPtDet, zTDet, jetPtPart, zTPart, weight);
+                    RooUnfoldRM->Fill(jet_pt_det, d0_z_det, jet_pt_mc, d0_z_mc, weight);
                 }
             }
             // Fill with other half of statistics (for testing purposes)
             else if (part == 2 && rndm < 0.5) {
                 if (useTagPt) {
-                    RooUnfoldRM->Fill(tagPtDet, zTDet, tagPtPart, zTPart, weight);
+                    RooUnfoldRM->Fill(d0_pt_det, d0_z_det, d0_pt_mc, d0_z_mc, weight);
                 } else {
-                    RooUnfoldRM->Fill(jetPtDet, zTDet, jetPtPart, zTPart, weight);
+                    RooUnfoldRM->Fill(jet_pt_det, d0_z_det, jet_pt_mc, d0_z_mc, weight);
                 }
             }
         }
@@ -3681,49 +3688,12 @@ double UnfoldSpectraClass::getEventWeight(TH2D* hweights, double zTValue, double
     
     return weight;
 }
-
-// Implementation of getResponseMatrix method (simplified - full implementation would be more complex)
 TH2D* UnfoldSpectraClass::getResponseMatrix(int part, const std::string& xAxisVar, const std::string& yAxisVar, 
                                            bool fineBinning, int bin, bool isCut, TFile* externalFile) {
-    // Determine mass cut range
-    std::pair<double, double> MassCut = std::make_pair(1.81, 1.935);
+    // Determine mass cut range based on particle type
+    std::pair<double, double> MassCut = std::make_pair(1.81, 1.935); // D0 mass window
     
-    // Create filter strings
-    std::string resonanceCutString = "tagMPart > " + std::to_string(MassCut.first) + 
-                                     " && tagMPart < " + std::to_string(MassCut.second);
-    std::string jetCuts = "nConstPart>1 && etaDet>2.5 && etaDet<4";
-    
-    // Create binning arrays
-    std::vector<double> xBins, yBins;
-    int nBinsX = 0, nBinsY = 0;
-    
-    // Determine binning based on axis variables
-    if (xAxisVar == "jetPtPart") {
-        xBins.clear();
-        for (int val : pTBinsArrayTruth) {
-            xBins.push_back(static_cast<double>(val));
-        }
-        nBinsX = xBins.size() - 1;
-    } else if (xAxisVar == "jetPtDet") {
-        xBins.clear();
-        for (int val : pTBinsArrayDet) {
-            xBins.push_back(static_cast<double>(val));
-        }
-        nBinsX = xBins.size() - 1;
-    } else if (xAxisVar == "zTDet") {
-        xBins = zBinsArrayDet;
-        nBinsX = xBins.size() - 1;
-    }
-    
-    if (yAxisVar == "zTPart") {
-        yBins = zBinsArrayTruth;
-        nBinsY = yBins.size() - 1;
-    } else if (yAxisVar == "zTDet") {
-        yBins = zBinsArrayDet;
-        nBinsY = yBins.size() - 1;
-    }
-    
-    // Create histogram
+    // Create histogram name
     std::string histName = "RM_" + xAxisVar + "_" + yAxisVar;
     if (part == 0) {
         histName += "Full";
@@ -3733,17 +3703,161 @@ TH2D* UnfoldSpectraClass::getResponseMatrix(int part, const std::string& xAxisVa
         histName += "Half2";
     }
     
-    TH2D* RM = new TH2D(histName.c_str(), histName.c_str(), nBinsX, xBins.data(), nBinsY, yBins.data());
+    // Determine binning and create arrays
+    std::vector<double> xBins, yBins;
+    int nBinsX = 0, nBinsY = 0;
     
-    // Fill histogram from TTree (would need to implement the actual filling)
-    // This would involve retrieving the TTree and looping through entries
-    // with appropriate filters based on the 'part' parameter
+    // Setup x-axis binning
+    if (xAxisVar == "jet_pt_mc") {
+        for (int i = 0; i < pTBinsArrayTruth.size(); i++) {
+            xBins.push_back(static_cast<double>(pTBinsArrayTruth[i]));
+        }
+        nBinsX = xBins.size() - 1;
+    } else if (xAxisVar == "jet_pt_det") {
+        for (int i = 0; i < pTBinsArrayDet.size(); i++) {
+            xBins.push_back(static_cast<double>(pTBinsArrayDet[i]));
+        }
+        nBinsX = xBins.size() - 1;
+    } else if (xAxisVar == "d0_z_det") {
+        xBins = zBinsArrayDet;
+        nBinsX = xBins.size() - 1;
+    }
+    
+    // Setup y-axis binning
+    if (yAxisVar == "d0_z_mc") {
+        yBins = zBinsArrayTruth;
+        nBinsY = yBins.size() - 1;
+    } else if (yAxisVar == "d0_z_det") {
+        yBins = zBinsArrayDet;
+        nBinsY = yBins.size() - 1;
+    }
+    
+    // Create histogram with appropriate binning
+    TH2D* RM = nullptr;
+    if (fineBinning) {
+        RM = new TH2D(("FineBinned_Bin" + std::to_string(bin)).c_str(), "FineBinned", 20, 0, 1, 20, 0, 1);
+    } else {
+        RM = new TH2D(histName.c_str(), histName.c_str(), nBinsX, xBins.data(), nBinsY, yBins.data());
+    }
+    
+    // Get the file to use
+    TFile* inputFile = externalFile ? externalFile : fResponse;
+    
+    // Get the TTree from the file
+    TTree* tree = static_cast<TTree*>(inputFile->Get("Response"));
+    if (!tree) {
+        std::cerr << "Error: Could not find Response tree in the file!" << std::endl;
+        return RM; // Return empty histogram
+    }
+    
+    // Variables to hold the branch values
+    float jet_pt_mc, jet_pt_det, d0_z_mc, d0_z_det, d0_mass_mc, jet_eta_det;
+    float jet_nconst_mc, jet_nconst_det = 1;
+    int d0_is_primary = 0; // Default value for non-prompt case
+    float weight = 1.0;
+    
+    // Set branch addresses
+    tree->SetBranchAddress("jet_pt_mc", &jet_pt_mc);
+    tree->SetBranchAddress("jet_pt_det", &jet_pt_det);
+    tree->SetBranchAddress("d0_z_mc", &d0_z_mc);
+    tree->SetBranchAddress("d0_z_det", &d0_z_det);
+    tree->SetBranchAddress("d0_mass_mc", &d0_mass_mc);
+    tree->SetBranchAddress("jet_nconst_mc", &jet_nconst_mc);
+    tree->SetBranchAddress("jet_nconst_det", &jet_nconst_det);
+    tree->SetBranchAddress("jet_eta_det", &jet_eta_det);
+    
+    // Check if d0_is_primary branch exists
+    if (tree->GetBranch("d0_is_primary")) {
+        tree->SetBranchAddress("d0_is_primary", &d0_is_primary);
+    }
+    
+    // Check if weight branch exists
+    if (tree->GetBranch("weight")) {
+        tree->SetBranchAddress("weight", &weight);
+    }
+    
+    // Loop over all entries in the tree
+    Long64_t nEntries = tree->GetEntries();
+    for (Long64_t i = 0; i < nEntries; ++i) {
+        tree->GetEntry(i);
+        
+        // Apply resonance cut
+        if (d0_mass_mc <= MassCut.first || d0_mass_mc >= MassCut.second) {
+            continue;
+        }
+        
+        // Apply jet cuts
+        bool passJetCuts = true;
+        if (applyRMCut) {
+            passJetCuts = (jet_nconst_mc > 1) && (jet_nconst_det > 1) && (jet_eta_det > 2.5) && (jet_eta_det < 4.0);
+        }
+        if (!passJetCuts) {
+            continue;
+        }
+        
+        // Additional filter for external file case
+        if (!isPrompt && externalFile && d0_is_primary != 1) {
+            continue;
+        }
+        
+        // Additional filters for fine binning case
+        if (fineBinning) {
+            if (jet_pt_mc <= pTBinsArrayTruth[bin] || jet_pt_mc >= pTBinsArrayTruth[bin+1]) {
+                continue;
+            }
+            
+            if (isCut) {
+                if (jet_pt_det <= pTBinsArrayDet[0] || 
+                    jet_pt_det >= pTBinsArrayDet[pTBinsArrayDet.size()-1] ||
+                    d0_z_det <= zBinsArrayTruth[0]) {
+                    continue;
+                }
+            }
+        }
+        
+        // Filter by part (for splitting statistics)
+        if (part == 1 && (i % 2 == 0)) {
+            continue; // Skip even entries for part 1 (use odd entries)
+        }
+        if (part == 2 && (i % 2 != 0)) {
+            continue; // Skip odd entries for part 2 (use even entries)
+        }
+        
+        // Calculate weight
+        float eventWeight = 1.0;
+        if ((isPrompt && externalFile) || (!isPrompt && !externalFile)) {
+            eventWeight = weight;
+        }
+        
+        // Get the values for the axes
+        float xValue = 0.0, yValue = 0.0;
+        
+        // Determine x-axis value
+        if (xAxisVar == "jet_pt_mc") {
+            xValue = jet_pt_mc;
+        } else if (xAxisVar == "jet_pt_det") {
+            xValue = jet_pt_det;
+        } else if (xAxisVar == "d0_z_det") {
+            xValue = d0_z_det;
+        }
+        
+        // Determine y-axis value
+        if (yAxisVar == "d0_z_mc") {
+            yValue = d0_z_mc;
+        } else if (yAxisVar == "d0_z_det") {
+            yValue = d0_z_det;
+        }
+        
+        // Fill the histogram
+        RM->Fill(xValue, yValue, eventWeight);
+    }
     
     // Set Sumw2 for correct error propagation
     RM->Sumw2();
     
     return RM;
 }
+
 // Example implementation of one method (continuing with other methods would make this answer too long)
 void UnfoldSpectraClass::unfold2D(int regParam, int iteration, const std::string& tag) {
     std::cout << "\n=============== UNFOLD2D DEBUG START ===============" << std::endl;
@@ -4181,7 +4295,7 @@ void UnfoldSpectraClass::provideExtPrior(const std::string& tag, const std::stri
     }
     
     // Get the response matrix from the file
-    externalPrior = getResponseMatrix(0, "jetPtPart", "zTPart", false, 0, false, inFileExt_RM);
+    externalPrior = getResponseMatrix(0, "jet_pt_mc", "d0_z_mc", false, 0, false, inFileExt_RM);
     
     // Provide a flat prior if requested
     if (specialType == "Flat") {
@@ -4287,8 +4401,12 @@ void unfoldzT(int variation) {
     std::string tag = "";
     
     // Default file names
-    std::string FileRM_P = "20250514_Pbp_21_MC_output_D0FF_filterV1";
-    std::string FileRM_NP = "20250514_Pbp_21_MC_output_D0FF_filterV1";
+    std::string FileRM_P = "20250609_merged/response";
+    std::string FileRM_NP = "20250609_merged/response";
+    // std::string FileRM_P = "20250514_Pbp_allMC";
+    // std::string FileRM_NP = "20250514_Pbp_allMC";
+    // std::string FileRM_P = "20250514_Pbp_21_MC_output_D0FF_filterV1";
+    // std::string FileRM_NP = "20250514_Pbp_21_MC_output_D0FF_filterV1";
     // std::string FileRM_P = "All_PromptD0";
     // std::string FileRM_NP = "16_17_18AllBdecay_ScaledNom_V2";
     
@@ -4346,4 +4464,5 @@ void unfoldzT(int variation) {
         std::cout << "Completed unfold2D for non-prompt D0, iteration " << iter << std::endl;
     }
     std::cout << "==== Unfolding for non-prompt D0 completed ====\n" << std::endl;
+    std::cout << "==== Unfolding for D0 analysis completed ====\n" << std::endl;
 }

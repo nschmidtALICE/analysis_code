@@ -63,12 +63,13 @@ private:
     std::vector<std::vector<float>> FitMRes_alpha;
     std::vector<std::vector<float>> FitMRes_n;
     std::vector<std::vector<float>> FitMRes_DGFrac;
-    std::vector<std::vector<float>> FitMRes_pol0;
     std::vector<std::vector<float>> FitMRes_pol1;
+    std::vector<std::vector<float>> FitMRes_pol2;
     std::vector<std::vector<float>> FitMRes_SYieldLim;
     std::vector<std::vector<float>> FitMRes_BYieldLim;
     std::vector<std::vector<float>> FitMRes_SYieldSG;
     std::vector<std::vector<float>> FitMRes_SYieldDCB;
+    std::vector<std::vector<float>> Bin_TagZMean;
     
     // IP chi2 result arrays
     std::vector<std::vector<float>> FitIPRes_SYield;
@@ -139,7 +140,13 @@ FitSpectraObject::FitSpectraObject(
     configureFilePaths();
     
     // Print bin information
-    std::cout << "Number of zT bins: " << nzTBins << std::endl;
+    if(isZtObservable){
+        std::cout << "Using zT observable for fitting" << std::endl;
+        std::cout << "Number of zT bins: " << nzTBins << std::endl;
+    } else {
+        std::cout << "Using Y observable for fitting" << std::endl;
+        std::cout << "Number of Y bins: " << nzTBins << std::endl;
+    }
     
     // Print bin boundaries
     std::cout << "Bin boundaries: ";
@@ -185,6 +192,7 @@ void FitSpectraObject::startFitting() {
         inputTree,
         "D0",           // hardcoded for D0
         nzTBins,
+        zTObservable,
         isMC,
         outfilePath,
         true            // update
@@ -224,7 +232,7 @@ void FitSpectraObject::startFitting() {
 void FitSpectraObject::configureFilePaths() {
     // Add MC/data and observable tags for file naming
     std::string mcTag = isMC ? "MC" : "";
-    std::string obsTag = zTObservable ? "zT" : "dR";
+    std::string obsTag = zTObservable ? "zT" : "Y";
     
     // Set up output directories
     std::string outputDir;
@@ -270,12 +278,14 @@ void FitSpectraObject::initializeResultArrays() {
     FitMRes_alpha.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_n.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_DGFrac.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
-    FitMRes_pol0.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_pol1.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
+    FitMRes_pol2.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_SYieldLim.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_BYieldLim.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_SYieldSG.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_SYieldDCB.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
+
+    Bin_TagZMean.resize(nzTBins, std::vector<float>(1, 0.0));
     
     // Create arrays for IP chi2 fit results
     FitIPRes_SYield.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
@@ -361,17 +371,19 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
     
     // Loop over all bins
     for (int iBin = 0; iBin < nzTBins; ++iBin) {
-        std::cout << "\n==== Processing bin " << iBin 
-                  << " (z: " << zBins[iBin] << "-" << zBins[iBin+1] << ") ====" << std::endl;
         
         // Create z bin selection string
         std::string zCut;
         if (zTObservable) {
+            std::cout << "\n==== Processing bin " << iBin 
+                      << " (z: " << zBins[iBin] << "-" << zBins[iBin+1] << ") ====" << std::endl;
             zCut = "tagZ >= " + std::to_string(zBins[iBin]) + 
                    " && tagZ < " + std::to_string(zBins[iBin+1]);
         } else {
-            zCut = "tagJetdR >= " + std::to_string(zBins[iBin]) + 
-                   " && tagJetdR < " + std::to_string(zBins[iBin+1]);
+            std::cout << "\n==== Processing bin " << iBin 
+                      << " (Y: " << zBins[iBin] << "-" << zBins[iBin+1] << ") ====" << std::endl;
+            zCut = "tagY >= " + std::to_string(zBins[iBin]) + 
+                   " && tagY < " + std::to_string(zBins[iBin+1]);
         }
         
         // Create bin dataset
@@ -384,6 +396,44 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             delete dataBin;
             continue;
         }
+        
+        // Plot tagZ distribution and calculate mean
+        std::cout << "Plotting tagZ distribution for bin " << iBin << "..." << std::endl;
+        TH1D* tagZHist = new TH1D(("tagZHist_bin" + std::to_string(iBin)).c_str(), 
+                                  ("tagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
+                                  20, 0, 1);
+        
+        // Fill histogram with tagZ values
+        for (int i = 0; i < dataBin->numEntries(); ++i) {
+            const RooArgSet* row = dataBin->get(i);
+            RooRealVar* tagZVar = dynamic_cast<RooRealVar*>(row->find("tagZ"));
+            if (tagZVar) {
+                tagZHist->Fill(tagZVar->getVal());
+            }
+        }
+        
+        // Calculate mean and standard deviation
+        double meanTagZ = tagZHist->GetMean();
+        double stdDevTagZ = tagZHist->GetStdDev();
+        std::cout << "Mean tagZ: " << meanTagZ << ", StdDev: " << stdDevTagZ << std::endl;
+        Bin_TagZMean[iBin][0] = meanTagZ;  // Store mean tagZ for this bin
+        // Save histogram to file
+        TCanvas* canvas = new TCanvas(("canvas_tagZ_bin" + std::to_string(iBin)).c_str(), 
+                                      ("TagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
+                                      800, 600);
+                                      // set plotting style for tagZ distribution
+        tagZHist->SetLineColor(kBlue);
+        tagZHist->SetMarkerColor(kBlue);
+        tagZHist->SetLineWidth(2);
+        tagZHist->SetMarkerStyle(20);
+        tagZHist->SetTitle(("TagZ Distribution for Bin " + std::to_string(iBin)).c_str());
+        tagZHist->GetXaxis()->SetTitle("#it{z}_{T}");
+        tagZHist->GetYaxis()->SetTitle("Entries");
+        
+        tagZHist->Draw("pe");
+        std::string outputFile = outfilePath + "tagZDistribution_bin" + std::to_string(iBin) + ".png";
+        canvas->SaveAs(outputFile.c_str());
+        delete canvas;
         
         // Perform mass fit
         std::string zRangeStr = std::to_string(zBins[iBin]) + "-" + std::to_string(zBins[iBin+1]);
@@ -445,11 +495,11 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                 FitMRes_DGFrac[iBin][0] = dgParams[7];  // Gaussian1 fraction (similar to CB fraction)
                 FitMRes_DGFrac[iBin][1] = dgErrors[7];  // Gaussian1 fraction error
                 
-                FitMRes_pol0[iBin][0] = dgParams[8];    // Pol0
-                FitMRes_pol0[iBin][1] = dgErrors[8];    // Pol0 error
+                FitMRes_pol1[iBin][0] = dgParams[8];    // Pol1
+                FitMRes_pol1[iBin][1] = dgErrors[8];    // Pol1 error
                 
-                FitMRes_pol1[iBin][0] = dgParams[9];    // Pol1
-                FitMRes_pol1[iBin][1] = dgErrors[9];    // Pol1 error
+                FitMRes_pol2[iBin][0] = dgParams[9];    // Pol2
+                FitMRes_pol2[iBin][1] = dgErrors[9];    // Pol2 error
                 
                 FitMRes_SYieldLim[iBin][0] = dgParams[10]; // Signal yield in limit region
                 FitMRes_BYieldLim[iBin][0] = dgParams[11]; // Background yield in limit region
@@ -566,6 +616,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         
         // Clean up
         delete dataBin;
+        delete tagZHist;
     }
     
     // Save results to file
@@ -622,12 +673,14 @@ void FitSpectraObject::saveResultsToFile(const std::vector<double>& binCenters,
     massGraphs["alpha"] = createParameterGraphs("FitMAlpha", nzTBins, binCenters, FitMRes_alpha, binWidths);
     massGraphs["n"] = createParameterGraphs("FitMN", nzTBins, binCenters, FitMRes_n, binWidths);
     massGraphs["CBFrac"] = createParameterGraphs("FitMCBFrac", nzTBins, binCenters, FitMRes_DGFrac, binWidths);
-    massGraphs["pol0"] = createParameterGraphs("FitMPol0", nzTBins, binCenters, FitMRes_pol0, binWidths);
     massGraphs["pol1"] = createParameterGraphs("FitMPol1", nzTBins, binCenters, FitMRes_pol1, binWidths);
+    massGraphs["pol2"] = createParameterGraphs("FitMPol2", nzTBins, binCenters, FitMRes_pol2, binWidths);
     massGraphs["SYieldLim"] = createParameterGraphs("FitMSYieldLim", nzTBins, binCenters, FitMRes_SYieldLim, binWidths);
     massGraphs["BYieldLim"] = createParameterGraphs("FitMBYieldLim", nzTBins, binCenters, FitMRes_BYieldLim, binWidths);
     massGraphs["SYieldSG"] = createParameterGraphs("FitMSYieldSG", nzTBins, binCenters, FitMRes_SYieldSG, binWidths);
     massGraphs["SYieldDCB"] = createParameterGraphs("FitMSYieldDCB", nzTBins, binCenters, FitMRes_SYieldDCB, binWidths);
+
+    massGraphs["TagZMean"] = createParameterGraphs("BinTagZMean", nzTBins, binCenters, Bin_TagZMean, binWidths);
     
     // Create range graphs for mass parameters
     massRangeGraphs["MeanR"] = createGraphsAsymmErr("FitMMeanRange", nzTBins, binCenters, FitMRes_Mean, binWidths);
@@ -894,12 +947,18 @@ TGraphAsymmErrors* FitSpectraObject::createGraphsAsymmErr(
     return graph;
 }
 
-void MassFitter(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = true)
+void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = false)
 {
 
     std::string mcTag = isMC ? "MC" : "";
-    std::string obsTag = isZtObservable ? "zT" : "dR";
+    std::string obsTag = isZtObservable ? "zT" : "Y";
 
+    // TString inputFile = "";
+    // if( isMC) {
+    //     inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1_bunew.root";
+    // } else {
+    //     inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root";
+    // }
 
     // Open the input ROOT file
     TFile *file = TFile::Open(inputFile);
@@ -932,19 +991,35 @@ void MassFitter(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250
     } 
     else {
         // Multi-bin configuration
-        std::vector<double> zBins = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};  // D0 zT bins
+        // std::vector<double> zBins = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};  // D0 zT bins
+        std::vector<double> zBins = {
+            0.0, 0.05, 0.1, 0.15, 0.2, 
+            0.25, 0.3, 0.35, 0.4, 0.45, 
+            0.5, 0.55, 0.6, 0.65, 0.7, 
+            0.75, 0.8, 0.85, 0.9, 0.95, 
+            1.0}; // D0 zT bins
+        // there are 
         std::vector<double> rBins = {0, 0.015, 0.03, 0.06, 0.1, 0.2, 0.5};  // D0 R bins
+        //LHCb y bins (rapidity)
+        std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
         
         // pT binning for jets
         std::vector<double> startPt = {5, 10, 15, 20, 30};
         std::vector<double> endPt = {10, 15, 20, 30, 50};
+
+        //print jet pt bins 
+        std::cout << "Fitting the following jet pT bins:" << std::endl;
+        for (size_t i = 0; i < startPt.size(); ++i) {
+            std::cout << "  Bin " << i << ": " << startPt[i] 
+                      << " to " << endPt[i] << std::endl;
+        }
         
         // Process each pT bin
         for (size_t jetBin = 0; jetBin < startPt.size(); ++jetBin) {
             std::pair<double, double> jetPt(startPt[jetBin], endPt[jetBin]);
             
             // Choose bin array based on observable type
-            const std::vector<double>& binArray = isZtObservable ? zBins : rBins;
+            const std::vector<double>& binArray = isZtObservable ? zBins : yBins;
             
             // Create and run fit object
             FitSpectraObject fitter(

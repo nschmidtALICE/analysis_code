@@ -2,26 +2,16 @@
 #include "Fitter.h"
 #include "Plotter.h"
 
-Fitter::Fitter(TTree* tree, const std::string& resonanceType, int numBins,
+Fitter::Fitter(TTree* tree, const std::string& resonanceType, int numBins, bool zTObservable,
                bool isMCData, const std::string& outputPath, bool update)
     : tfilePV(nullptr), TestFilename(""), 
-      outfilePath(outputPath), isMC(isMCData), nBins(numBins),
+      outfilePath(outputPath), isMC(isMCData), nBins(numBins), isZtObservable(zTObservable),
       resonance(resonanceType), updateStartValues(update), inTree(tree), fInFileHisto(nullptr)
 {
     // Initialize dictionary
     initDictionary();
     
     std::cout << "This is the MC status: " << (isMC ? "true" : "false") << std::endl;
-    
-    // Add D0 specific B-decay ranges
-    BdecayMinVal = {0, 0, 0, 0, 0};
-    BdecayMaxVal = {30, 25, 15, 10, 5}; // for zT
-    
-    // Check array lengths
-    if (BdecayMinVal.size() != static_cast<size_t>(nBins) || BdecayMaxVal.size() != static_cast<size_t>(nBins)) {
-        std::cout << "Error: Fix limits" << std::endl;
-        std::cout << "number of mass bins= " << nBins << ", number of limits for B-decay fraction: " << BdecayMinVal.size() << std::endl;
-    }
     
     // Verify the input tree
     if (inTree) {
@@ -47,19 +37,20 @@ void Fitter::initDictionary() {
     d0Config.sigma1 = ParamConfig(0.008, 0.005, 0.012);
     d0Config.deltasigma = ParamConfig(1.5, 1.1, 2.5);
     d0Config.mean = ParamConfig(1.865, 1.860, 1.870);
-    d0Config.alpha1 = ParamConfig(2, 1, 5);
     d0Config.n = ParamConfig(1, 0.2, 5);
     d0Config.dg_frac = ParamConfig(0.5, 0.0, 0.99999);
-    d0Config.pol0 = ParamConfig(100, -5e3, 5e3);
-    d0Config.pol1 = ParamConfig(58, -2e2, 5e2);
-    d0Config.pol2 = ParamConfig(0, 0, 0);
-    d0Config.massRange = std::make_pair(1.81, 1.935);  // 150 MeV range
+    d0Config.pol1 = ParamConfig(-0.5, -10, 10);
+    d0Config.pol2 = ParamConfig(58, -2e2, 5e2);
+    // d0Config.pol2 = ParamConfig(58, -2e2, 5e2);
+    d0Config.massRange = std::make_pair(1.815, 1.925);  // 150 MeV range
+    // d0Config.massRange = std::make_pair(1.81, 1.935);  // 150 MeV range
     d0Config.sigYield = ParamConfig(100, 1, 5e6);
     d0Config.sigYieldLim = ParamConfig(100, 1, 5e6);
     d0Config.bkgYield = ParamConfig(1000, 0, 4e6);
     d0Config.bkgYieldLim = ParamConfig(1000, 0, 4e6);
     d0Config.signalRegion = std::make_pair(1.845, 1.885);  // 40 MeV range
-    d0Config.sbRegion = std::make_pair(1.820, 1.840);     // Sideband region
+    d0Config.sbRegion = std::make_pair(1.825, 1.910);     // Sideband region
+    // d0Config.sbRegion = std::make_pair(1.820, 1.840);     // Sideband region
     
     massDict["D0"] = d0Config;
     
@@ -72,13 +63,13 @@ void Fitter::initDictionary() {
     d0IPConfig.sigmaPrompt = ParamConfig(0.7, 0.4, 2.0);
     d0IPConfig.xiPrompt = ParamConfig(0.0, -0.5, 0.5);
     d0IPConfig.rho1Prompt = ParamConfig(-0.2, -0.98, -0.01);
-    d0IPConfig.rho2Prompt = ParamConfig(0.2, 0.01, 0.98);
+    d0IPConfig.rho2Prompt = ParamConfig(0.2, 0.005, 0.98);
     
     // Non-prompt component
-    d0IPConfig.xpNonprompt = ParamConfig(2.5, 2.0, 4.0);
-    d0IPConfig.sigmaNonprompt = ParamConfig(0.6, 0.4, 0.9);
+    d0IPConfig.xpNonprompt = ParamConfig(1.9, 1.6, 3.0);
+    d0IPConfig.sigmaNonprompt = ParamConfig(0.4, 0.3, 0.7);
     d0IPConfig.xiNonprompt = ParamConfig(0.1, 0.05, 0.5);
-    d0IPConfig.rho1Nonprompt = ParamConfig(-0.3, -0.8, -0.1);
+    d0IPConfig.rho1Nonprompt = ParamConfig(-0.1, -0.95, -0.05);
     d0IPConfig.rho2Nonprompt = ParamConfig(0.2, 0.01, 0.98);
     
     // Fraction
@@ -102,14 +93,14 @@ void Fitter::updateDictionary(RooAbsPdf* signalPdf, RooAbsData* data, const std:
     std::vector<std::string> keyList;
     
     if (fitFunc == "noSig") {
-        keyList = {"pol0", "pol1", "pol2"};
+        keyList = {"pol1", "pol2"};
     }
     if (fitFunc == "DGauss") {
         keyList = {"mean", "sigma1", "deltasigma", "dg_frac", "sig_yield", 
-                   "bkg_yield", "pol0", "pol1", "pol2"};
+                   "bkg_yield", "pol1", "pol2"};
     }
     else if (fitFunc == "SGauss") {
-        keyList = {"mean", "sigma1", "sig_yield", "bkg_yield", "pol0", "pol1", "pol2"};
+        keyList = {"mean", "sigma1", "sig_yield", "bkg_yield", "pol1", "pol2"};
     }
     else {
         return;
@@ -125,72 +116,16 @@ void Fitter::updateDictionary(RooAbsPdf* signalPdf, RooAbsData* data, const std:
             if (key == "mean") res.mean.value = newVal;
             else if (key == "sigma1") res.sigma1.value = newVal;
             else if (key == "deltasigma") res.deltasigma.value = newVal;
-            else if (key == "alpha1") res.alpha1.value = newVal;
             else if (key == "n") res.n.value = newVal;
             else if (key == "dg_frac") res.dg_frac.value = newVal;
             else if (key == "sig_yield") res.sigYield.value = newVal;
             else if (key == "bkg_yield") res.bkgYield.value = newVal;
-            else if (key == "pol0") res.pol0.value = newVal;
             else if (key == "pol1") res.pol1.value = newVal;
             else if (key == "pol2") res.pol2.value = newVal;
         }
     }
     
     delete paramSet;
-}
-
-void Fitter::fixNAlphaValue(const std::string& resonance, double ptLimLow) {
-    auto& res = massDict[this->resonance];
-    
-    double startValAlpha = 0.0;
-    double minValAlpha = 0.0;
-    double maxValAlpha = 0.0;
-    double startValN = 0.0;
-    double minValN = 0.0;
-    double maxValN = 0.0;
-    
-    if (resonance.find("Psi2S") != std::string::npos) {
-        // These values were determined by fitting the combined mass spectrum
-        startValAlpha = 2.17;   // 2.461+-0.044 (before Apr. 22)
-        minValAlpha = startValAlpha - 3 * 0.007;
-        maxValAlpha = startValAlpha + 3 * 0.007;
-        startValN = 0.923;  // 0.554+-0.097
-        minValN = startValN - 3 * 0.01;
-        maxValN = startValN + 3 * 0.01;
-    }
-    else if (resonance.find("X3872") != std::string::npos) {
-        startValAlpha = 2.464; // 1.625 (before Apr. 22)
-        minValAlpha = startValAlpha - 3 * 0.025;
-        maxValAlpha = startValAlpha + 3 * 0.025;
-        startValN = 0.593;     // 3.356 (before Apr. 22)
-        minValN = startValN - 3 * 0.033;
-        maxValN = startValN + 3 * 0.033;
-    }
-    else if (resonance.find("D0") != std::string::npos) {
-        startValAlpha = 2.5;
-        minValAlpha = startValAlpha - 3 * 0.05;
-        maxValAlpha = startValAlpha + 3 * 0.05;
-        startValN = 0.5;
-        minValN = startValN - 3 * 0.05;
-        maxValN = startValN + 3 * 0.05;
-    }
-    
-    // Update alpha1 parameter
-    res.alpha1.value = startValAlpha;
-    res.alpha1.min = minValAlpha;
-    res.alpha1.max = maxValAlpha;
-    
-    // Update n parameter
-    res.n.value = startValN;
-    res.n.min = minValN;
-    res.n.max = maxValN;
-    
-    // Special case for Psi2S dg_frac
-    if (resonance.find("Psi2S") != std::string::npos) {
-        res.dg_frac.value = 0.4;
-        res.dg_frac.min = 0.0;
-        res.dg_frac.max = 0.5;
-    }
 }
 
 void Fitter::updateSigYield(const std::string& resonance) {
@@ -308,9 +243,10 @@ RooDataSet* Fitter::createDataSet(const std::string& resonance, const std::strin
     RooRealVar* pt_jet = new RooRealVar("jetPt", "jetPt", 0, 200);
     RooRealVar* pt_tag = new RooRealVar("tagPt", "tagPt", 0, 200);
     RooRealVar* nConst = new RooRealVar("jetnConst", "jetnConst", 0.0, 300.0);
-    RooRealVar* qValue = new RooRealVar("QValue", "QValue", -2, 0.5);
+    // RooRealVar* qValue = new RooRealVar("QValue", "QValue", -2, 0.5);
     RooRealVar* dRValue = new RooRealVar("tagJetdR", "tagJetdR", 0.0, 1.0);
     RooRealVar* tagZ = new RooRealVar("tagZ", "tagZ", 0.0, 1.01);
+    RooRealVar* tagY = new RooRealVar("tagY", "tagY", 0.0, 5.01);
     
     // Create RooArgSet with all variables
     RooArgSet* cutVars = new RooArgSet();
@@ -320,33 +256,36 @@ RooDataSet* Fitter::createDataSet(const std::string& resonance, const std::strin
     cutVars->add(*pt_jet);
     cutVars->add(*pt_tag);
     cutVars->add(*nConst);
-    cutVars->add(*qValue);
+    // cutVars->add(*qValue);
     cutVars->add(*tagZ);
+    cutVars->add(*tagY);
     cutVars->add(*dRValue);
     
     // Add distance variables
     RooRealVar* distance1 = new RooRealVar("Distance1", "Distance1", -10, 200);
-    RooRealVar* distance2 = new RooRealVar("Distance2", "Distance2", -10, 200);
-    RooRealVar* distance3 = new RooRealVar("Distance3", "Distance3", -10, 200);
+    // RooRealVar* distance2 = new RooRealVar("Distance2", "Distance2", -10, 200);
+    // RooRealVar* distance3 = new RooRealVar("Distance3", "Distance3", -10, 200);
     cutVars->add(*distance1);
-    cutVars->add(*distance2);
-    cutVars->add(*distance3);
+    // cutVars->add(*distance2);
+    // cutVars->add(*distance3);
+
+    std::cout << "Using correction version: " << corrVer << std::endl;
     
     // Add weights
-    RooRealVar* effWeight = new RooRealVar("EffWeight", "EffWeight", 0, 25000);
-    RooRealVar* effWeight_0 = new RooRealVar("EffWeight_0", "EffWeight_0", 0, 5);
-    RooRealVar* effWeight_1 = new RooRealVar("EffWeight_1", "EffWeight_1", 0, 500);
-    RooRealVar* effWeight_2 = new RooRealVar("EffWeight_2", "EffWeight_2", 0, 4);
-    RooRealVar* effWeight_3 = new RooRealVar("EffWeight_3", "EffWeight_3", -1, 2);
-    RooRealVar* effWeight_4 = new RooRealVar("EffWeight_4", "EffWeight_4", 0, 2000);
-    RooRealVar* effWeight_Rnd = new RooRealVar("tagnRnd", "tagnRnd", -1, 25);
-    cutVars->add(*effWeight);
-    cutVars->add(*effWeight_0);
-    cutVars->add(*effWeight_1);
-    cutVars->add(*effWeight_2);
-    cutVars->add(*effWeight_3);
-    cutVars->add(*effWeight_4);
-    cutVars->add(*effWeight_Rnd);
+    // RooRealVar* effWeight = new RooRealVar("EffWeight", "EffWeight", 0, 25000);
+    // RooRealVar* effWeight_0 = new RooRealVar("EffWeight_0", "EffWeight_0", 0, 5);
+    // RooRealVar* effWeight_1 = new RooRealVar("EffWeight_1", "EffWeight_1", 0, 500);
+    // RooRealVar* effWeight_2 = new RooRealVar("EffWeight_2", "EffWeight_2", 0, 4);
+    // RooRealVar* effWeight_3 = new RooRealVar("EffWeight_3", "EffWeight_3", -1, 2);
+    // RooRealVar* effWeight_4 = new RooRealVar("EffWeight_4", "EffWeight_4", 0, 2000);
+    // RooRealVar* effWeight_Rnd = new RooRealVar("tagnRnd", "tagnRnd", -1, 25);
+    // cutVars->add(*effWeight);
+    // cutVars->add(*effWeight_0);
+    // cutVars->add(*effWeight_1);
+    // cutVars->add(*effWeight_2);
+    // cutVars->add(*effWeight_3);
+    // cutVars->add(*effWeight_4);
+    // cutVars->add(*effWeight_Rnd);
     
     // Create final cut string
     std::string finalCutString = fidCutString;
@@ -354,20 +293,21 @@ RooDataSet* Fitter::createDataSet(const std::string& resonance, const std::strin
     finalCutString += "&& jetnConst > 1";
     
     if (corrVer > -2) {
-        finalCutString += "&& Distance1 < 0.5 && Distance2 < 0.5 && Distance3 < 0.5";
+        finalCutString += "&& Distance1 < 0.5";
+        // finalCutString += "&& Distance1 < 0.5 && Distance2 < 0.5 && Distance3 < 0.5";
     }
     
     // Create dataset with appropriate weight
     RooDataSet* data = nullptr;
     const char* weightName = nullptr;
     
-    if (corrVer == 0) weightName = effWeight_Rnd->GetName();
-    else if (corrVer == 1) weightName = effWeight->GetName();
-    else if (corrVer == 2) weightName = effWeight_0->GetName();
-    else if (corrVer == 3) weightName = effWeight_1->GetName();
-    else if (corrVer == 4) weightName = effWeight_2->GetName();
-    else if (corrVer == 5) weightName = effWeight_3->GetName();
-    else if (corrVer == 6) weightName = effWeight_4->GetName();
+    // if (corrVer == 0) weightName = effWeight_Rnd->GetName();
+    // else if (corrVer == 1) weightName = effWeight->GetName();
+    // else if (corrVer == 2) weightName = effWeight_0->GetName();
+    // else if (corrVer == 3) weightName = effWeight_1->GetName();
+    // else if (corrVer == 4) weightName = effWeight_2->GetName();
+    // else if (corrVer == 5) weightName = effWeight_3->GetName();
+    // else if (corrVer == 6) weightName = effWeight_4->GetName();
     
     if (weightName) {
         data = new RooDataSet(name.c_str(), name.c_str(), inTree, *cutVars, finalCutString.c_str(), weightName);
@@ -419,9 +359,6 @@ Fitter::massFit(const std::string& resonance, RooDataSet* data, const std::strin
                                                  RooArgList(*sigma1, *deltasigma));
         RooRealVar* mean = new RooRealVar("mean", "mean", 
                                         res.mean.value, res.mean.min, res.mean.max);
-        RooRealVar* alpha1 = new RooRealVar("alpha1", "alpha1", 
-                                          res.alpha1.value, res.alpha1.min, res.alpha1.max);
-        RooFormulaVar* alpha2 = new RooFormulaVar("alpha2", "alpha2", "-1*alpha1", RooArgList(*alpha1));
         RooRealVar* n = new RooRealVar("n", "n", 
                                       res.n.value, res.n.min, res.n.max);
         RooRealVar* dg_frac = new RooRealVar("dg_frac", "dg_frac", 
@@ -459,11 +396,12 @@ Fitter::massFit(const std::string& resonance, RooDataSet* data, const std::strin
         RooRealVar* bkg_yield = new RooRealVar("bkg_yield", "bkg_yield", 
                                              res.bkgYield.value, res.bkgYield.min, res.bkgYield.max);
         RooRealVar* poly0 = new RooRealVar("pol0", "pol0", 
-                                         res.pol0.value, res.pol0.min, res.pol0.max);
-        RooRealVar* poly1 = new RooRealVar("pol1", "pol1", 
                                          res.pol1.value, res.pol1.min, res.pol1.max);
+        RooRealVar* poly1 = new RooRealVar("pol1", "pol1", 
+                                         res.pol2.value, res.pol2.min, res.pol2.max);
         
         RooPolynomial* bkg_pdf = new RooPolynomial("bkg_pdf", "bkg_pdf", 
+                                                //  *mass_tag_measured, RooArgList(*poly0));
                                                  *mass_tag_measured, RooArgList(*poly0, *poly1));
         RooExtendPdf* bkg_pdf_ext = new RooExtendPdf("bkg_pdf_ext", "bkg_pdf_ext", 
                                                     *bkg_pdf, *bkg_yield, "fullRange");
@@ -541,7 +479,7 @@ Fitter::massFit(const std::string& resonance, RooDataSet* data, const std::strin
         
         // Create plot of the fit using the Plotter class
         Plotter plotter(resonance, outfilePath, bin, false, zRange);
-        histogram = plotter.individualMassFitPlot(sig_yield, extended_pdf, mass_tag_measured, data, fitTypeName);
+        histogram = plotter.individualMassFitPlot(sig_yield, extended_pdf, mass_tag_measured, data, fitTypeName, isZtObservable);
         
         // Extract fit parameters for return
         parameterArr[0] = sig_yield->getVal();
@@ -549,7 +487,6 @@ Fitter::massFit(const std::string& resonance, RooDataSet* data, const std::strin
         parameterArr[2] = mean->getVal();
         parameterArr[3] = sigma1->getVal();
         parameterArr[4] = deltasigma->getVal();
-        parameterArr[5] = alpha1->getVal();
         parameterArr[6] = n->getVal();
         parameterArr[7] = dg_frac->getVal();
         parameterArr[8] = poly0->getVal();
@@ -565,7 +502,6 @@ Fitter::massFit(const std::string& resonance, RooDataSet* data, const std::strin
         parameterErrArr[2] = mean->getError();
         parameterErrArr[3] = sigma1->getError();
         parameterErrArr[4] = deltasigma->getError();
-        parameterErrArr[5] = alpha1->getError();
         parameterErrArr[6] = n->getError();
         parameterErrArr[7] = dg_frac->getError();
         parameterErrArr[8] = poly0->getError();
@@ -717,35 +653,35 @@ Fitter::ipchi2Fit(const std::string& resonance, RooDataSet* data, RooDataSet* ba
         RooAbsPdf* background_pdf = nullptr;
         
         // Create background PDF if provided
-        if (background && background->numEntries() > 0) {
-            RooRealVar* bkg_param1 = new RooRealVar("bkg_param1", "bkg_param1", 
-                                                 ipchi2_params.bkgParam1.value, 
-                                                 ipchi2_params.bkgParam1.min, 
-                                                 ipchi2_params.bkgParam1.max);
+        // if (background && background->numEntries() > 0) {
+        //     RooRealVar* bkg_param1 = new RooRealVar("bkg_param1", "bkg_param1", 
+        //                                          ipchi2_params.bkgParam1.value, 
+        //                                          ipchi2_params.bkgParam1.min, 
+        //                                          ipchi2_params.bkgParam1.max);
             
-            RooRealVar* bkg_param2 = new RooRealVar("bkg_param2", "bkg_param2", 
-                                                 ipchi2_params.bkgParam2.value, 
-                                                 ipchi2_params.bkgParam2.min, 
-                                                 ipchi2_params.bkgParam2.max);
+        //     RooRealVar* bkg_param2 = new RooRealVar("bkg_param2", "bkg_param2", 
+        //                                          ipchi2_params.bkgParam2.value, 
+        //                                          ipchi2_params.bkgParam2.min, 
+        //                                          ipchi2_params.bkgParam2.max);
             
-            // Use a polynomial for background
-            background_pdf = new RooPolynomial("bkg_pdf", "bkg_pdf", 
-                                           *log_ipchi2, RooArgList(*bkg_param1, *bkg_param2));
+        //     // Use a polynomial for background
+        //     background_pdf = new RooPolynomial("bkg_pdf", "bkg_pdf", 
+        //                                    *log_ipchi2, RooArgList(*bkg_param1, *bkg_param2));
             
-            // Combined model with signal and background
-            RooAddPdf* signal_model = new RooAddPdf("signal_model", "signal_model", 
-                                                 RooArgList(*prompt_pdf, *nonprompt_pdf), 
-                                                 RooArgList(*prompt_yield, *nonprompt_yield));
+        //     // Combined model with signal and background
+        //     RooAddPdf* signal_model = new RooAddPdf("signal_model", "signal_model", 
+        //                                          RooArgList(*prompt_pdf, *nonprompt_pdf), 
+        //                                          RooArgList(*prompt_yield, *nonprompt_yield));
             
-            total_pdf = new RooAddPdf("total_pdf", "total_pdf", 
-                                     RooArgList(*signal_model, *background_pdf), 
-                                     RooArgList(*sig_yieldLim, *bkg_yieldLim));
-        } else {
+        //     total_pdf = new RooAddPdf("total_pdf", "total_pdf", 
+        //                              RooArgList(*signal_model, *background_pdf), 
+        //                              RooArgList(*sig_yieldLim, *bkg_yieldLim));
+        // } else {
             // Signal-only model
             total_pdf = new RooAddPdf("total_pdf", "total_pdf", 
                                      RooArgList(*prompt_pdf, *nonprompt_pdf), 
                                      RooArgList(*prompt_yield, *nonprompt_yield));
-        }
+        // }
         
         // Perform the fit
         std::cout << "  Performing IP chi2 fit with Bukin function..." << std::endl;

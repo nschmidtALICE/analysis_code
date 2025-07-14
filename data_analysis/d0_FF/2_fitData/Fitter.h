@@ -49,10 +49,8 @@ struct MassConfig {
     ParamConfig sigma1;
     ParamConfig deltasigma;
     ParamConfig mean;
-    ParamConfig alpha1;
     ParamConfig n;
     ParamConfig dg_frac;
-    ParamConfig pol0;
     ParamConfig pol1;
     ParamConfig pol2;
     std::pair<double, double> massRange;
@@ -103,6 +101,7 @@ private:
     bool isMC;
     int nBins;
     bool updateStartValues;
+    bool isZtObservable;
     
     // B-decay ranges
     std::vector<double> BdecayMinVal;
@@ -125,6 +124,7 @@ public:
     Fitter(TTree* tree, 
            const std::string& resonanceType = "", 
            int numBins = 1,
+           bool isZtObservable = true,
            bool isMCData = false, 
            const std::string& outputPath = ".", 
            bool update = false);
@@ -134,7 +134,6 @@ public:
     
     // Dictionary methods
     void updateDictionary(RooAbsPdf* signalPdf, RooAbsData* data, const std::string& fitFunc);
-    void fixNAlphaValue(const std::string& resonance, double ptLimLow);
     void updateSBfraction(const std::string& resonance, int bin, double ptLimLow);
     void updateSigYield(const std::string& resonance);
     void updateBKGYield(const std::string& resonance);

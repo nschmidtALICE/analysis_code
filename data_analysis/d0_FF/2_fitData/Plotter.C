@@ -15,7 +15,7 @@ Plotter::Plotter(const std::string& resonanceType, const std::string& basepath,
     if (range.find("z") != std::string::npos) {
         obsSelection = "zT";
     } else {
-        obsSelection = "dR";
+        obsSelection = "dY";
     }
     
     // Set basepath with trailing slash
@@ -109,7 +109,7 @@ void Plotter::setGraphHisto(TH1* histo, const std::string& xTitle, const std::st
 // Implementation of individualMassFitPlot method
 TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extendedPdf, 
                                    RooRealVar* massVar, RooDataSet* data, 
-                                   const std::string& fitTypeName) {
+                                   const std::string& fitTypeName, bool isZtObservable) {
     std::cout << "\n==== Creating mass fit plot for bin " << fitBin 
               << " with model " << fitTypeName << " ====" << std::endl;
     
@@ -124,13 +124,18 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
     std::cout << "  Data entries: " << data->numEntries() << std::endl;
     
     // Extract all the parameters from binning Range
-    RooAbsBinning& binFull = massVar->getBinning("fullRange");   // Use reference instead of pointer
-    RooAbsBinning& binSig = massVar->getBinning("signalRange");  // Use reference instead of pointer
+    RooAbsBinning& binFull = massVar->getBinning("fullRange");
+    RooAbsBinning& binSig = massVar->getBinning("signalRange");
     std::cout << "  Mass range: " << binFull.lowBound() << "-" << binFull.highBound() << std::endl;
     
     massVar->setRange(binFull.lowBound(), binFull.highBound());
     RooPlot* frame = massVar->frame(RooFit::Bins(40));
-    frame->SetTitle(("Signal for " + range).c_str());
+    if(isZtObservable) {
+        frame->SetTitle(("Mass fit for " + range + " in #it{z}_{T}").c_str());
+    } else {
+        frame->SetTitle(("Mass fit for " + range + " in rapidity (#it{y})").c_str());
+    }
+    // frame->SetTitle(("Signal for " + range).c_str());
     
     std::cout << "  Plotting data..." << std::endl;
     data->plotOn(frame, RooFit::Name("datahistogram"), 
@@ -146,7 +151,10 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
     std::cout << "  Plotting fit models..." << std::endl;
     try {
         // Plot total fit
-        extendedPdf->plotOn(frame, RooFit::LineWidth(2), RooFit::Name("TotalFit"));
+        extendedPdf->plotOn(frame, 
+                            RooFit::LineWidth(2), 
+                            RooFit::LineColor(kBlack),
+                            RooFit::Name("TotalFit"));
         
         // Plot background fit component
         extendedPdf->plotOn(frame, RooFit::Components("bkg_pdf_ext"),
@@ -164,39 +172,178 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         std::cerr << "  ERROR plotting fit components: " << e.what() << std::endl;
     }
     
+    // Extract fit parameters
+    RooArgSet* params = extendedPdf->getParameters(*data);
+    
+    // Create legend for fit parameters
+    TLegend* paramLegend = new TLegend(0.65, 0.45, 0.89, 0.89);
+    paramLegend->SetTextFont(42);
+    paramLegend->SetBorderSize(0);
+    paramLegend->SetFillStyle(0);
+    paramLegend->SetFillColor(0);
+    paramLegend->SetMargin(0.25);
+    paramLegend->SetTextSize(0.03);
+    
+    // Add key parameters to legend
+    paramLegend->AddEntry((TObject*)nullptr, "Fit Parameters:", "");
+    
+    // Signal yield
+    RooRealVar* sigYield = dynamic_cast<RooRealVar*>(params->find("sig_yield"));
+    if (sigYield && fitTypeName != "noSig") {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("Sig yield: %.1f #pm %.1f", 
+                                 sigYield->getVal(), sigYield->getError()), "");
+    }
+    
+    // Background yield
+    RooRealVar* bkgYield = dynamic_cast<RooRealVar*>(params->find("bkg_yield"));
+    if (bkgYield) {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("Bkg yield: %.1f #pm %.1f", 
+                                 bkgYield->getVal(), bkgYield->getError()), "");
+    }
+    
+    // Mean
+    RooRealVar* mean = dynamic_cast<RooRealVar*>(params->find("mean"));
+    if (mean && fitTypeName != "noSig") {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("Mean: %.3f #pm %.3f", 
+                                 mean->getVal(), mean->getError()), "");
+    }
+    
+    // Sigma1 (width)
+    RooRealVar* sigma1 = dynamic_cast<RooRealVar*>(params->find("sigma1"));
+    if (sigma1 && fitTypeName != "noSig") {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("Width: %.3f #pm %.3f", 
+                                 sigma1->getVal(), sigma1->getError()), "");
+    }
+    
+    // For double Gaussian, add deltasigma and fraction
+    if (fitTypeName == "DGauss") {
+        RooRealVar* deltasigma = dynamic_cast<RooRealVar*>(params->find("deltasigma"));
+        if (deltasigma) {
+            paramLegend->AddEntry((TObject*)nullptr, 
+                                Form("Width2/Width1: %.2f #pm %.2f", 
+                                     deltasigma->getVal(), deltasigma->getError()), "");
+        }
+        
+        RooRealVar* dgFrac = dynamic_cast<RooRealVar*>(params->find("dg_frac"));
+        if (dgFrac) {
+            paramLegend->AddEntry((TObject*)nullptr, 
+                                Form("Gauss2 frac: %.2f #pm %.2f", 
+                                     dgFrac->getVal(), dgFrac->getError()), "");
+        }
+    }
+    
+    // Add polynomial parameters for background
+    paramLegend->AddEntry((TObject*)nullptr, "Background Params:", "");
+    
+    RooRealVar* pol0 = dynamic_cast<RooRealVar*>(params->find("pol0"));
+    if (pol0) {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("pol0: %.2f #pm %.2f", 
+                                 pol0->getVal(), pol0->getError()), "");
+    }
+    
+    RooRealVar* pol1 = dynamic_cast<RooRealVar*>(params->find("pol1"));
+    if (pol1) {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("pol1: %.2f #pm %.2f", 
+                                 pol1->getVal(), pol1->getError()), "");
+    }
+    
+    RooRealVar* pol2 = dynamic_cast<RooRealVar*>(params->find("pol2"));
+    if (pol2) {
+        paramLegend->AddEntry((TObject*)nullptr, 
+                            Form("pol2: %.2f #pm %.2f", 
+                                 pol2->getVal(), pol2->getError()), "");
+    }
+    
+    // Add S/B ratio
+    if (sigYield && bkgYield && fitTypeName != "noSig") {
+        double sigVal = sigYield->getVal();
+        double bkgVal = bkgYield->getVal();
+        if (bkgVal > 0) {
+            paramLegend->AddEntry((TObject*)nullptr, 
+                                Form("S/B: %.2f", sigVal/bkgVal), "");
+        }
+    }
+    
+    // Add chi2/ndof
+    double chi2 = frame->chiSquare("TotalFit", "datahistogram", params->getSize());
+    paramLegend->AddEntry((TObject*)nullptr, Form("#chi^{2}/ndof: %.2f", chi2), "");
+    
     // Save output file path
     std::string output_file = outputDir + "Bin" + std::to_string(fitBin) + "_" + 
                              fitTypeName + (isBinned ? "Binned" : "Unbinned") + "." + format;
     std::cout << "  Will save plot to: " << output_file << std::endl;
     
+    // Create pull distribution
+    std::cout << "  Creating pull distribution..." << std::endl;
+    RooHist* dataHist = frame->getHist("datahistogram");
+    RooCurve* totalFitCurve = frame->getCurve("TotalFit");
+    RooHist* hpull = nullptr;
+    if (dataHist && totalFitCurve) {
+        hpull = dataHist->makePullHist(*totalFitCurve, true);
+    }
+    
+    RooPlot* pullFrame = massVar->frame(RooFit::Title("Pull Distribution"), RooFit::Bins(40));
+    if (hpull) {
+        pullFrame->addPlotable(hpull, "P");
+        pullFrame->getAttMarker()->SetMarkerSize(0.5);
+        pullFrame->getAttLine()->SetLineWidth(1);
+    }
+    
     try {
-        // Draw and save plot
+        // Draw and save main plot
         std::cout << "  Creating canvas..." << std::endl;
         TCanvas* canvas = new TCanvas(("canvas_" + uniqueId).c_str(), 
-                                    ("canvas_" + uniqueId).c_str(), 800*2, 400*2);
+                                    ("canvas_" + uniqueId).c_str(), 800*2, 600*2);
+        // canvas->SetRightMargin(0.01);
+        // canvas->SetBottomMargin(0.05);
         
         // Set up pad, draw frame
         TPad* pad = new TPad(("myPad_" + uniqueId).c_str(), 
                            ("The pad_" + uniqueId).c_str(), 0, 0, 1, 1);
-        pad->SetLeftMargin(0.15);
-        pad->SetBottomMargin(0.15);
+        pad->SetLeftMargin(0.10);
+        pad->SetBottomMargin(0.09);
+        pad->SetRightMargin(0.01);
         pad->Draw();
         pad->cd();
         
         frame->Draw();
+        paramLegend->Draw();
         
         std::cout << "  Saving canvas to " << output_file << std::endl;
         canvas->SaveAs(output_file.c_str());
         std::cout << "  Plot saved successfully!" << std::endl;
         
+        // Create and save pull plot
+        std::cout << "  Creating pull canvas..." << std::endl;
+        std::string pull_output_file = outputDir + "Bin" + std::to_string(fitBin) + "_" + 
+                                      fitTypeName + (isBinned ? "Binned" : "Unbinned") + "_Pull." + format;
+        
+        TCanvas* pullCanvas = new TCanvas(("pullCanvas_" + uniqueId).c_str(), 
+                                        ("pullCanvas_" + uniqueId).c_str(), 800, 400);
+        pullCanvas->cd();
+        gPad->SetLeftMargin(0.15);
+        pullFrame->GetYaxis()->SetTitleOffset(1.6);
+        pullFrame->Draw();
+        
+        std::cout << "  Saving pull canvas to " << pull_output_file << std::endl;
+        pullCanvas->SaveAs(pull_output_file.c_str());
+        std::cout << "  Pull plot saved successfully!" << std::endl;
+        
         // Clean up to prevent memory leaks
         std::cout << "  Cleaning up..." << std::endl;
         delete canvas;
-        // std::cout << "  Canvas deleted!" << std::endl;
-        // delete pad;
-        // std::cout << "  pad cleaned up!" << std::endl;
+        delete pullCanvas;
+        delete paramLegend;
+        delete params;
     } catch (std::exception& e) {
         std::cerr << "  ERROR saving plot: " << e.what() << std::endl;
+        delete params;
     }
     
     return h_data;

@@ -73,6 +73,7 @@ public:
     void plotQAPlots(RooDataSet* dataReduced, RooRealVar& tagMDet, RooRealVar& tagMPart, const std::string& namekey = "");
     void plotRMJet(double ptLow, double ptHigh, double dR = 1.0);
     void plotRMTag(double dR = 1.0);
+    void plotRMRapidity(double dR = 1.0);
     
     // Helper methods for plotting
     TPad*** partitionCanvas(TCanvas* C, int Nx, int Ny, double lMargin, double rMargin, double bMargin, double tMargin);
@@ -118,7 +119,14 @@ RMplotter::RMplotter() {
     
     // Setup binning
     pTBinning = {0, 5, 10, 15, 20, 30, 200};
-    zTBinArray = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
+    // zTBinArray = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
+    zTBinArray = {
+            0.0, 0.05, 0.1, 0.15, 0.2, 
+            0.25, 0.3, 0.35, 0.4, 0.45, 
+            0.5, 0.55, 0.6, 0.65, 0.7, 
+            0.75, 0.8, 0.85, 0.9, 0.95, 
+            1.0};
+    // zTBinArray = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
     
     // Setup input/output
     std::pair<std::string, std::string> io = setupInputOutput();
@@ -162,7 +170,12 @@ std::pair<std::string, std::string> RMplotter::setupInputOutput() {
     std::string inputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/3_makeResponseMatrix";
     
     // Input file path
-    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1.root";
+    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_allMC.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_allMC.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1.root";
     
     std::cout << "Found file: " << fFileName << std::endl;
     
@@ -186,22 +199,26 @@ std::pair<std::string, std::string> RMplotter::setupInputOutput() {
 
 // Create the dataset with cuts
 RooDataSet* RMplotter::createDataSet() {
-    // Dataset Parameters
-    RooRealVar pt_jetDet("jetPtDet", "jetPtDet", 0, 500);
-    RooRealVar pt_tagDet("tagPtDet", "tagPtDet", 0, 80);
-    RooRealVar etaDet("etaDet", "etaDet", 1.5, 5.5);
-    RooRealVar phiDet("phiDet", "phiDet", -3.5, 3.5);
-    RooRealVar tagMDet("tagMDet", "tagMDet", 1.81, 1.935);
-    RooRealVar zTDet("zTDet", "zTDet", 0, 1.01);
-    RooRealVar pt_jetPart("jetPtPart", "jetPtPart", 0, 500);
-    RooRealVar pt_tagPart("tagPtPart", "tagPtPart", 0, 80);
-    RooRealVar etaPart("etaPart", "etaPart", 1.5, 5.5);
-    RooRealVar phiPart("phiPart", "phiPart", -3.5, 3.5);
-    RooRealVar tagMPart("tagMPart", "tagMPart", 1.81, 1.935);
-    RooRealVar zTPart("zTPart", "zTPart", 0, 1.01);
-    RooRealVar nConstDet("nConstDet", "nConstDet", 0, 50);
-    RooRealVar nConstPart("nConstPart", "nConstPart", 0, 50);
-    RooRealVar dR("dR", "dR", -1, 1);
+    // Dataset Parameters with updated branch names
+    RooRealVar pt_jetDet("jet_pt_det", "Detector-level jet p_{T} (GeV/c)", 0, 500);
+    RooRealVar pt_tagDet("d0_pt_det", "Detector-level D0 p_{T} (GeV/c)", 0, 80);
+    RooRealVar etaDet("jet_eta_det", "Detector-level jet #eta", 1.5, 5.5);
+    RooRealVar phiDet("jet_phi_det", "Detector-level jet #phi", -3.5, 3.5);
+    RooRealVar tagMDet("d0_mass_det", "Detector-level D0 mass (GeV/c^{2})", 1.81, 1.935);
+    RooRealVar zTDet("d0_z_det", "Detector-level z_{T}", 0, 1.01);
+    RooRealVar d0EtaDet("d0_eta_det", "Detector-level D0 #eta", 1.5, 5.5);
+    
+    RooRealVar pt_jetPart("jet_pt_mc", "Particle-level jet p_{T} (GeV/c)", 0, 500);
+    RooRealVar pt_tagPart("d0_pt_mc", "Particle-level D0 p_{T} (GeV/c)", 0, 80);
+    RooRealVar etaPart("jet_eta_mc", "Particle-level jet #eta", 1.5, 5.5);
+    RooRealVar phiPart("jet_phi_mc", "Particle-level jet #phi", -3.5, 3.5);
+    RooRealVar tagMPart("d0_mass_mc", "Particle-level D0 mass (GeV/c^{2})", 1.81, 1.935);
+    RooRealVar zTPart("d0_z_mc", "Particle-level z_{T}", 0, 1.01);
+    RooRealVar d0EtaPart("d0_eta_mc", "Particle-level D0 #eta", 1.5, 5.5);
+    
+    RooRealVar nConstDet("jet_nconst_det", "Detector-level jet constituent count", 0, 50);
+    RooRealVar nConstPart("jet_nconst_mc", "Particle-level jet constituent count", 0, 50);
+    RooRealVar dR("jet_dr", "ΔR between matched jets", -1, 1);
     
     RooArgSet cutVars;
     cutVars.add(pt_jetDet);
@@ -215,13 +232,15 @@ RooDataSet* RMplotter::createDataSet() {
     cutVars.add(zTPart);
     cutVars.add(nConstDet);
     cutVars.add(nConstPart);
+    cutVars.add(d0EtaDet);
+    cutVars.add(d0EtaPart);
     
     // Define cuts
     double massCutMin = 1.81;
     double massCutMax = 1.935;
     std::stringstream cutStream;
-    cutStream << "tagMPart > " << massCutMin << " && tagMPart < " << massCutMax
-              << " && dR > -1 && nConstDet>1";
+    cutStream << "d0_mass_mc > " << massCutMin << " && d0_mass_mc < " << massCutMax
+              << " && jet_dr > -1 && jet_nconst_det>1";
     std::string cutString = cutStream.str();
     
     std::cout << "Creating dataset with cuts: " << cutString << std::endl;
@@ -235,21 +254,21 @@ RooDataSet* RMplotter::createDataSet() {
 
 // Apply additional cuts to the dataset
 RooDataSet* RMplotter::reduceDataSet(double jetPtMin, double jetPtMax, double dRCut) {
-    // Create cut string
+    // Create cut string with updated branch names
     std::stringstream cutStream;
-    cutStream << "jetPtDet > " << jetPtMin << " && jetPtDet < " << jetPtMax;
+    cutStream << "jet_pt_det > " << jetPtMin << " && jet_pt_det < " << jetPtMax;
     
     // Add dR cut if needed
     if (dRCut < 1.0) {
-        cutStream << " && dR < " << dRCut;
+        cutStream << " && jet_dr < " << dRCut;
     }
     
     std::string cutString = cutStream.str();
     std::cout << "Applying additional cuts: " << cutString << std::endl;
     
-    // Create variables needed for dataset operations
-    RooRealVar jetPtDet("jetPtDet", "jetPtDet", 0, 500);
-    RooRealVar dR("dR", "dR", -1, 1);
+    // Create variables needed for dataset operations with updated branch names
+    RooRealVar jetPtDet("jet_pt_det", "jet_pt_det", 0, 500);
+    RooRealVar dR("jet_dr", "jet_dr", -1, 1);
     RooArgSet vars(jetPtDet, dR);
     
     // Apply cuts
@@ -258,9 +277,9 @@ RooDataSet* RMplotter::reduceDataSet(double jetPtMin, double jetPtMax, double dR
     
     std::cout << "------------------------" << std::endl;
     
-    // Create variables for QA plots
-    RooRealVar tagMDet("tagMDet", "tagMDet", 1.81, 1.935);
-    RooRealVar tagMPart("tagMPart", "tagMPart", 1.81, 1.935);
+    // Create variables for QA plots with updated branch names
+    RooRealVar tagMDet("d0_mass_det", "d0_mass_det", 1.81, 1.935);
+    RooRealVar tagMPart("d0_mass_mc", "d0_mass_mc", 1.81, 1.935);
     
     // Plot QA plots
     plotQAPlots(dataReduced, tagMDet, tagMPart, "Mass");
@@ -277,8 +296,8 @@ void RMplotter::plotRMJet(double ptLow, double ptHigh, double dR) {
     }
     
     // Define variables for jet pT
-    RooRealVar pt_jetDet("jetPtDet", "Detector-level jet p_{T} (GeV/c)", 0, 100);
-    RooRealVar pt_jetPart("jetPtPart", "Particle-level jet p_{T} (GeV/c)", 0, 100);
+    RooRealVar pt_jetDet("jet_pt_det", "Detector-level jet p_{T} (GeV/c)", 0, 100);
+    RooRealVar pt_jetPart("jet_pt_mc", "Particle-level jet p_{T} (GeV/c)", 0, 100);
     
     // Create 2D histogram from dataset
     TH2D* hh_data = dynamic_cast<TH2D*>(reducedData->createHistogram("hist", pt_jetDet, 
@@ -345,13 +364,13 @@ void RMplotter::plotQAPlots(RooDataSet* dataReduced, RooRealVar& tagMDet, RooRea
     
     // Left pad
     canvas->cd(1);
-    TPad* myPad1 = new TPad("myPad1", "The pad", 0, 0, 1, 1);
-    myPad1->SetLeftMargin(0.7);
-    myPad1->SetTopMargin(0.07);
-    myPad1->SetRightMargin(0.1);
-    myPad1->SetBottomMargin(0.15);
-    myPad1->Draw();
-    myPad1->cd();
+    // TPad* myPad1 = new TPad("myPad1", "The pad", 0, 0, 1, 1);
+    // myPad1->SetLeftMargin(0.7);
+    // myPad1->SetTopMargin(0.07);
+    // myPad1->SetRightMargin(0.1);
+    // myPad1->SetBottomMargin(0.15);
+    // myPad1->Draw();
+    // myPad1->cd();
     
     // Draw detector level histograms
     h_dataFullDet->SetLineColor(1);
@@ -361,13 +380,13 @@ void RMplotter::plotQAPlots(RooDataSet* dataReduced, RooRealVar& tagMDet, RooRea
     
     // Right pad
     canvas->cd(2);
-    TPad* myPad2 = new TPad("myPad2", "The pad", 0, 0, 1, 1);
-    myPad2->SetLeftMargin(0.7);
-    myPad2->SetTopMargin(0.07);
-    myPad2->SetRightMargin(0.1);
-    myPad2->SetBottomMargin(0.15);
-    myPad2->Draw();
-    myPad2->cd();
+    // TPad* myPad2 = new TPad("myPad2", "The pad", 0, 0, 1, 1);
+    // myPad2->SetLeftMargin(0.7);
+    // myPad2->SetTopMargin(0.07);
+    // myPad2->SetRightMargin(0.1);
+    // myPad2->SetBottomMargin(0.15);
+    // myPad2->Draw();
+    // myPad2->cd();
     
     // Draw particle level histograms
     h_dataFullPart->SetLineColor(1);
@@ -410,10 +429,10 @@ void RMplotter::plotRMTag(double dR) {
     }
     
     // Define variables for response matrix
-    RooRealVar pt_jetDet("jetPtDet", "jetPtDet", 0, 200);
-    RooRealVar pt_jetPart("jetPtPart", "jetPtPart", 0, 200);
-    RooRealVar zTDet("zTDet", "zTDet", 0, 1.01);
-    RooRealVar zTPart("zTPart", "zTPart", 0, 1.01);
+    RooRealVar pt_jetDet("jet_pt_det", "jet_pt_det", 0, 200);
+    RooRealVar pt_jetPart("jet_pt_mc", "jet_pt_mc", 0, 200);
+    RooRealVar zTDet("d0_z_det", "d0_z_det", 0, 1.01);
+    RooRealVar zTPart("d0_z_mc", "d0_z_mc", 0, 1.01);
     
     // Create custom binning for the plot
     std::vector<double> arrayDet(zTBinArray);
@@ -445,8 +464,8 @@ void RMplotter::plotRMTag(double dR) {
     int histIndex = 0;
     for (int indexGenerator = 0; indexGenerator < nBinsGenLvlv; ++indexGenerator) {
         // Define generator level pT range
-        std::string ptRangePart = "jetPtPart > " + std::to_string(pTBinning[indexGenerator]) + 
-                                " && jetPtPart < " + std::to_string(pTBinning[indexGenerator+1]);
+        std::string ptRangePart = "jet_pt_mc > " + std::to_string(pTBinning[indexGenerator]) + 
+                                " && jet_pt_mc < " + std::to_string(pTBinning[indexGenerator+1]);
         
         // Build legend entry for generator level
         legGen[indexGenerator] = Form("p_{T}^{jet,gen}: %1.0f-%1.0f", 
@@ -454,8 +473,8 @@ void RMplotter::plotRMTag(double dR) {
         
         for (int indexDet = 0; indexDet < nBinsDetLvlv; ++indexDet) {
             // Define detector level pT range
-            std::string ptRangeDet = " && jetPtDet > " + std::to_string(pTBinning[indexDet]) +
-                                   " && jetPtDet < " + std::to_string(pTBinning[indexDet+1]);
+            std::string ptRangeDet = " && jet_pt_det > " + std::to_string(pTBinning[indexDet]) +
+                                   " && jet_pt_det < " + std::to_string(pTBinning[indexDet+1]);
             std::string cuts = ptRangePart + ptRangeDet;
             
             // Build legend entry for detector level
@@ -618,6 +637,252 @@ void RMplotter::plotRMTag(double dR) {
     }
     delete[] pad;
     delete canvas3;
+    delete reducedData;
+}
+
+void RMplotter::plotRMRapidity(double dR) {
+    // Get reduced dataset for entire jet pT range
+    RooDataSet* reducedData = reduceDataSet(0, 200, dR);
+    if (!reducedData) {
+        std::cerr << "Failed to create reduced dataset for plotRMRapidity" << std::endl;
+        return;
+    }
+    
+    // Define variables for response matrix
+    RooRealVar pt_jetDet("jet_pt_det", "jet_pt_det", 0, 200);
+    RooRealVar pt_jetPart("jet_pt_mc", "jet_pt_mc", 0, 200);
+    RooRealVar d0EtaDet("d0_eta_det", "d0_eta_det", 1.5, 5.5);
+    RooRealVar d0EtaPart("d0_eta_mc", "d0_eta_mc", 1.5, 5.5);
+    
+    // Create custom binning for D0 rapidity in 0.02 intervals
+    std::vector<double> etaBinning = {1.50, 1.52, 1.54, 1.56, 1.58, 1.60, 
+                                      1.62, 1.64, 1.66, 1.68, 1.70, 
+                                      1.72, 1.74, 1.76, 1.78, 1.80, 
+                                      1.82, 1.84, 1.86, 1.88, 1.90,
+                                      1.92, 1.94, 1.96, 1.98, 2.00,
+                                      2.02, 2.04, 2.06, 2.08, 2.10,
+                                      2.12, 2.14, 2.16, 2.18, 2.20,
+                                      2.22, 2.24, 2.26, 2.28, 2.30,
+                                      2.32, 2.34, 2.36, 2.38, 2.40,
+                                      2.42, 2.44, 2.46, 2.48, 2.50,
+                                      2.52, 2.54, 2.56, 2.58, 2.60,
+                                      2.62, 2.64, 2.66, 2.68, 2.70,
+                                      2.72, 2.74, 2.76, 2.78, 2.80,
+                                      2.82, 2.84, 2.86, 2.88, 2.90,
+                                      2.92, 2.94, 2.96, 2.98, 3.00,
+                                      3.02, 3.04, 3.06, 3.08, 3.10,
+                                      3.12, 3.14, 3.16, 3.18, 3.20,
+                                      3.22, 3.24, 3.26, 3.28, 3.30,
+                                      3.32, 3.34, 3.36, 3.38, 3.40,
+                                      3.42, 3.44, 3.46, 3.48, 3.50,
+                                      3.52, 3.54, 3.56, 3.58, 3.60,
+                                      3.62, 3.64, 3.66, 3.68, 3.70,
+                                      3.72, 3.74, 3.76, 3.78, 3.80,
+                                      3.82, 3.84, 3.86, 3.88, 3.90,
+                                      3.92, 3.94, 3.96, 3.98, 4.00,
+                                      4.02, 4.04, 4.06, 4.08, 4.10,
+                                      4.12, 4.14, 4.16, 4.18, 4.20,
+                                      4.22, 4.24, 4.26, 4.28, 4.30,
+                                      4.32, 4.34, 4.36, 4.38, 4.40,
+                                      4.42, 4.44, 4.46, 4.48, 4.50};
+                                    
+    // Create ROOT binning objects
+    RooBinning etaBinsDet(etaBinning.size()-1, &etaBinning[0], "etaBinningDet");
+    RooBinning etaBinsPart(etaBinning.size()-1, &etaBinning[0], "etaBinningPart");
+    
+    // Calculate number of bins for generator and detector levels
+    int nBinsGenLvlv = pTBinning.size() - 1;
+    int nBinsDetLvlv = pTBinning.size() - 1;
+    int maxCombinations = nBinsGenLvlv * nBinsDetLvlv;
+    
+    std::cout << "Max No combinations for rapidity: " << maxCombinations << std::endl;
+    std::cout << "pT Part bins: " << nBinsGenLvlv << std::endl;
+    std::cout << "pT Det bins: " << nBinsDetLvlv << std::endl;
+    
+    // Create arrays to store histograms and metadata
+    std::vector<std::vector<TH2F*>> hh_data(nBinsDetLvlv, std::vector<TH2F*>(nBinsGenLvlv, nullptr));
+    std::vector<double> maxArray(maxCombinations, 0);
+    std::vector<std::string> legGen(nBinsGenLvlv);
+    std::vector<std::string> legDet(nBinsDetLvlv);
+    std::vector<std::vector<TLatex*>> systemArray(nBinsDetLvlv, std::vector<TLatex*>(nBinsGenLvlv, nullptr));
+    
+    // Create all histograms for the D0 rapidity responses
+    int histIndex = 0;
+    for (int indexGenerator = 0; indexGenerator < nBinsGenLvlv; ++indexGenerator) {
+        // Define generator level pT range
+        std::string ptRangePart = "jet_pt_mc > " + std::to_string(pTBinning[indexGenerator]) + 
+                                " && jet_pt_mc < " + std::to_string(pTBinning[indexGenerator+1]);
+        
+        // Build legend entry for generator level
+        legGen[indexGenerator] = Form("p_{T}^{jet,gen}: %1.0f-%1.0f", 
+                                    pTBinning[indexGenerator], pTBinning[indexGenerator+1]);
+        
+        for (int indexDet = 0; indexDet < nBinsDetLvlv; ++indexDet) {
+            // Define detector level pT range
+            std::string ptRangeDet = " && jet_pt_det > " + std::to_string(pTBinning[indexDet]) +
+                                   " && jet_pt_det < " + std::to_string(pTBinning[indexDet+1]);
+            std::string cuts = ptRangePart + ptRangeDet;
+            
+            // Build legend entry for detector level
+            legDet[indexDet] = Form("p_{T}^{jet,det}: %1.0f-%1.0f", 
+                                  pTBinning[indexDet], pTBinning[indexDet+1]);
+            
+            // Get data in this specific bin
+            RooDataSet* dataInBin = dynamic_cast<RooDataSet*>(reducedData->reduce(RooArgSet(d0EtaDet, d0EtaPart, pt_jetDet, pt_jetPart), cuts.c_str()));
+            if (!dataInBin) {
+                std::cerr << "Failed to reduce dataset for rapidity bin " << histIndex << std::endl;
+                continue;
+            }
+            
+            // Build histogram in the specific cut ranges for Det and Gen pT
+            std::string histName = "histRapidity" + std::to_string(histIndex);
+            TH2F* hist = dynamic_cast<TH2F*>(dataInBin->createHistogram(histName.c_str(), d0EtaDet, 
+                                                RooFit::Binning(etaBinsDet), 
+                                                RooFit::YVar(d0EtaPart, RooFit::Binning(etaBinsPart))));
+            
+            if (!hist) {
+                std::cerr << "Failed to create rapidity histogram for bin " << histIndex << std::endl;
+                delete dataInBin;
+                continue;
+            }
+            
+            hh_data[indexDet][indexGenerator] = hist;
+            maxArray[histIndex] = hist->GetMaximum();
+            std::cout << "Rapidity integral for bin [" << indexDet << ", " << indexGenerator << "]: " 
+                      << hist->Integral() << std::endl;
+            
+            histIndex++;
+            delete dataInBin; // Clean up temporary dataset
+        }
+    }
+    
+    // Determine a global range for all plots
+    double globalMax = 0;
+    double globalMin = 1e6;
+    
+    // Find maximum value
+    for (double max : maxArray) {
+        if (max > globalMax) {
+            globalMax = max;
+        }
+    }
+    
+    // Find minimum non-zero value
+    for (double value : maxArray) {
+        if (value > 0 && value < globalMin) {
+            globalMin = value;
+        }
+    }
+    
+    // If no positive values found, set a default minimum
+    if (globalMin == 1e6) {
+        std::cout << "Warning: No positive values found in rapidity response matrix. Using default minimum." << std::endl;
+        globalMin = 1e-6;
+    }
+    
+    // Define margins
+    double lMargin = 0.08;
+    double rMargin = 0.03;
+    double bMargin = 0.07;
+    double tMargin = 0.03;
+    
+    // Set style
+    gStyle->SetOptStat(0);
+    
+    // Create canvas
+    TCanvas* canvas4 = new TCanvas("C4", "C4", 1600, 1600);
+    canvas4->SetFillStyle(4000);
+    
+    // Create partitioned canvas
+    TPad*** pad = partitionCanvas(canvas4, nBinsDetLvlv, nBinsGenLvlv, lMargin, rMargin, bMargin, tMargin);
+    if (!pad) {
+        std::cerr << "Failed to partition canvas for rapidity" << std::endl;
+        delete canvas4;
+        delete reducedData;
+        return;
+    }
+    
+    // Fill each pad with the corresponding histogram
+    int panelNumber = 0;
+    for (int i = 0; i < nBinsDetLvlv; ++i) {  // Jet pT Detector
+        for (int j = 0; j < nBinsGenLvlv; ++j) {  // Jet pT Generator
+            canvas4->cd(0);
+            
+            // Get the pad
+            std::string pname = "pad_" + std::to_string(i) + "_" + std::to_string(j);
+            std::cout << "Rapidity " << pname << std::endl;
+            
+            if (!pad[i][j]) {
+                std::cerr << "Rapidity pad " << i << "," << j << " not found" << std::endl;
+                continue;
+            }
+            
+            pad[i][j] = static_cast<TPad*>(gROOT->FindObject(pname.c_str()));
+            pad[i][j]->Draw();
+            pad[i][j]->SetFillStyle(4000);
+            pad[i][j]->SetFrameFillStyle(4000);
+            pad[i][j]->SetLogz();
+            pad[i][j]->cd();
+            
+            double xFactor = pad[0][0]->GetAbsWNDC() / pad[i][j]->GetAbsWNDC();
+            double yFactor = pad[0][0]->GetAbsHNDC() / pad[i][j]->GetAbsHNDC();
+            
+            // Invert the y axis for the display
+            int invJ = nBinsGenLvlv - j - 1;
+            
+            if (hh_data[i][invJ]) {
+                std::cout << "Rapidity name: " << hh_data[i][invJ]->GetName() << std::endl;
+                hh_data[i][invJ]->SetTitle("");
+                
+                // Set frame format
+                TH1* hFrame = setFrame(hh_data[i][invJ], xFactor, yFactor, i, nBinsDetLvlv, j, nBinsGenLvlv);
+                hFrame->GetZaxis()->SetRangeUser(globalMin, globalMax);
+                hFrame->GetXaxis()->SetTitle("#eta_{D0}^{Det. lvl}");
+                hFrame->GetYaxis()->SetTitle("#eta_{D0}^{Gen. lvl}");
+                hFrame->Draw();
+                
+                hh_data[i][invJ]->Draw("same colz");
+                
+                double topM = pad[i][j]->GetTopMargin();
+                double leftM = pad[i][j]->GetLeftMargin();
+                
+                // Add a text label describing the bin
+                systemArray[i][invJ] = new TLatex(0.16, 0.8, Form("#splitline{%s}{%s}", 
+                                                legGen[invJ].c_str(), legDet[i].c_str()));
+                systemArray[i][invJ]->SetTextSize(0.09);
+                systemArray[i][invJ]->Draw();
+                
+                // Draw diagonal line
+                if (i == invJ) {
+                    diagonal_lineDark->Draw();
+                } else {
+                    diagonal_line->Draw();
+                }
+            } else {
+                std::cout << "Error: could not find rapidity histogram at position: " << panelNumber << std::endl;
+            }
+            
+            panelNumber++;
+        }
+    }
+    
+    // Save the canvas
+    canvas4->cd();
+    std::string ptTag = "pT5-70";
+    std::string fileName = output + dictKey + "RapidityBin" + ptTag + "." + fileFormat;
+    canvas4->SaveAs(fileName.c_str());
+    
+    // Clean up
+    for (int i = 0; i < nBinsDetLvlv; ++i) {
+        for (int j = 0; j < nBinsGenLvlv; ++j) {
+            delete hh_data[i][j];
+            delete systemArray[i][j];
+            delete pad[i][j];
+        }
+        delete[] pad[i];
+    }
+    delete[] pad;
+    delete canvas4;
     delete reducedData;
 }
 
@@ -856,6 +1121,9 @@ void plotResponse() {
         
         // Plot the tag response matrix
         plotterProcess->plotRMTag();
+        
+        // Plot the rapidity response matrix
+        plotterProcess->plotRMRapidity();
         
         // Clean up
         delete plotterProcess;

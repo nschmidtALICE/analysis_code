@@ -59,7 +59,7 @@ public:
     // Main plotting methods
     TH1* individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extendedPdf, 
                               RooRealVar* massVar, RooDataSet* data, 
-                              const std::string& fitTypeName);
+                              const std::string& fitTypeName, bool isZtObservable);
     
     TH1* ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2, 
                       RooDataSet* data, RooAbsPdf* totalPdf, 

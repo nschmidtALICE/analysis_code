@@ -65,7 +65,7 @@ public:
     TGraphErrors* graphInclCorr;
     
     // Constructor - fix signature to match usage
-    PlotGraphsObject(const std::string& ptRng, bool isZt);
+    PlotGraphsObject(const std::string& ptRng, bool isZt, bool isMC);
     
     // Destructor
     ~PlotGraphsObject();
@@ -99,7 +99,7 @@ public:
 };
 
 // Constructor implementation
-PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt) : 
+PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isMC) : 
     ptString(ptRng), minPlotRange(0), minFitRange(0), maxFitRange(1) {
     
     // Initialize all graph pointers to nullptr to avoid undefined behavior
@@ -140,12 +140,13 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt) :
         obsTag = "zT";
         xTitle = "#it{z}_{T} = p_{T}^{D^{0}}/p_{T}^{jet}";
     } else {
-        obsTag = "dR";
-        xTitle = "#DeltaR";
+        obsTag = "Y";
+        xTitle = "#it{y}";
     }
     
     // Prepare input file path
     std::string basepath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA";
+    if(isMC) basepath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC";
     std::string rootFileName = basepath + "/FitParametersUnBinnedD0" + obsTag + "_" + ptString + ".root";
     TFile* fInFileHisto = nullptr;
     
@@ -445,14 +446,14 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     
     TH1F* myBlankHisto2 = new TH1F((std::string("myBlankHisto2") + obsTag + "_" + ptString).c_str(), 
                                   (std::string("Blank Histogram") + obsTag + "_" + ptString).c_str(), 
-                                  20, -0.3, 1);
+                                  100, -0.3, 4.7);
     myBlankHisto2->GetXaxis()->SetNdivisions(505);
     myBlankHisto2->SetXTitle(xTitle.c_str());
     myBlankHisto2->GetXaxis()->SetTitleSize(0.05);
     myBlankHisto2->GetXaxis()->SetRangeUser(-0.3, 1);
     
-    if (obsTag.find("dR") != std::string::npos) {
-        myBlankHisto2->GetXaxis()->SetRangeUser(0, 0.5);
+    if (obsTag.find("Y") != std::string::npos) {
+        myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
     }
     
     myBlankHisto2->GetXaxis()->SetNdivisions(405);
@@ -495,7 +496,7 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     
     // Create legend
     TLegend* myLegend0;
-    if (obsTag.find("dR") != std::string::npos) {
+    if (obsTag.find("Y") != std::string::npos) {
         myLegend0 = new TLegend(0.5, 0.62, 0.7, 0.8);
     } else {
         myLegend0 = new TLegend(0.15, 0.76, 0.4, 0.9);
@@ -573,7 +574,7 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
     
     TH1F* myBlankHisto2 = new TH1F((std::string("myBlankHisto2") + obsTag + "_" + ptString + corrTag).c_str(), 
                                   (std::string("Blank Histogram") + obsTag + "_" + ptString + corrTag).c_str(), 
-                                  20, 0, 1);
+                                  100, 0, 5);
     myBlankHisto2->GetXaxis()->SetNdivisions(505);
     myBlankHisto2->SetXTitle(xTitle.c_str());
     myBlankHisto2->GetXaxis()->SetTitleSize(0.05);
@@ -584,10 +585,10 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
     myBlankHisto2->SetLineColor(0);
     
     myBlankHisto2->SetYTitle("Non-Prompt Fraction");
-    myBlankHisto2->GetYaxis()->SetRangeUser(0, 1);
+    myBlankHisto2->GetYaxis()->SetRangeUser(0, 0.29);
     
-    if (obsTag.find("dR") != std::string::npos) {
-        myBlankHisto2->GetXaxis()->SetRangeUser(0, 0.5);
+    if (obsTag.find("Y") != std::string::npos) {
+        myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
     }
     
     myBlankHisto2->Draw("E");
@@ -605,7 +606,7 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
     
     // Create legend
     TLegend* myLegend0;
-    if (obsTag.find("dR") != std::string::npos) {
+    if (obsTag.find("Y") != std::string::npos) {
         myLegend0 = new TLegend(0.5, 0.62, 0.7, 0.8);
     }
     
@@ -682,7 +683,7 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     myPad2->SetTicks();
     myPad2->Draw();
     
-    if (obsTag.find("dR") != std::string::npos && normType < 2) {
+    if (obsTag.find("Y") != std::string::npos && normType < 2) {
         myPad2->cd()->SetLogy();
     } else {
         myPad2->cd();
@@ -691,10 +692,10 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     // Find maximum value
     double max = yieldArray[0]->GetMaximum();
     if (yieldArray.size() > 1 && yieldArray[1]->GetMaximum() > max) {
-        max = yieldArray[1]->GetMaximum();
+        max = yieldArray[1]->GetMaximum()*10;
     }
     if (yieldArray.size() > 2 && yieldArray[2]->GetMaximum() > max) {
-        max = yieldArray[2]->GetMaximum();
+        max = yieldArray[2]->GetMaximum()*10;
     }
     
     std::cout << "This is the maximum: " << max << std::endl;
@@ -704,7 +705,7 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     
     TH1F* myBlankHisto2 = new TH1F((std::string("myBlankHisto2") + obsTag + Seltag + corrTag).c_str(), 
                                   (std::string("Blank Histogram") + obsTag + Seltag + corrTag).c_str(), 
-                                  20, 0, 1);
+                                  100, 0, 5);
     myBlankHisto2->GetXaxis()->SetNdivisions(505);
     myBlankHisto2->SetXTitle(xTitle.c_str());
     myBlankHisto2->GetXaxis()->SetTitleSize(0.05);
@@ -715,10 +716,10 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     myBlankHisto2->SetLineColor(0);
     
     // Set y-axis labels and ranges
-    if (obsTag.find("dR") != std::string::npos) {
-        myBlankHisto2->SetYTitle("dN/dA");
-        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*4);
-        myBlankHisto2->GetXaxis()->SetRangeUser(0, 0.5);
+    if (obsTag.find("Y") != std::string::npos) {
+        myBlankHisto2->SetYTitle("dN/dY");
+        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*700);
+        myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
         if (normType == 1) {
             myBlankHisto2->GetYaxis()->SetRangeUser(1, 100000);
         }
@@ -759,19 +760,12 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     
     // Create legend
     TLegend* myLegend1;
-    if (obsTag.find("dR") != std::string::npos) {
-        myLegend1 = new TLegend(0.4, 0.7, 0.6, 0.9);
+    if (obsTag.find("Y") != std::string::npos) {
+        myLegend1 = new TLegend(0.2, 0.65, 0.4, 0.9);
     } else {
-        myLegend1 = new TLegend(0.2, 0.7, 0.4, 0.9);
+        myLegend1 = new TLegend(0.2, 0.65, 0.4, 0.9);
     }
-    
-    if (yieldArray.size() == 4) {
-        myLegend1 = new TLegend(0.2, 0.7, 0.4, 0.9);
-    }
-    
-    if (yieldArray.size() == 6) {
-        myLegend1 = new TLegend(0.2, 0.6, 0.4, 0.9);
-    }
+
     
     myLegend1->SetTextFont(42);
     myLegend1->SetBorderSize(0);
@@ -829,7 +823,7 @@ void PlotGraphsObject::normalize(TGraphErrors* graph) {
         sum += y;
     }
     
-    if (obsTag == "dR") {
+    if (obsTag == "Y") {
         sum *= 0.00001;
     }
     
@@ -1141,7 +1135,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     
     // Create legend
     TLegend* myLegend0;
-    if (obsTag.find("dR") != std::string::npos) {
+    if (obsTag.find("Y") != std::string::npos) {
         myLegend0 = new TLegend(0.5, 0.62, 0.7, 0.8);
     } else {
         myLegend0 = new TLegend(0.15, 0.72, 0.4, 0.9);
@@ -1156,7 +1150,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     
     // Legend about different contributions
     TLegend* myLegend1;
-    if (obsTag.find("dR") != std::string::npos) {
+    if (obsTag.find("Y") != std::string::npos) {
         myLegend1 = new TLegend(0.55, 0.47, 0.6, 0.59);
     } else {
         myLegend1 = new TLegend(0.2, 0.59, 0.4, 0.7);
@@ -1194,7 +1188,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     myPad2->SetTicks();
     myPad2->Draw();
     
-    if (obsTag.find("dR") != std::string::npos) {
+    if (obsTag.find("Y") != std::string::npos) {
         myPad2->cd()->SetLogy();
     } else {
         myPad2->cd();
@@ -1204,7 +1198,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     
     TH1F* myBlankHisto2 = new TH1F((std::string("myBlankHisto2") + obsTag + "_" + ptString + corrTag).c_str(), 
                                   (std::string("Blank Histogram") + obsTag + "_" + ptString + corrTag).c_str(), 
-                                  20, 0, 1);
+                                  100, 0, 5);
     myBlankHisto2->GetXaxis()->SetNdivisions(505);
     myBlankHisto2->SetXTitle(xTitle.c_str());
     myBlankHisto2->GetXaxis()->SetTitleSize(0.05);
@@ -1215,10 +1209,10 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     myBlankHisto2->SetLineColor(0);
     
     // Set y-axis title and range
-    if (obsTag.find("dR") != std::string::npos) {
-        myBlankHisto2->SetYTitle("dN/dA");
+    if (obsTag.find("Y") != std::string::npos) {
+        myBlankHisto2->SetYTitle("dN/d#it{y}");
         myBlankHisto2->GetYaxis()->SetRangeUser(10, max*4);
-        myBlankHisto2->GetXaxis()->SetRangeUser(0, 0.5);
+        myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
     } else {
         myBlankHisto2->SetYTitle("dN/dz_{T}");
         myBlankHisto2->GetYaxis()->SetRangeUser(0, max*2);
@@ -1322,10 +1316,10 @@ TGraphErrors* PlotGraphsObject::create_constant_graph(double value, const std::s
 }
 
 // Implementation of plotRawYields function
-void plotRawYields(const std::string& ptRange = "", bool isZt = true) {
+void plotRawYields(const std::string& ptRange = "", bool isZt = true, bool isMC = false) {
     std::cout << "is binned var" << std::endl;
     
-    std::vector<std::string> pTRangeArray = {"5_10", "10_15", "15_20", "20_30"};
+    std::vector<std::string> pTRangeArray = {"5_10", "10_15", "15_20", "20_30", "30_50"};
     
     std::vector<TGraphErrors*> yieldArray;
     std::vector<TGraphErrors*> yieldArrayP;
@@ -1345,7 +1339,7 @@ void plotRawYields(const std::string& ptRange = "", bool isZt = true) {
         bool plotAccCorr = false;
         
         for (size_t i = 0; i < pTRangeArray.size(); i++) {
-            gObj[i] = new PlotGraphsObject(pTRangeArray[i], isZt);
+            gObj[i] = new PlotGraphsObject(pTRangeArray[i], isZt, isMC);
             gObj[i]->plotPt(plotAccCorr);
             yieldArray.push_back(gObj[i]->graphInclRaw);
             yieldArrayP.push_back(gObj[i]->graphPRaw);
@@ -1408,7 +1402,7 @@ void plotRawYields(const std::string& ptRange = "", bool isZt = true) {
     }
     else {
         // Plot just one single pT bin
-        PlotGraphsObject* graphs = new PlotGraphsObject(ptRange, isZt);
+        PlotGraphsObject* graphs = new PlotGraphsObject(ptRange, isZt, isMC);
         graphs->plotPt();
         delete graphs;
     }
@@ -1519,9 +1513,10 @@ void PlotGraphsObject::createPNPFractions(TGraphErrors* hyield, TGraphErrors* hy
         double scale = 1.0;
         if (!Absolute) {
             // Scaling for the Radial area of the dR slice
-            if (obsTag.find("dR") != std::string::npos) {
-                double Area = M_PI * (pow((x_arr[i] + xErr_arr[i]), 2) - pow((x_arr[i] - xErr_arr[i]), 2));
-                scale = Area;
+            if (obsTag.find("Y") != std::string::npos) {
+                // double Area = M_PI * (pow((x_arr[i] + xErr_arr[i]), 2) - pow((x_arr[i] - xErr_arr[i]), 2));
+                // scale = Area;
+                scale = xErr_arr[i] * 2;
             } else {
                 // Scale by the bin width
                 scale = xErr_arr[i] * 2;

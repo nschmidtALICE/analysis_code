@@ -82,6 +82,8 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
 
     // D0 info vectors
     std::vector<float> *d0_pt = nullptr;
+    std::vector<float> *d0_pz = nullptr;
+    std::vector<float> *d0_e = nullptr;
     std::vector<float> *d0_eta = nullptr;
     std::vector<float> *d0_phi = nullptr;
     std::vector<float> *d0_mass = nullptr;
@@ -132,6 +134,8 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     inputTree->SetBranchAddress("jet_n_d0", &jet_n_d0);
 
     inputTree->SetBranchAddress("d0_pt", &d0_pt);
+    inputTree->SetBranchAddress("d0_pz", &d0_pz);
+    inputTree->SetBranchAddress("d0_e", &d0_e);
     inputTree->SetBranchAddress("d0_eta", &d0_eta);
     inputTree->SetBranchAddress("d0_phi", &d0_phi);
     inputTree->SetBranchAddress("d0_mass", &d0_mass);
@@ -190,6 +194,7 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     float v_piPTrckChi2 = 0;
     float v_decayVtxChi2 = 0;
     float v_Dist1 = 0; // Will use d0_DOCA
+    float v_tagY = 0;
 
     // Create branches for output tree
     outputTree->Branch("tagJetdR", &v_tagdR, "tagJetdR/F");
@@ -212,6 +217,7 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     outputTree->Branch("decayVtxChi2", &v_decayVtxChi2, "decayVtxChi2/F");
     outputTree->Branch("Distance1", &v_Dist1, "Distance1/F");
     outputTree->Branch("isPrimary", &v_isPrimary, "isPrimary/F");
+    outputTree->Branch("tagY", &v_tagY, "tagY/F");
 
     // Additional MC branches if needed
     if (inputMC)
@@ -241,13 +247,13 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
         for (size_t i_d0 = 0; i_d0 < d0_pt->size(); i_d0++)
         {
             // Basic D0 selection cuts
-            if ((*d0_pt)[i_d0] < 2.0)
+            if ((*d0_pt)[i_d0] < 1.0) //TODO is change from 2 removing possible bias?
                 continue; // Minimum pT
             if ((*d0_eta)[i_d0] < 2.0 || (*d0_eta)[i_d0] > 4.5)
                 continue; // Eta acceptance
 
             // D0 mass window cut
-            if (std::abs((*d0_mass)[i_d0] - 1.865) > 0.05)
+            if (std::abs((*d0_mass)[i_d0] - 1.865) > 0.07)
                 continue; // Mass window: ±50 MeV around nominal D0 mass
 
             // Check if D0 is associated with a jet
@@ -334,12 +340,14 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
                 continue; // Minimum momentum cut
 
             // PID quality cuts - now applied after the acceptance cuts
-            if (kaon_pnn_k < 0.1)
+            if (kaon_pnn_k < 0.9)
                 continue; // Loose kaon ID
-            if (pion_pnn_pi < 0.1)
+            if (pion_pnn_pi < 0.9)
                 continue; // Loose pion ID
-            if (kaon_ghost_prob > 0.5 || pion_ghost_prob > 0.5)
+            if (kaon_ghost_prob > 0.3 || pion_ghost_prob > 0.3)
                 continue; // Ghost probability cut
+            if (kaon_chi2 > 4.0 || pion_chi2 > 4.0)
+                continue; // Track chi2 cut
 
             // Fill output variables
             v_tagdR = (*d0_jet_dr)[i_d0];
@@ -372,6 +380,12 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
                 v_isPrimary = -1; // Unknown for data
             }
 
+            // Calculate rapidity
+            if ((*d0_e)[i_d0] > (*d0_pz)[i_d0]) {
+                v_tagY = 0.5 * log(((*d0_e)[i_d0] + (*d0_pz)[i_d0]) / ((*d0_e)[i_d0] - (*d0_pz)[i_d0]));
+            } else {
+                v_tagY = -999; // Assign an invalid value if rapidity cannot be calculated
+            }
             // Fill the output tree
             outputTree->Fill();
             d0_accepted++;

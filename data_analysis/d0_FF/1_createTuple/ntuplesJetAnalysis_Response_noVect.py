@@ -106,17 +106,13 @@ def getFourVector(tree,type,index):
 #-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-
 def calcLifeTime(mass,pvrZ,decayZ,pz):
   
-  massX      = 3.87160   #PDG 2020
-  massPsi2s  = 3.686097  #PDG 2020
+  massD0      = 1.86484   #PDG 2020
 
   sToPicoSeconds = 1e12           #conversion: s->ps
   speedOfLight   = 2.99792458e8   #in m/s
   mmTom          = 1e-3           #conversion: mm->m
         
-  if mass>3.779:
-    NominalMass=massX
-  else:
-    NominalMass=massPsi2s
+  NominalMass=massD0
     
   lifetime = ((decayZ - pvrZ)*mmTom*(NominalMass)/(speedOfLight))/pz
   lifetime*=sToPicoSeconds #Change the liftime from s to ps to avoid these large exponents, better for fitting
@@ -184,72 +180,72 @@ class filterObject():
 
         #-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-
         #-Load the efficiency maps
-        # if not self.isMC:
-        #     #. . . . . . . . . . . . . . . . . . . . . .
-        #     #- Pions
-        #     base="/eos/lhcb/user/e/efranzis/Efficiencies"  #on lxplus
-        #     #base="/Users/eliane/LHCb/x3872-code/filterGangaOutput"  #-local
-        #     pathPion="{}/NewEffCorrection_pion".format(base)
-        #     #-
-        #     fInFilePionReco  = ROOT.TFile("{}/eff2DMap_recocombinedPtPion.root".format(pathPion),"READ")
-        #     self.pionMapReco = fInFilePionReco.Get("eff_histo")
-        #     self.pionMapReco.SetDirectory(0) #Verified
+        if not self.isMC:
+            #. . . . . . . . . . . . . . . . . . . . . .
+            #- Pions
+            base="/eos/lhcb/user/e/efranzis/Efficiencies"  #on lxplus
+            #base="/Users/eliane/LHCb/x3872-code/filterGangaOutput"  #-local
+            pathPion="{}/NewEffCorrection_pion".format(base)
+            #-
+            fInFilePionReco  = ROOT.TFile("{}/eff2DMap_recocombinedPtPion.root".format(pathPion),"READ")
+            self.pionMapReco = fInFilePionReco.Get("eff_histo")
+            self.pionMapReco.SetDirectory(0) #Verified
 
-        #     fInFilePionReco_Var  = ROOT.TFile("{}/effHist_recoHalfBins.root".format(pathPion),"READ")
-        #     self.pionMapReco_Var = fInFilePionReco_Var.Get("eff_histo")
-        #     self.pionMapReco_Var.SetName("pionRecoHalfBin")
-        #     self.pionMapReco_Var.SetDirectory(0) #Verified
-
-
-
-        #     #fInFilePionSel  = ROOT.TFile("{}/effboth9_pionProbNN05.root".format(pathPion),"READ")
-        #     fInFilePionSel  = ROOT.TFile("{}/effboth10_pionProbNN07.root".format(pathPion),"READ")
-        #     #fInFilePionSel  = ROOT.TFile("{}/effboth11_pionProbNN09.root".format(pathPion),"READ")
-        #     pionMapSel      = fInFilePionSel.Get("total_clone")  #is a TEfficiency object
-        #     pionMapSel.SetDirectory(0)
-        #     self.pionMapSelHist  = pionMapSel.CreateHistogram()
-        #     self.pionMapSelHist.SetName("effHistoPionSel")
-        #     self.pionMapSelHist.SetDirectory(0) #Verified
-
-        #     self.pionMapSelHist_Var = self.createMapVariation(self.pionMapSelHist,pionMapSel) #-subtract one sigma of stat error from the map value
-        #     self.pionMapSelHist_Var.SetDirectory(0)
-
-        #     #. . . . . . . . . . . . . . . . . . . . . .
-        #     #- Muons
-        #     pathMuon="{}/NewEffCorrection_muonJPsi".format(base)
-        #     fInFileMuon = ROOT.TFile("{}/effHist_reco.root".format(pathMuon),"READ")
-        #     self.MuonMap = fInFileMuon.Get("eff_histo")
-        #     self.MuonMap.SetDirectory(0)   #Verified
-
-        #     fInFileMuon_Var  = ROOT.TFile("{}/effHist_recoHalfBins.root".format(pathMuon),"READ")
-        #     self.MuonMap_Var = fInFileMuon_Var.Get("eff_histo")
-        #     self.MuonMap_Var.SetDirectory(0)   #Verified
+            fInFilePionReco_Var  = ROOT.TFile("{}/effHist_recoHalfBins.root".format(pathPion),"READ")
+            self.pionMapReco_Var = fInFilePionReco_Var.Get("eff_histo")
+            self.pionMapReco_Var.SetName("pionRecoHalfBin")
+            self.pionMapReco_Var.SetDirectory(0) #Verified
 
 
-        #     #. . . . . . . . . . . . . . . . . . . . . .
-        #     #- J/Psi / Trigger
-        #     fInFileTriggerSel = ROOT.TFile("{}/pidmu0_ismuon_magup.root".format(pathMuon),"READ")
-        #     self.TriggerSelCorrMap = fInFileTriggerSel.Get("efficiency_avg")
-        #     self.TriggerSelCorrMap.SetDirectory(0) #Verified
 
-        #     self.TriggerSelCorrMap_Var = self.createMapVariation(self.TriggerSelCorrMap) #-subtract one sigma of stat error from the map value
-        #     self.TriggerSelCorrMap_Var.SetDirectory(0)
-        #     #-
-        #     fInFileTriggerEff = ROOT.TFile("{}/effHist_trigger_Data.root".format(pathMuon),"READ")
-        #     self.TriggerEffMap2D = fInFileTriggerEff.Get("eff_histo")
-        #     self.TriggerEffMap2D.SetDirectory(0)
-        #     self.functionList = self.fitTriggerEff(self.TriggerEffMap2D)
+            #fInFilePionSel  = ROOT.TFile("{}/effboth9_pionProbNN05.root".format(pathPion),"READ")
+            fInFilePionSel  = ROOT.TFile("{}/effboth10_pionProbNN07.root".format(pathPion),"READ")
+            #fInFilePionSel  = ROOT.TFile("{}/effboth11_pionProbNN09.root".format(pathPion),"READ")
+            pionMapSel      = fInFilePionSel.Get("total_clone")  #is a TEfficiency object
+            pionMapSel.SetDirectory(0)
+            self.pionMapSelHist  = pionMapSel.CreateHistogram()
+            self.pionMapSelHist.SetName("effHistoPionSel")
+            self.pionMapSelHist.SetDirectory(0) #Verified
 
-        #     fInFileTriggerEff_Var = ROOT.TFile("{}/effHist_triggerHalfBins.root".format(pathMuon),"READ")
-        #     self.TriggerEffMap2D_Var = fInFileTriggerEff_Var.Get("eff_histo")
-        #     self.TriggerEffMap2D_Var.SetDirectory(0)
-        #     self.TriggerEffMap2D_Var.SetName("effHalfBin")
-        #     self.functionList_Var = self.fitTriggerEff(self.TriggerEffMap2D_Var)
+            self.pionMapSelHist_Var = self.createMapVariation(self.pionMapSelHist,pionMapSel) #-subtract one sigma of stat error from the map value
+            self.pionMapSelHist_Var.SetDirectory(0)
 
-        #     #. . . . . . . . . . . . . . . . . . . . . .
-        #     #- R_Data/MC
-        #     ratioPath="{}/R_Data_MC/".format(base)
-        #     self.Ratio_D_MC = ratio.Ratio(ratioPath)
+            #. . . . . . . . . . . . . . . . . . . . . .
+            #- Muons
+            pathMuon="{}/NewEffCorrection_muonJPsi".format(base)
+            fInFileMuon = ROOT.TFile("{}/effHist_reco.root".format(pathMuon),"READ")
+            self.MuonMap = fInFileMuon.Get("eff_histo")
+            self.MuonMap.SetDirectory(0)   #Verified
+
+            fInFileMuon_Var  = ROOT.TFile("{}/effHist_recoHalfBins.root".format(pathMuon),"READ")
+            self.MuonMap_Var = fInFileMuon_Var.Get("eff_histo")
+            self.MuonMap_Var.SetDirectory(0)   #Verified
+
+
+            #. . . . . . . . . . . . . . . . . . . . . .
+            #- J/Psi / Trigger
+            fInFileTriggerSel = ROOT.TFile("{}/pidmu0_ismuon_magup.root".format(pathMuon),"READ")
+            self.TriggerSelCorrMap = fInFileTriggerSel.Get("efficiency_avg")
+            self.TriggerSelCorrMap.SetDirectory(0) #Verified
+
+            self.TriggerSelCorrMap_Var = self.createMapVariation(self.TriggerSelCorrMap) #-subtract one sigma of stat error from the map value
+            self.TriggerSelCorrMap_Var.SetDirectory(0)
+            #-
+            fInFileTriggerEff = ROOT.TFile("{}/effHist_trigger_Data.root".format(pathMuon),"READ")
+            self.TriggerEffMap2D = fInFileTriggerEff.Get("eff_histo")
+            self.TriggerEffMap2D.SetDirectory(0)
+            self.functionList = self.fitTriggerEff(self.TriggerEffMap2D)
+
+            fInFileTriggerEff_Var = ROOT.TFile("{}/effHist_triggerHalfBins.root".format(pathMuon),"READ")
+            self.TriggerEffMap2D_Var = fInFileTriggerEff_Var.Get("eff_histo")
+            self.TriggerEffMap2D_Var.SetDirectory(0)
+            self.TriggerEffMap2D_Var.SetName("effHalfBin")
+            self.functionList_Var = self.fitTriggerEff(self.TriggerEffMap2D_Var)
+
+            #. . . . . . . . . . . . . . . . . . . . . .
+            #- R_Data/MC
+            ratioPath="{}/R_Data_MC/".format(base)
+            self.Ratio_D_MC = ratio.Ratio(ratioPath)
 
         #-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-.-
         self.fFileName = fFileName
@@ -640,7 +636,7 @@ class filterObject():
             #- - - - - - - - - - - - - - - - - - - - - - - - - - -
             v_goodDetTags_idx.clear()
             for iTagDetLvl in range(0, nTagDetLvl):
-
+                # print("Processing tag number: {} of {}".format(iTagDetLvl, nTagDetLvl))
                 tag_l0_tos0    = int(self.ttreeOriginal.tag_l0_tos0[iTagDetLvl])
                 tag_hlt1_tos0  = int(self.ttreeOriginal.tag_hlt1_tos0[iTagDetLvl])
                 jetNumberTurbo = int(self.ttreeOriginal.tag_idx_jet[iTagDetLvl]) #This is the jetID the tag is associated to
@@ -708,6 +704,7 @@ class filterObject():
                     nTRnd = -1
                     
                 p4TagTurbo = getFourVector(self.ttreeOriginal, "tag", iTagDetLvl)
+                # print("p4TagTurbo: pT: {}, eta: {}, phi: {}, mass: {}".format(p4TagTurbo.Pt(), p4TagTurbo.PseudoRapidity(), p4TagTurbo.Phi(), p4TagTurbo.M()))
                 if not isAccepted(p4TagTurbo, 0):
                     # print("Tag not accepted")
                     continue
@@ -843,6 +840,7 @@ class filterObject():
 
 
                 self.ttreeOriginal.GetEntry(iEvt)#Q: what is that??
+                # print("Filling ttree with event number: {}".format(iEvt))  
                 self.ttree.Fill()
 
             if self.isMC==True:
