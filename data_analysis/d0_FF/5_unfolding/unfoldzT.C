@@ -16,7 +16,7 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
     figureTag = "D0_" + promptFlag;
 
     // Set output path
-    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputJune18_TagpT_" + resonance;
+    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputJuly23_TagpT_" + resonance;
     
     // Set prompt/non-prompt flag
     if (promptFlag == "P") {
@@ -4401,8 +4401,8 @@ void unfoldzT(int variation) {
     std::string tag = "";
     
     // Default file names
-    std::string FileRM_P = "20250609_merged/response";
-    std::string FileRM_NP = "20250609_merged/response";
+    std::string FileRM_P = "20250708_newMC_fixedTrueAssociation/response";
+    std::string FileRM_NP = "20250708_newMC_fixedTrueAssociation/response";
     // std::string FileRM_P = "20250514_Pbp_allMC";
     // std::string FileRM_NP = "20250514_Pbp_allMC";
     // std::string FileRM_P = "20250514_Pbp_21_MC_output_D0FF_filterV1";

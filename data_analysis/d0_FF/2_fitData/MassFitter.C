@@ -1,5 +1,12 @@
 // MassFitterScript.cpp
 // D0 Meson Analysis Framework for mass and lifetime fits
+//
+// sPlot Integration:
+// - sPlots provide a statistical method to separate signal and background contributions
+// - Enable sPlot by calling massFit with splot=true and providing a TFile*
+// - sPlot weights are saved to the file and can be used for subsequent analysis
+// - Use createSPlotDatasets() to create signal/background enhanced datasets
+// - sPlot is particularly useful for studying kinematic distributions of signal vs background
 
 #include <iostream>
 #include <vector>
@@ -8,6 +15,9 @@
 #include <cmath>
 #include <memory>
 #include <filesystem>
+#include <iomanip>
+#include <chrono>
+#include <thread>
 
 // ROOT includes
 #include "TFile.h"
@@ -17,6 +27,14 @@
 #include "TLegend.h"
 #include "TGraphErrors.h"
 #include "TGraphAsymmErrors.h"
+#include "TLine.h"
+#include "TPaveText.h"
+#include "TStyle.h"
+#include "TROOT.h"
+#include "TGaxis.h"
+#include "TF1.h"
+#include "TPad.h"
+#include "TSystem.h"
 
 // RooFit includes
 #include "RooRealVar.h"
@@ -52,6 +70,7 @@ private:
     int nzTBins;                // Number of zT bins
     int numFitItems = 5;        // Number of fit parameters to store
     bool correctionOnly = false;  // Flag for correction-only mode
+    bool enableSPlot = true;     // Flag to enable sPlot analysis
     
     // Result arrays
     std::vector<std::vector<float>> FitMRes_SYield;
@@ -70,6 +89,7 @@ private:
     std::vector<std::vector<float>> FitMRes_SYieldSG;
     std::vector<std::vector<float>> FitMRes_SYieldDCB;
     std::vector<std::vector<float>> Bin_TagZMean;
+    std::vector<std::vector<float>> Bin_TagZMean_weighted;
     
     // IP chi2 result arrays
     std::vector<std::vector<float>> FitIPRes_SYield;
@@ -94,7 +114,8 @@ public:
                     bool isMc, 
                     const std::vector<double>& zBins, 
                     bool isZtObservable,
-                    TTree* tree);  
+                    TTree* tree,
+                    bool enableSPlotAnalysis = true);  
     
     // Destructor
     ~FitSpectraObject();
@@ -106,12 +127,22 @@ public:
     Fitter* createFitter();
     RooDataSet* prepareMasterDataset(Fitter* fitter);
     void processCorrectionFactors(Fitter* fitter, RooDataSet* dataMaster);
-    void processFitsByBin(Fitter* fitter, RooDataSet* dataMaster, 
+    void extractCorParam(const std::string& idString, int bin, const std::string& type, 
+                        std::vector<TCanvas*>& canvas, std::vector<TCanvas*>& canvasNorm, 
+                        std::vector<TCanvas*>& canvasDiv, std::vector<double>& corrValue, 
+                        std::vector<double>& corrValueErr, std::vector<TLegend*>& legendList,
+                        RooRealVar* massVar, RooDataSet* data, RooDataSet* data2 = nullptr, 
+                        RooDataSet* data3 = nullptr);
+    void createCorrectionFactorGraphs(const std::vector<double>& corrValueKaon, 
+                                     const std::vector<double>& corrValueErrKaon,
+                                     const std::vector<double>& corrValuePion, 
+                                     const std::vector<double>& corrValueErrPion);
+        void processFitsByBin(Fitter* fitter, RooDataSet* dataMaster, 
                         const std::vector<double>& binCenters, 
                         const std::vector<double>& binWidths);
-        void saveResultsToFile(const std::vector<double>& binCenters, 
+    void saveResultsToFile(const std::vector<double>& binCenters, 
                           const std::vector<double>& binWidths);
-    
+        
     // Add these helper functions before the saveResultsToFile implementation
     std::vector<TGraphErrors*> createParameterGraphs(
         const std::string& key, int nBins, const std::vector<double>& xPos, 
@@ -123,18 +154,59 @@ public:
 };
 
 
+/*
+ * COMPLETE sPlot WORKFLOW IMPLEMENTATION
+ * =====================================
+ * 
+ * This implementation provides a complete multi-stage sPlot statistical separation workflow:
+ * 
+ * STAGE 1: Mass Fit with sPlot
+ * - Perform Double Gaussian fit to invariant mass distribution
+ * - Extract signal and background yields from the fit
+ * - Create sPlot weights for signal/background separation
+ * - Save sPlot weights to ROOT file for downstream analysis
+ * 
+ * STAGE 2: Apply Mass sPlot Weights to IP Chi2 Data
+ * - Load sPlot weights from mass fit
+ * - Create signal-enhanced dataset by applying signal weights to IP chi2 data
+ * - This effectively removes background contamination statistically
+ * 
+ * STAGE 3: IP Chi2 Fit with Weighted Data
+ * - Perform Bukin fit to IP chi2 distribution using signal-enhanced data
+ * - Extract prompt and nonprompt yields from the fit
+ * - The fit provides the model needed for the next sPlot stage
+ * 
+ * STAGE 4: Create Prompt/Nonprompt sPlot Weights
+ * - Use the IP chi2 fit model and yields to create a new sPlot analysis
+ * - Generate prompt and nonprompt enhanced datasets
+ * - Extract event-by-event sPlot weights for prompt/nonprompt separation
+ * - Save these weights to ROOT file for final analysis
+ * 
+ * FINAL RESULT:
+ * - Each event has both mass-based sPlot weights (signal vs background)
+ * - AND IP chi2-based sPlot weights (prompt vs nonprompt)
+ * - This allows for clean statistical separation of:
+ *   1. Signal from background (mass-based)
+ *   2. Prompt from nonprompt signal (IP chi2-based)
+ * 
+ * The implementation follows the proper sPlot formalism using RooStats::SPlot
+ * and provides statistically rigorous weights for each separation.
+ */
+
 // Implementation of the FitSpectraObject constructor
 FitSpectraObject::FitSpectraObject(
     const std::pair<double, double>& ptRange, 
     bool isMc, 
     const std::vector<double>& zBins, 
     bool isZtObservable,
-    TTree* tree)
+    TTree* tree,
+    bool enableSPlotAnalysis)
     : isMC(isMc), jetPt(ptRange), zBins(zBins), zTObservable(isZtObservable), 
-      inputTree(tree), nzTBins(zBins.size() - 1)  // Initialize nzTBins here
+      inputTree(tree), nzTBins(zBins.size() - 1), enableSPlot(enableSPlotAnalysis)  // Initialize enableSPlot
 {
     std::cout << "Initializing FitSpectraObject with pT range: " 
               << ptRange.first << " - " << ptRange.second << " GeV/c" << std::endl;
+    std::cout << "sPlot analysis: " << (enableSPlot ? "ENABLED" : "DISABLED") << std::endl;
 
     // Configure file paths
     configureFilePaths();
@@ -166,7 +238,27 @@ FitSpectraObject::FitSpectraObject(
 
 // Implementation of the destructor
 FitSpectraObject::~FitSpectraObject() {
-    std::cout << "FitSpectraObject destroyed" << std::endl;
+    std::cout << "FitSpectraObject destroying, cleaning up histograms..." << std::endl;
+    
+    // Clean up mass histograms
+    for (size_t i = 0; i < massHistoArray.size(); ++i) {
+        if (massHistoArray[i] != nullptr) {
+            delete massHistoArray[i];
+            massHistoArray[i] = nullptr;
+        }
+    }
+    massHistoArray.clear();
+    
+    // Clean up IP chi2 histograms
+    for (size_t i = 0; i < ipchi2HistoArray.size(); ++i) {
+        if (ipchi2HistoArray[i] != nullptr) {
+            delete ipchi2HistoArray[i];
+            ipchi2HistoArray[i] = nullptr;
+        }
+    }
+    ipchi2HistoArray.clear();
+    
+    std::cout << "FitSpectraObject destroyed, histograms cleaned up" << std::endl;
 }
 
 // Implementation of startFitting method
@@ -220,7 +312,7 @@ void FitSpectraObject::startFitting() {
     }
     
     std::cout << "\n===== STARTING BIN-BY-BIN FITTING =====" << std::endl;
-    // Process fit for each bin
+    // Process fit for each bin (now includes sPlot analysis)
     processFitsByBin(fitter, dataMaster, zBinsCent, zBinsWidth);
     
     // Clean up
@@ -286,6 +378,7 @@ void FitSpectraObject::initializeResultArrays() {
     FitMRes_SYieldDCB.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
 
     Bin_TagZMean.resize(nzTBins, std::vector<float>(1, 0.0));
+    Bin_TagZMean_weighted.resize(nzTBins, std::vector<float>(1, 0.0));
     
     // Create arrays for IP chi2 fit results
     FitIPRes_SYield.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
@@ -328,33 +421,541 @@ RooDataSet* FitSpectraObject::prepareMasterDataset(Fitter* fitter) {
 
 
 void FitSpectraObject::processCorrectionFactors(Fitter* fitter, RooDataSet* dataMaster) {
-    // This is a placeholder implementation for the correction factors
-    // Typically this would apply efficiency or acceptance corrections to the data
-    
     if (!fitter || !dataMaster) {
         std::cerr << "Error: Null fitter or dataset in processCorrectionFactors" << std::endl;
         return;
     }
     
-    std::cout << "Processing correction factors..." << std::endl;
-    
-    // For now, just print dataset info
+    std::cout << "Processing correction factors for kaon and pion selection efficiency..." << std::endl;
     std::cout << "Dataset entries: " << dataMaster->numEntries() << std::endl;
     
-    // Print the first few entries (for debugging)
+    // Check if efficiency variables are available in the dataset
     const RooArgSet* vars = dataMaster->get(0);
-    if (vars) {
-        std::cout << "Dataset variables: ";
-        vars->Print("v");
+    if (!vars) {
+        std::cerr << "Error: Cannot access dataset variables" << std::endl;
+        return;
     }
     
-    // No actual corrections applied in this simplified implementation
-    std::cout << "No corrections applied - this is a placeholder implementation" << std::endl;
+    RooAbsReal* kaonEff = dynamic_cast<RooAbsReal*>(vars->find("kaon_efficiency"));
+    RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(vars->find("pion_efficiency"));
     
-    // If you need to implement actual corrections, you would:
-    // 1. Iterate through dataset entries
-    // 2. Apply correction weights based on kinematics
-    // 3. Create a new dataset with weights or modify existing weights
+    if (!kaonEff || !pionEff) {
+        std::cerr << "Error: Efficiency variables not found in dataset" << std::endl;
+        std::cerr << "Available variables: ";
+        vars->Print("v");
+        return;
+    }
+    
+    // Process correction factors for different versions
+    std::vector<int> corrVersions = {1, 2, 3}; // kaon, pion, combined
+    std::vector<std::string> corrTypes = {"kaon", "pion", "combined"};
+    
+    // Create canvases for correction parameter extraction
+    std::vector<TCanvas*> canvas(3);
+    std::vector<TCanvas*> canvasNorm(3);
+    std::vector<TCanvas*> canvasDiv(3);
+    
+    // Initialize correction value arrays
+    std::vector<double> corrValueKaon(nzTBins, 0.0);
+    std::vector<double> corrValueErrKaon(nzTBins, 0.0);
+    std::vector<double> corrValuePion(nzTBins, 0.0);
+    std::vector<double> corrValueErrPion(nzTBins, 0.0);
+    std::vector<double> corrValueCombined(nzTBins, 0.0);
+    std::vector<double> corrValueErrCombined(nzTBins, 0.0);
+    
+    std::vector<std::vector<double>*> corrValueArrays = {&corrValueKaon, &corrValuePion, &corrValueCombined};
+    std::vector<std::vector<double>*> corrValueErrArrays = {&corrValueErrKaon, &corrValueErrPion, &corrValueErrCombined};
+    
+    // Create legends
+    std::vector<TLegend*> legendList(nzTBins);
+    for (int i = 0; i < nzTBins; ++i) {
+        legendList[i] = new TLegend(0.65, 0.7, 0.9, 0.9);
+        legendList[i]->SetTextFont(42);
+        legendList[i]->SetBorderSize(0);
+        legendList[i]->SetFillStyle(0);
+    }
+    
+    // Create canvases
+    for (int i = 0; i < 3; ++i) {
+        std::string canvasName = "canvas_" + corrTypes[i];
+        std::string canvasNormName = "canvasNorm_" + corrTypes[i];
+        std::string canvasDivName = "canvasDiv_" + corrTypes[i];
+        
+        canvas[i] = new TCanvas(canvasName.c_str(), canvasName.c_str(), 1200, 800);
+        canvasNorm[i] = new TCanvas(canvasNormName.c_str(), canvasNormName.c_str(), 1200, 800);
+        canvasDiv[i] = new TCanvas(canvasDivName.c_str(), canvasDivName.c_str(), 1200, 800);
+        
+        // Divide canvases based on number of bins
+        int nCols = std::min(nzTBins, 3);
+        int nRows = (nzTBins + nCols - 1) / nCols;
+        
+        canvas[i]->Divide(nCols, nRows);
+        canvasNorm[i]->Divide(nCols, nRows);
+        canvasDiv[i]->Divide(nCols, nRows);
+    }
+    
+    // Get mass variable for plotting
+    auto resSig = fitter->getMassDict("D0");
+    auto massRange = resSig.massRange;
+    RooRealVar* massVar = new RooRealVar("tagMass", "tagMass", massRange.first, massRange.second);
+    
+    for (int corrVer : corrVersions) {
+        std::cout << "\nProcessing correction version " << corrVer << std::endl;
+        
+        // Create datasets with weights for each correction version
+        std::string datasetName = "data_corrected_v" + std::to_string(corrVer);
+        
+        // Create fiducial cut string
+        std::pair<double, double> massCut(massRange.first, massRange.second);
+        std::string fidCut = fitter->fiducialCutString(jetPt, massCut);
+        
+        // Create weighted dataset for this correction version
+        RooDataSet* correctedData = fitter->createDataSet(
+            "D0",
+            datasetName,
+            fidCut,
+            true,   // isMass
+            corrVer // correction version
+        );
+        
+        if (correctedData) {
+            std::cout << "Created corrected dataset v" << corrVer 
+                      << " with " << correctedData->numEntries() << " entries" << std::endl;
+            
+            // Debug: Check the efficiency weights in the corrected dataset
+            if (correctedData->numEntries() > 0) {
+                std::cout << "Debug: Checking efficiency weights for corrVer " << corrVer << std::endl;
+                double totalWeight = 0.0;
+                double minWeight = 1e10;
+                double maxWeight = 0.0;
+                int validWeights = 0;
+                
+                // Check the efficiency values in the dataset
+                for (int i = 0; i < std::min(20, correctedData->numEntries()); ++i) {
+                    const RooArgSet* row = correctedData->get(i);
+                    double weight = correctedData->weight();
+                    
+                    // Also check the actual efficiency values
+                    RooAbsReal* kaonEff = dynamic_cast<RooAbsReal*>(row->find("kaon_efficiency"));
+                    RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(row->find("pion_efficiency"));
+                    RooAbsReal* combinedEff = dynamic_cast<RooAbsReal*>(row->find("combined_efficiency"));
+                    
+                    if (i < 5) {  // Print first 5 entries
+                        std::cout << "  Entry " << i << ": weight=" << weight;
+                        if (kaonEff) std::cout << ", kaon_eff=" << kaonEff->getVal();
+                        if (pionEff) std::cout << ", pion_eff=" << pionEff->getVal();
+                        if (combinedEff) std::cout << ", combined_eff=" << combinedEff->getVal();
+                        std::cout << std::endl;
+                    }
+                    
+                    if (weight > 0) {
+                        totalWeight += weight;
+                        minWeight = std::min(minWeight, weight);
+                        maxWeight = std::max(maxWeight, weight);
+                        validWeights++;
+                    }
+                }
+                
+                if (validWeights > 0) {
+                    std::cout << "  Weight statistics (first 20 entries):" << std::endl;
+                    std::cout << "    Average: " << totalWeight / validWeights << std::endl;
+                    std::cout << "    Min: " << minWeight << std::endl;
+                    std::cout << "    Max: " << maxWeight << std::endl;
+                    std::cout << "    Valid weights: " << validWeights << std::endl;
+                }
+            }
+            
+            // Process each bin for correction parameter extraction
+            for (int iBin = 0; iBin < nzTBins; ++iBin) {
+                // Create z bin selection string
+                std::string zCut;
+                if (zTObservable) {
+                    zCut = "tagZ > " + std::to_string(zBins[iBin]) + 
+                           " && tagZ < " + std::to_string(zBins[iBin + 1]);
+                } else {
+                    zCut = "tagY > " + std::to_string(zBins[iBin]) + 
+                           " && tagY < " + std::to_string(zBins[iBin + 1]);
+                }
+                
+                // Create bin datasets
+                RooDataSet* dataBin = static_cast<RooDataSet*>(dataMaster->reduce(zCut.c_str()));
+                RooDataSet* correctedBin = static_cast<RooDataSet*>(correctedData->reduce(zCut.c_str()));
+                
+                if (dataBin && correctedBin) {
+                    // Extract correction parameters
+                    extractCorParam(
+                        "v" + std::to_string(corrVer),
+                        iBin,
+                        corrTypes[corrVer - 1],
+                        canvas,
+                        canvasNorm,
+                        canvasDiv,
+                        *corrValueArrays[corrVer - 1],
+                        *corrValueErrArrays[corrVer - 1],
+                        legendList,
+                        massVar,
+                        dataBin,
+                        correctedBin
+                    );
+                }
+                
+                delete dataBin;
+                delete correctedBin;
+            }
+            
+            // Calculate efficiency statistics
+            double totalWeight = 0.0;
+            double totalEntries = 0.0;
+            double minEff = 1.0;
+            double maxEff = 0.0;
+            
+            for (int i = 0; i < correctedData->numEntries(); ++i) {
+                const RooArgSet* row = correctedData->get(i);
+                double weight = correctedData->weight();
+                
+                totalWeight += weight;
+                totalEntries += 1.0;
+                
+                if (weight > 0) {
+                    minEff = std::min(minEff, weight);
+                    maxEff = std::max(maxEff, weight);
+                }
+            }
+            
+            double avgEff = totalWeight / totalEntries;
+            
+            std::cout << "  Average efficiency: " << avgEff << std::endl;
+            std::cout << "  Min efficiency: " << minEff << std::endl;
+            std::cout << "  Max efficiency: " << maxEff << std::endl;
+            std::cout << "  Total weighted entries: " << totalWeight << std::endl;
+            // Clean up
+            delete correctedData;
+        } else {
+            std::cerr << "Error: Failed to create corrected dataset for version " << corrVer << std::endl;
+        }
+    }
+    
+    // Create and save correction factor graphs
+    createCorrectionFactorGraphs(corrValueKaon, corrValueErrKaon, corrValuePion, corrValueErrPion);
+    
+    // Clean up
+    delete massVar;
+    for (auto& canvas_ptr : canvas) delete canvas_ptr;
+    for (auto& canvas_ptr : canvasNorm) delete canvas_ptr;
+    for (auto& canvas_ptr : canvasDiv) delete canvas_ptr;
+    for (auto& legend_ptr : legendList) delete legend_ptr;
+    
+    // Calculate combined efficiency correction factor
+    std::cout << "\nCalculating combined efficiency correction factors..." << std::endl;
+    
+    double totalCombinedEff = 0.0;
+    int validEntries = 0;
+    
+    for (int i = 0; i < dataMaster->numEntries(); ++i) {
+        const RooArgSet* row = dataMaster->get(i);
+        
+        RooAbsReal* kaonEffVar = dynamic_cast<RooAbsReal*>(row->find("kaon_efficiency"));
+        RooAbsReal* pionEffVar = dynamic_cast<RooAbsReal*>(row->find("pion_efficiency"));
+        
+        if (kaonEffVar && pionEffVar) {
+            double kaonEffVal = kaonEffVar->getVal();
+            double pionEffVal = pionEffVar->getVal();
+            double combinedEff = kaonEffVal * pionEffVal;
+            
+            if (combinedEff > 0) {
+                totalCombinedEff += combinedEff;
+                validEntries++;
+            }
+        }
+    }
+    
+    if (validEntries > 0) {
+        double avgCombinedEff = totalCombinedEff / validEntries;
+        std::cout << "Average combined (kaon x pion) efficiency: " << avgCombinedEff << std::endl;
+        std::cout << "Valid entries for efficiency calculation: " << validEntries << std::endl;
+    } else {
+        std::cerr << "Warning: No valid efficiency entries found" << std::endl;
+    }
+    
+    std::cout << "Correction factors processing completed." << std::endl;
+}
+
+void FitSpectraObject::extractCorParam(const std::string& idString, int bin, const std::string& type,
+                                      std::vector<TCanvas*>& canvas, std::vector<TCanvas*>& canvasNorm,
+                                      std::vector<TCanvas*>& canvasDiv, std::vector<double>& corrValue,
+                                      std::vector<double>& corrValueErr, std::vector<TLegend*>& legendList,
+                                      RooRealVar* massVar, RooDataSet* data, RooDataSet* data2, 
+                                      RooDataSet* data3) {
+    
+    std::cout << "Extracting correction parameters for " << idString << ", bin " << bin << ", type " << type << std::endl;
+    
+    // Validate inputs
+    if (!data || !massVar || bin < 0 || bin >= static_cast<int>(corrValue.size())) {
+        std::cerr << "Error: Invalid inputs to extractCorParam" << std::endl;
+        return;
+    }
+    
+    // Set ROOT style
+    // gROOT->SetStyle("Plain");
+    TGaxis::SetMaxDigits(2);
+    gStyle->SetOptStat(0);
+    
+    // Create histograms from datasets with proper binning
+    int nBins = 40;  // Match Python version
+    std::string histName = "h_MassSignal" + std::to_string(bin) + "_data";
+    TH1* h_data = data->createHistogram(histName.c_str(), *massVar, RooFit::Binning(nBins));
+    
+    if (!h_data) {
+        std::cerr << "Error: Failed to create histogram for data" << std::endl;
+        return;
+    }
+    
+    // Debug: Check the first dataset
+    // std::cout << "Debug: h_data (unweighted) - entries: " << h_data->GetEntries() 
+    //           << ", integral: " << h_data->Integral() << std::endl;
+    
+    std::vector<double> maxList = {h_data->GetMaximum(), 0.0};
+    
+    TH1* h_data2 = nullptr;
+    if (data2) {
+        std::string histName2 = "h_MassSignal" + std::to_string(bin) + "_data2";
+        h_data2 = data2->createHistogram(histName2.c_str(), *massVar, RooFit::Binning(nBins));
+        if (h_data2) {
+            maxList.push_back(h_data2->GetMaximum());
+            
+            // // Debug: Check the second dataset
+            // std::cout << "Debug: h_data2 (weighted) - entries: " << h_data2->GetEntries() 
+            //           << ", integral: " << h_data2->Integral() << std::endl;
+            
+            // // Debug: Check if the datasets are actually different
+            // std::cout << "Debug: Dataset comparison:" << std::endl;
+            // std::cout << "  data (unweighted): " << data->numEntries() << " entries" << std::endl;
+            // std::cout << "  data2 (weighted): " << data2->numEntries() << " entries" << std::endl;
+            
+            // Check sum of weights
+            double sumWeights = 0;
+            for (int i = 0; i < data2->numEntries(); ++i) {
+                data2->get(i);
+                sumWeights += data2->weight();
+            }
+            // std::cout << "  data2 sum of weights: " << sumWeights << std::endl;
+            // std::cout << "  data entries (should be same): " << data->numEntries() << std::endl;
+        }
+    }
+    
+    TH1* h_data3 = nullptr;
+    if (data3) {
+        std::string histName3 = "h_MassSignal" + std::to_string(bin) + "_data3";
+        h_data3 = data3->createHistogram(histName3.c_str(), *massVar, RooFit::Binning(nBins));
+        if (h_data3) {
+            maxList.push_back(h_data3->GetMaximum());
+        }
+    }
+    
+    // Find the type index for canvas access
+    int typeIndex = 0;
+    if (type == "kaon") typeIndex = 0;
+    else if (type == "pion") typeIndex = 1;
+    else if (type == "combined") typeIndex = 2;
+    else {
+        std::cerr << "Warning: Unknown correction type: " << type << std::endl;
+        typeIndex = 0;  // Default to first type
+    }
+    
+    // Validate canvas arrays
+    if (typeIndex >= static_cast<int>(canvas.size()) || typeIndex >= static_cast<int>(canvasNorm.size()) || typeIndex >= static_cast<int>(canvasDiv.size())) {
+        std::cerr << "Error: Invalid canvas array access for type " << type << std::endl;
+        delete h_data;
+        if (h_data2) delete h_data2;
+        if (h_data3) delete h_data3;
+        return;
+    }
+    
+    // Normalized canvas plotting
+    if (canvasNorm[typeIndex]) {
+        canvasNorm[typeIndex]->cd(bin + 1);
+        TPad* myPad2 = new TPad(("myPad2_" + std::to_string(bin)).c_str(), 
+                               ("The pad " + std::to_string(bin)).c_str(), 0, 0, 1, 1);
+        myPad2->SetLeftMargin(0.15);  // Adjusted to match Python
+        myPad2->SetTopMargin(0.08);
+        myPad2->SetRightMargin(0.1);
+        myPad2->SetBottomMargin(0.15);
+        myPad2->Draw();
+        
+        // Set histogram properties and draw normalized
+        h_data->SetMarkerStyle(20);
+        h_data->SetMarkerSize(0.5);
+        h_data->SetMarkerColor(1);
+        h_data->SetLineColor(kGray + 2);
+        h_data->SetTitle(Form("Signal for %s", idString.c_str()));
+        h_data->DrawNormalized("E");
+        
+        if (h_data2) {
+            h_data2->SetMarkerStyle(20);
+            h_data2->SetMarkerSize(0.5);
+            h_data2->SetMarkerColor(kRed + 2);
+            h_data2->SetLineColor(kRed + 2);
+            h_data2->DrawNormalized("same E");
+        }
+        
+        if (h_data3) {
+            h_data3->SetMarkerStyle(20);
+            h_data3->SetMarkerSize(0.5);
+            h_data3->SetMarkerColor(kBlue + 2);
+            h_data3->SetLineColor(kBlue + 2);
+            h_data3->DrawNormalized("same E");
+        }
+        
+        canvasNorm[typeIndex]->cd();
+    }
+    
+    // Regular canvas plotting
+    if (canvas[typeIndex]) {
+        canvas[typeIndex]->cd(bin + 1);
+        TPad* myPad = new TPad(("myPad_" + std::to_string(bin)).c_str(), 
+                              ("The pad " + std::to_string(bin)).c_str(), 0, 0, 1, 1);
+        myPad->SetLeftMargin(0.15);  // Adjusted to match Python
+        myPad->SetTopMargin(0.08);
+        myPad->SetRightMargin(0.1);
+        myPad->SetBottomMargin(0.15);
+        myPad->Draw();
+        
+        double maxVal = *std::max_element(maxList.begin(), maxList.end());
+        h_data->GetYaxis()->SetRangeUser(0, maxVal * 1.3);
+        h_data->SetMarkerStyle(20);
+        h_data->SetMarkerSize(0.5);
+        h_data->SetMarkerColor(1);
+        h_data->SetLineColor(kGray + 2);
+        h_data->DrawCopy("E");
+        
+        if (h_data2) {
+            h_data2->SetMarkerStyle(20);
+            h_data2->SetMarkerSize(0.5);
+            h_data2->SetMarkerColor(kRed + 2);
+            h_data2->SetLineColor(kRed + 2);
+            h_data2->DrawCopy("same E");
+        }
+        
+        if (h_data3) {
+            h_data3->SetMarkerStyle(20);
+            h_data3->SetMarkerSize(0.5);
+            h_data3->SetMarkerColor(kBlue + 2);
+            h_data3->SetLineColor(kBlue + 2);
+            h_data3->DrawCopy("same E");
+        }
+        
+        canvas[typeIndex]->cd();
+    }
+    
+    h_data->GetYaxis()->UnZoom();
+    
+    // Initialize correction values
+    double fitValue = 0.0;
+    double fitValueErr = 0.0;
+    
+    // Ratio canvas for correction factor extraction
+    TGaxis::SetMaxDigits(4);
+    if (canvasDiv[typeIndex] && h_data2) {
+        canvasDiv[typeIndex]->cd(bin + 1);
+        
+        TPad* myPad3 = new TPad(("myPad3_" + std::to_string(bin)).c_str(), 
+                               ("The pad3 " + std::to_string(bin)).c_str(), 0, 0, 1, 1);
+        myPad3->SetLeftMargin(0.15);  // Adjusted to match Python
+        myPad3->SetTopMargin(0.08);
+        myPad3->SetRightMargin(0.1);
+        myPad3->SetBottomMargin(0.15);
+        myPad3->Draw();
+        
+        // Create ratio histogram
+        TH1* h_ratio = static_cast<TH1*>(h_data2->Clone(("h_ratio_" + std::to_string(bin)).c_str()));
+        if (h_ratio) {
+            h_ratio->Divide(h_data);
+            h_ratio->SetMarkerStyle(20);
+            h_ratio->SetMarkerSize(0.5);
+            h_ratio->SetMarkerColor(1);
+            h_ratio->SetLineColor(kGray + 2);
+            h_ratio->DrawCopy("E");
+            
+            // // Debug: Check the ratio histogram
+            // std::cout << "Debug: Ratio histogram for bin " << bin << ", type " << type << std::endl;
+            // std::cout << "  h_data entries: " << h_data->GetEntries() << ", integral: " << h_data->Integral() << std::endl;
+            // std::cout << "  h_data2 entries: " << h_data2->GetEntries() << ", integral: " << h_data2->Integral() << std::endl;
+            // std::cout << "  h_ratio entries: " << h_ratio->GetEntries() << ", integral: " << h_ratio->Integral() << std::endl;
+            
+            // // Check a few bins of the ratio
+            // for (int i = 1; i <= std::min(5, h_ratio->GetNbinsX()); ++i) {
+            //     std::cout << "    Bin " << i << ": h_data=" << h_data->GetBinContent(i) 
+            //               << ", h_data2=" << h_data2->GetBinContent(i) 
+            //               << ", ratio=" << h_ratio->GetBinContent(i) << std::endl;
+            // }
+            
+            // Fit a horizontal line to extract correction factor
+            // Use proper bin center calculation matching Python
+            double minL = h_data->GetBinCenter(1);
+            double maxL = h_data->GetBinCenter(h_data->GetNbinsX());
+            TF1* line = new TF1("Line", "[0]", minL, maxL);
+            line->SetParameter(0, 1.0);
+            
+            // Perform fit with proper options
+            int fitStatus = h_ratio->Fit("Line", "NQS", "", minL, maxL);
+            if (fitStatus == 0) {  // Successful fit
+                fitValue = line->GetParameter(0);
+                fitValueErr = line->GetParError(0);
+                
+                line->SetLineColor(kRed);
+                line->SetLineWidth(2);
+                line->DrawCopy("same");
+                
+                // Add correction factor to legend if available
+                if (bin < static_cast<int>(legendList.size()) && legendList[bin]) {
+                    legendList[bin]->AddEntry(h_ratio, 
+                                            Form("Correction Constant %.3f±%.3f", fitValue, fitValueErr), 
+                                            "p");
+                    legendList[bin]->Draw();
+                }
+            } else {
+                std::cerr << "Warning: Fit failed for bin " << bin << ", type " << type << std::endl;
+            }
+            
+            delete line;
+            delete h_ratio;
+        }
+        
+        canvasDiv[typeIndex]->cd();
+    }
+    
+    // Store correction values with bounds checking
+    if (bin < static_cast<int>(corrValue.size())) {
+        corrValue[bin] = fitValue;
+    }
+    if (bin < static_cast<int>(corrValueErr.size())) {
+        corrValueErr[bin] = fitValueErr;
+    }
+    
+    // Save canvases if this is the last bin
+    if (bin == (static_cast<int>(corrValue.size()) - 1)) {
+        std::string canvasName = outfilePath + "CorrFac_" + idString + "_" + type;
+        
+        if (canvas[typeIndex]) {
+            canvas[typeIndex]->SaveAs((canvasName + "_zT.png").c_str());
+        }
+        if (canvasDiv[typeIndex]) {
+            canvasDiv[typeIndex]->SaveAs((canvasName + "_zTRatio.png").c_str());
+        }
+        if (canvasNorm[typeIndex]) {
+            canvasNorm[typeIndex]->SaveAs((canvasName + "_zTNorm.png").c_str());
+        }
+        
+        std::cout << "Saved correction parameter canvases for " << idString << ", type " << type << std::endl;
+    }
+    
+    // Clean up histograms
+    delete h_data;
+    if (h_data2) delete h_data2;
+    if (h_data3) delete h_data3;
+    
+    std::cout << "Correction parameter extraction completed for bin " << bin 
+              << " with correction factor: " << fitValue << " ± " << fitValueErr << std::endl;
 }
 
 void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster, 
@@ -363,6 +964,25 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
     if (!fitter || !dataMaster) {
         std::cerr << "Error: Null fitter or dataset in processFitsByBin" << std::endl;
         return;
+    }
+    
+    // Create sPlot output file if enabled
+    TFile* splotFile = nullptr;
+    std::string splotFileName = outfilePath + "splot_results.root";  // Declare in broader scope
+    
+    if (enableSPlot) {
+        splotFile = new TFile(splotFileName.c_str(), "RECREATE");
+        
+        if (!splotFile || splotFile->IsZombie()) {
+            std::cerr << "Error: Cannot create sPlot output file: " << splotFileName << std::endl;
+            if (splotFile) {
+                delete splotFile;
+                splotFile = nullptr;
+            }
+            enableSPlot = false;  // Disable sPlot if file creation fails
+        } else {
+            std::cout << "Created sPlot output file: " << splotFileName << std::endl;
+        }
     }
     
     // Get resonance parameters from fitter
@@ -400,7 +1020,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         // Plot tagZ distribution and calculate mean
         std::cout << "Plotting tagZ distribution for bin " << iBin << "..." << std::endl;
         TH1D* tagZHist = new TH1D(("tagZHist_bin" + std::to_string(iBin)).c_str(), 
-                                  ("tagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
+                                  ("TagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
                                   20, 0, 1);
         
         // Fill histogram with tagZ values
@@ -412,6 +1032,9 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             }
         }
         
+                            TH1D* tagZHistSafe = (TH1D*)tagZHist->Clone(("tagZHistSafe_bin" + std::to_string(iBin)).c_str());
+                            tagZHistSafe->SetDirectory(nullptr);  // Prevent ROOT from deleting it
+                            
         // Calculate mean and standard deviation
         double meanTagZ = tagZHist->GetMean();
         double stdDevTagZ = tagZHist->GetStdDev();
@@ -443,6 +1066,17 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         std::vector<double> fitParams;
         std::vector<double> fitErrors;
         
+        // Declare all variables that will be used in debug output outside try block
+        RooDataSet* signalEnhancedData = nullptr;
+        RooDataSet* bkgLeft = nullptr;
+        RooDataSet* bkgRight = nullptr;
+        RooDataSet* bkgData = nullptr;
+        TH1* ipChi2Histo = nullptr;
+        std::vector<double> ipParams, ipErrors;
+        RooAbsPdf* ipChi2Model = nullptr;
+        RooRealVar* sig_yieldLim = nullptr;
+        RooRealVar* prompt_frac = nullptr;
+        
         try {
             // Perform Single Gaussian fit
             std::cout << "  Performing Single Gaussian fit..." << std::endl;
@@ -457,12 +1091,32 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             std::cout << "  Performing Double Gaussian fit..." << std::endl;
             std::vector<double> dgParams, dgErrors;
             std::tie(massFitHisto, dgParams, dgErrors) = 
-                fitter->massFit("D0", dataBin, "DGauss", iBin, zRangeStr);
+                fitter->massFit("D0", dataBin, "DGauss", iBin, zRangeStr, enableSPlot, splotFile);
             
-            // Store histogram
+            // Store histogram safely
             if (massFitHisto) {
-                massHistoArray[iBin] = massFitHisto;
+                // Create a safe copy to avoid potential pointer invalidation issues
+                TH1* massFitHistoCopy = (TH1*)massFitHisto->Clone(("massFitHisto_bin" + std::to_string(iBin)).c_str());
+                if (massFitHistoCopy) {
+                    massFitHistoCopy->SetDirectory(nullptr);  // Prevent ROOT from managing it
+                    massHistoArray[iBin] = massFitHistoCopy;
+                    std::cout << "  Stored safe copy of mass fit histogram for bin " << iBin << std::endl;
+                } else {
+                    std::cout << "  Warning: Failed to create safe copy of mass fit histogram for bin " << iBin << std::endl;
+                    massHistoArray[iBin] = nullptr;
+                }
+            } else {
+                massHistoArray[iBin] = nullptr;
             }
+
+            // Ensure sPlot file is properly flushed and synchronized before reading
+            if (enableSPlot && splotFile) {
+                splotFile->Flush();
+                // Force write all pending data to disk
+                splotFile->Write("", TObject::kOverwrite);
+                std::cout << "  sPlot file flushed and synchronized" << std::endl;
+            }
+            
             
             // Store fit results in arrays
             if (dgParams.size() >= 12 && dgErrors.size() >= 10) {
@@ -519,104 +1173,470 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                           << " ± " << FitMRes_DGFrac[iBin][1] << std::endl;
             }
             
-            // Perform IP chi2 fit to separate prompt and non-prompt
-            std::cout << "\nPerforming IP chi2 fit..." << std::endl;
-            
-            // Prepare signal and background datasets for IP chi2 fit
-            RooDataSet* sigData = static_cast<RooDataSet*>(dataBin->reduce(
-                ("tagMass > " + std::to_string(sigRegion.first) + 
-                " && tagMass < " + std::to_string(sigRegion.second)).c_str()
-            ));
-            
-            // Left sideband
-            RooDataSet* bkgLeft = static_cast<RooDataSet*>(dataBin->reduce(
-                ("tagMass < " + std::to_string(sideBandLimits.first)).c_str()
-            ));
-            
-            // Right sideband
-            RooDataSet* bkgRight = static_cast<RooDataSet*>(dataBin->reduce(
-                ("tagMass > " + std::to_string(sideBandLimits.second)).c_str()
-            ));
-            
-            // Combine sidebands
-            RooDataSet* bkgData = dynamic_cast<RooDataSet*>(bkgLeft->Clone("BKG"));
-            bkgData->append(*bkgRight);
-            
-            // Perform IP chi2 fit
-            TH1* ipChi2Histo = nullptr;
-            std::vector<double> ipParams, ipErrors;
-            
-            std::tie(ipChi2Histo, ipParams, ipErrors) = 
-                fitter->ipchi2Fit("D0", sigData, bkgData, "BKGincluded", iBin, zRangeStr);
-            
-            // Store IP chi2 histogram
-            if (ipChi2Histo) {
-                ipchi2HistoArray[iBin] = ipChi2Histo;
+            // Update sig_yieldLim parameter with fitted signal yield
+            if (FitMRes_SYield[iBin][0] > 0) {
+                fitter->updateSigYieldLim("D0", FitMRes_SYield[iBin][0]);
             }
             
-            // Store IP chi2 fit results if we have enough parameters
-            if (ipParams.size() >= 8) {
-                // Store the IP chi2 fit parameters
-                FitIPRes_SYield[iBin][0] = ipParams[0];  // Total signal yield
-                FitIPRes_PromptFrac[iBin][0] = ipParams[1];         // Correct position for prompt fraction
-                FitIPRes_XpPrompt[iBin][0] = ipParams[2];           // Prompt peak position
-                FitIPRes_SigmaPrompt[iBin][0] = ipParams[3];        // Prompt width
-                FitIPRes_XiPrompt[iBin][0] = ipParams[4];           // Prompt asymmetry
-                // Store rho1_prompt and rho2_prompt if needed
-                FitIPRes_XpNonprompt[iBin][0] = ipParams[7];        // Non-prompt peak position
-                FitIPRes_SigmaNonprompt[iBin][0] = ipParams[8];     // Non-prompt width
-                FitIPRes_XiNonprompt[iBin][0] = ipParams[9];        // Non-prompt asymmetry
+            // Stage 1: Create signal-enhanced dataset from mass sPlot weights
+            if (enableSPlot && splotFile) {
+                std::cout << "  Stage 1: Creating signal-enhanced dataset from mass sPlot weights..." << std::endl;
                 
-                // And calculate yields with the correct prompt fraction
-                FitIPRes_PromptYield[iBin][0] = ipParams[0] * ipParams[1];       // Using correct prompt_frac
-                FitIPRes_NonPromptYield[iBin][0] = ipParams[0] * (1.0 - ipParams[1]); // Using correct fraction
+                // Temporarily close the sPlot file to ensure it's properly written
+                std::cout << "  Temporarily closing sPlot file for safe reading..." << std::endl;
+                splotFile->Close();
+                delete splotFile;
+                splotFile = nullptr;
                 
-                // Store errors if available
-                if (ipErrors.size() >= 10) {  // Update: check for enough errors (at least 10)
-                    FitIPRes_SYield[iBin][1] = ipErrors[0];          // Signal yield error
-                    FitIPRes_PromptFrac[iBin][1] = ipErrors[1];      // Prompt fraction error
-                    FitIPRes_XpPrompt[iBin][1] = ipErrors[2];        // Prompt peak position error
-                    FitIPRes_SigmaPrompt[iBin][1] = ipErrors[3];     // Prompt width error
-                    FitIPRes_XiPrompt[iBin][1] = ipErrors[4];        // Prompt asymmetry error
-                    // Skip storing rho1_prompt and rho2_prompt errors (indices 5, 6)
-                    FitIPRes_XpNonprompt[iBin][1] = ipErrors[7];     // Non-prompt peak position error
-                    FitIPRes_SigmaNonprompt[iBin][1] = ipErrors[8];  // Non-prompt width error
-                    FitIPRes_XiNonprompt[iBin][1] = ipErrors[9];     // Non-prompt asymmetry error
-                    
-                    // Also propagate errors to yield calculations
-                    // Using error propagation for product: σ(Y×f) = Y×f × √((σY/Y)² + (σf/f)²)
-                    double relErrorSig = ipErrors[0]/std::max(1e-10, ipParams[0]);
-                    double relErrorFrac = ipErrors[1]/std::max(1e-10, ipParams[1]);
-                    FitIPRes_PromptYield[iBin][1] = ipParams[0] * ipParams[1] * 
-                                                  sqrt(pow(relErrorSig, 2) + pow(relErrorFrac, 2));
-                    
-                    // For non-prompt yield: Y×(1-f)
-                    // Error propagation with correlation term: σ(Y×(1-f)) = √((1-f)²σY² + Y²σf²)
-                    FitIPRes_NonPromptYield[iBin][1] = sqrt(pow((1.0-ipParams[1])*ipErrors[0], 2) + 
-                                                         pow(ipParams[0]*ipErrors[1], 2));
+                // Add small delay to ensure file system operations complete
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                
+                // Create weighted dataset using sPlot weights from mass fit
+                signalEnhancedData = fitter->createWeightedDataset(dataBin, splotFileName, iBin, 
+                                                                 "sig_sWeight", "signal_enhanced");
+                
+                // Reopen the sPlot file for continued writing
+                splotFile = new TFile(splotFileName.c_str(), "UPDATE");
+                if (!splotFile || splotFile->IsZombie()) {
+                    std::cerr << "Error: Cannot reopen sPlot file: " << splotFileName << std::endl;
+                    enableSPlot = false;  // Disable sPlot for remaining bins
+                    splotFile = nullptr;
+                } else {
+                    std::cout << "  Successfully reopened sPlot file for continued writing" << std::endl;
                 }
                 
-                // Print key IP chi2 fit results
-                std::cout << "IP chi2 fit results for bin " << iBin << ":" << std::endl;
-                std::cout << "  Prompt fraction: " << FitIPRes_PromptFrac[iBin][0] 
-                          << " ± " << FitIPRes_PromptFrac[iBin][1] << std::endl;
-                std::cout << "  Prompt yield: " << FitIPRes_PromptYield[iBin][0] << std::endl;
-                std::cout << "  Non-prompt yield: " << FitIPRes_NonPromptYield[iBin][0] << std::endl;
+                if (signalEnhancedData) {
+                    std::cout << "  Successfully created signal-enhanced dataset with " 
+                              << signalEnhancedData->numEntries() << " entries" << std::endl;
+                    std::cout << "  Effective entries: " << signalEnhancedData->sumEntries() << std::endl;
+                } else {
+                    std::cout << "  Warning: Failed to create signal-enhanced dataset, using signal region" << std::endl;
+                    signalEnhancedData = static_cast<RooDataSet*>(dataBin->reduce(
+                        ("tagMass > " + std::to_string(sigRegion.first) + 
+                        " && tagMass < " + std::to_string(sigRegion.second)).c_str()
+                    ));
+                }
+            } else {
+                std::cout << "  Using traditional signal region selection..." << std::endl;
+                signalEnhancedData = static_cast<RooDataSet*>(dataBin->reduce(
+                    ("tagMass > " + std::to_string(sigRegion.first) + 
+                    " && tagMass < " + std::to_string(sigRegion.second)).c_str()
+                ));
+            }
+            
+            // Stage 2: Fit IP chi2 distribution with signal-enhanced data to get yield variables
+            std::cout << "  Stage 2: Fitting IP chi2 distribution with signal-enhanced data..." << std::endl;
+            
+            // For background modeling in IP chi2, we can use sideband regions
+            bkgLeft = static_cast<RooDataSet*>(dataBin->reduce(
+                ("tagMass < " + std::to_string(sideBandLimits.first)).c_str()
+            ));
+            bkgRight = static_cast<RooDataSet*>(dataBin->reduce(
+                ("tagMass > " + std::to_string(sideBandLimits.second)).c_str()
+            ));
+            bkgData = dynamic_cast<RooDataSet*>(bkgLeft->Clone("BKG"));
+            bkgData->append(*bkgRight);
+            
+            // Perform IP chi2 fit with yields for sPlot
+            std::tie(ipChi2Histo, ipParams, ipErrors, ipChi2Model, sig_yieldLim, prompt_frac) = 
+                fitter->ipchi2FitWithYields("D0", signalEnhancedData, bkgData, "BKGincluded", iBin, zRangeStr, enableSPlot, splotFile);
+            
+            if(ipChi2Histo) {
+                // Create a safe copy to avoid potential pointer invalidation issues
+                TH1* ipChi2HistoCopy = (TH1*)ipChi2Histo->Clone(("ipChi2Histo_bin" + std::to_string(iBin)).c_str());
+                if (ipChi2HistoCopy) {
+                    ipChi2HistoCopy->SetDirectory(nullptr);  // Prevent ROOT from managing it
+                    ipchi2HistoArray[iBin] = ipChi2HistoCopy;
+                    std::cout << "  Stored safe copy of IP chi2 histogram for bin " << iBin << std::endl;
+                } else {
+                    std::cout << "  Warning: Failed to create safe copy of IP chi2 histogram for bin " << iBin << std::endl;
+                    ipchi2HistoArray[iBin] = nullptr;
+                }
+            } else {
+                std::cerr << "Error: IP chi2 histogram is null for bin " << iBin << std::endl;
+                ipchi2HistoArray[iBin] = nullptr;
+            }
+
+            // Ensure sPlot file is properly flushed after IP chi2 fit
+            if (enableSPlot && splotFile) {
+                splotFile->Flush();
+                // Force write all pending data to disk
+                splotFile->Write("", TObject::kOverwrite);
+                std::cout << "  IP chi2 sPlot file flushed and synchronized" << std::endl;
+            }
+            
+            // Stage 3: Process results and create tagZ distribution if sPlot was enabled
+            if (enableSPlot && splotFile && ipChi2Model && sig_yieldLim && prompt_frac) {
+                std::cout << "  Stage 3: Processing IP chi2 fit results and creating tagZ distribution..." << std::endl;
+                
+                // Store yield values before any potential file operations that might invalidate pointers
+                double totalYield = sig_yieldLim->getVal();
+                double promptFraction = prompt_frac->getVal();
+                double promptFractionError = prompt_frac->getError();  // Store error as well
+                double calculatedPromptYield = totalYield * promptFraction;
+                double calculatedNonpromptYield = totalYield * (1 - promptFraction);
+                
+                // Display yield information
+                std::cout << "  Using sig_yieldLim: " << totalYield << std::endl;
+                std::cout << "  Using prompt_frac: " << promptFraction << std::endl;
+                std::cout << "  Calculated prompt yield: " << calculatedPromptYield << std::endl;
+                std::cout << "  Calculated nonprompt yield: " << calculatedNonpromptYield << std::endl;
+                
+                // Store IP chi2 fit results
+                if (ipParams.size() >= 12 && ipErrors.size() >= 12) {
+                    FitIPRes_SYield[iBin][0] = totalYield;
+                    FitIPRes_PromptFrac[iBin][0] = promptFraction;
+                    FitIPRes_PromptFrac[iBin][1] = promptFractionError;  // Use stored error
+                    FitIPRes_PromptYield[iBin][0] = calculatedPromptYield;
+                    FitIPRes_NonPromptYield[iBin][0] = calculatedNonpromptYield;
+                    
+                    // Store other IP chi2 fit parameters
+                    FitIPRes_XpPrompt[iBin][0] = ipParams[2];
+                    FitIPRes_XpPrompt[iBin][1] = ipErrors[2];
+                    FitIPRes_SigmaPrompt[iBin][0] = ipParams[3];
+                    FitIPRes_SigmaPrompt[iBin][1] = ipErrors[3];
+                    FitIPRes_XiPrompt[iBin][0] = ipParams[4];
+                    FitIPRes_XiPrompt[iBin][1] = ipErrors[4];
+                    
+                    FitIPRes_XpNonprompt[iBin][0] = ipParams[7];
+                    FitIPRes_XpNonprompt[iBin][1] = ipErrors[7];
+                    FitIPRes_SigmaNonprompt[iBin][0] = ipParams[8];
+                    FitIPRes_SigmaNonprompt[iBin][1] = ipErrors[8];
+                    FitIPRes_XiNonprompt[iBin][0] = ipParams[9];
+                    FitIPRes_XiNonprompt[iBin][1] = ipErrors[9];
+                }
+                
+                // Stage 4: Create prompt signal tagZ distribution using combined sPlot weights
+                std::cout << "  Stage 4: Creating prompt signal tagZ distribution with combined sPlot weights..." << std::endl;
+                    
+                    // Create map to store combined weights (for compatibility with existing method)
+                    std::map<std::pair<double, double>, std::pair<double, double>> eventWeights;
+                    
+                    // Read the IP chi2 sPlot weights from the file we just saved
+                    std::string ipSplotTreeName = "ipSplotTree_bin" + std::to_string(iBin);
+                    TTree* ipSplotTree = (TTree*)splotFile->Get(ipSplotTreeName.c_str());
+                    if (ipSplotTree) {
+                        double mass_ip, log_ipchi2_ip, prompt_weight_ip, nonprompt_weight_ip;
+                        ipSplotTree->SetBranchAddress("mass", &mass_ip);
+                        ipSplotTree->SetBranchAddress("log_ipchi2", &log_ipchi2_ip);
+                        ipSplotTree->SetBranchAddress("prompt_sWeight", &prompt_weight_ip);
+                        ipSplotTree->SetBranchAddress("nonprompt_sWeight", &nonprompt_weight_ip);
+                        
+                        for (Long64_t i = 0; i < ipSplotTree->GetEntries(); ++i) {
+                            ipSplotTree->GetEntry(i);
+                            eventWeights[{mass_ip, log_ipchi2_ip}] = {prompt_weight_ip, nonprompt_weight_ip};
+                        }
+                        
+                        std::cout << "    Loaded " << eventWeights.size() << " event weights from IP chi2 sPlot tree" << std::endl;
+                        
+                        // Use the existing method to create prompt signal tagZ distribution
+                        TH1D* promptSignalTagZHist = fitter->createPromptSignalTagZDistribution(
+                            dataBin, splotFileName, iBin, eventWeights, "promptSignalTagZ", 20, 0.0, 1.0);
+                        
+                        if (promptSignalTagZHist) {
+                            // Create comparison histograms
+                            TH1D* backgroundSubtractedTagZHist = new TH1D(("backgroundSubtractedTagZHist_bin" + std::to_string(iBin)).c_str(), 
+                                                                          ("Background-Subtracted TagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
+                                                                          20, 0, 1);
+                            
+                            // Create background-subtracted distribution using only mass sPlot weights
+                            // Ensure file is synchronized before reading
+                            if (splotFile) {
+                                splotFile->Flush();
+                                splotFile->Write("", TObject::kOverwrite);
+                            }
+                            
+                            TFile* splotFileRead = TFile::Open(splotFileName.c_str(), "READ");
+                            if (splotFileRead && !splotFileRead->IsZombie()) {
+                                TTree* massSplotTree = (TTree*)splotFileRead->Get(("splotTree_bin" + std::to_string(iBin)).c_str());
+                                if (massSplotTree) {
+                                    double mass_splot, sig_sWeight_mass, bkg_sWeight_mass;
+                                    massSplotTree->SetBranchAddress("mass", &mass_splot);
+                                    massSplotTree->SetBranchAddress("sig_sWeight", &sig_sWeight_mass);
+                                    massSplotTree->SetBranchAddress("bkg_sWeight", &bkg_sWeight_mass);
+                                    
+                                    std::map<double, double> massSigWeights;
+                                    for (Long64_t i = 0; i < massSplotTree->GetEntries(); ++i) {
+                                        massSplotTree->GetEntry(i);
+                                        massSigWeights[mass_splot] = sig_sWeight_mass;
+                                    }
+                                    
+                                    // Fill background-subtracted histogram
+                                    for (int i = 0; i < dataBin->numEntries(); ++i) {
+                                        const RooArgSet* row = dataBin->get(i);
+                                        RooRealVar* tagZVar = dynamic_cast<RooRealVar*>(row->find("tagZ"));
+                                        RooRealVar* massVar = dynamic_cast<RooRealVar*>(row->find("tagMass"));
+                                        
+                                        if (tagZVar && massVar) {
+                                            double tagZ = tagZVar->getVal();
+                                            double mass = massVar->getVal();
+                                            
+                                            auto massSigIt = massSigWeights.find(mass);
+                                            if (massSigIt != massSigWeights.end() && massSigIt->second > 0) {
+                                                backgroundSubtractedTagZHist->Fill(tagZ, massSigIt->second);
+                                            }
+                                        }
+                                    }
+                                }
+                                splotFileRead->Close();
+                                delete splotFileRead;
+                            }
+                            
+                            // Calculate statistics
+                            double promptSignalEntries = promptSignalTagZHist->GetEntries();
+                            double promptSignalIntegral = promptSignalTagZHist->Integral();
+                            double bkgSubtractedIntegral = backgroundSubtractedTagZHist->Integral();
+                            
+                            std::cout << "    Prompt signal tagZ histogram:" << std::endl;
+                            std::cout << "      Entries: " << promptSignalEntries << std::endl;
+                            std::cout << "      Integral (weighted): " << promptSignalIntegral << std::endl;
+                            std::cout << "    Background-subtracted tagZ histogram:" << std::endl;
+                            std::cout << "      Integral (weighted): " << bkgSubtractedIntegral << std::endl;
+                            
+                            if (bkgSubtractedIntegral > 0) {
+                                double promptFraction = promptSignalIntegral / bkgSubtractedIntegral;
+                                std::cout << "      Effective prompt fraction in tagZ: " << promptFraction << std::endl;
+                            }
+
+                            // Create safe copies of all histograms to avoid potential RooRealVar reference issues
+                            // Check if histograms exist before accessing them
+                            if (!promptSignalTagZHist) {
+                                std::cerr << "Error: promptSignalTagZHist is null, cannot create safe copy" << std::endl;
+                                return;
+                            }
+                            if (!backgroundSubtractedTagZHist) {
+                                std::cerr << "Error: backgroundSubtractedTagZHist is null, cannot create safe copy" << std::endl;
+                                return;
+                            }
+                            if (!tagZHist) {
+                                std::cerr << "Error: tagZHist is null, cannot create safe copy" << std::endl;
+                                return;
+                            }
+                                                        
+                            TH1D* backgroundSubtractedTagZHistSafe = new TH1D(("backgroundSubtractedTagZHistSafe_bin" + std::to_string(iBin)).c_str(), 
+                                                                             ("Signal TagZ (Mass sPlot) - Bin " + std::to_string(iBin)).c_str(), 
+                                                                             backgroundSubtractedTagZHist->GetNbinsX(), 
+                                                                             backgroundSubtractedTagZHist->GetXaxis()->GetXmin(), 
+                                                                             backgroundSubtractedTagZHist->GetXaxis()->GetXmax());
+                            
+                            TH1D* promptSignalTagZHistSafe = new TH1D(("promptSignalTagZHistSafe_bin" + std::to_string(iBin)).c_str(), 
+                                                                     ("Prompt Signal TagZ (Combined sPlot) - Bin " + std::to_string(iBin)).c_str(), 
+                                                                     promptSignalTagZHist->GetNbinsX(), 
+                                                                     promptSignalTagZHist->GetXaxis()->GetXmin(), 
+                                                                     promptSignalTagZHist->GetXaxis()->GetXmax());
+                                                        
+                            
+                            for (int iBinHist = 1; iBinHist <= backgroundSubtractedTagZHist->GetNbinsX(); ++iBinHist) {
+                                backgroundSubtractedTagZHistSafe->SetBinContent(iBinHist, backgroundSubtractedTagZHist->GetBinContent(iBinHist));
+                                backgroundSubtractedTagZHistSafe->SetBinError(iBinHist, backgroundSubtractedTagZHist->GetBinError(iBinHist));
+                            }
+                            backgroundSubtractedTagZHistSafe->SetEntries(backgroundSubtractedTagZHist->GetEntries());
+                            
+                            for (int iBinHist = 1; iBinHist <= promptSignalTagZHist->GetNbinsX(); ++iBinHist) {
+                                promptSignalTagZHistSafe->SetBinContent(iBinHist, promptSignalTagZHist->GetBinContent(iBinHist));
+                                promptSignalTagZHistSafe->SetBinError(iBinHist, promptSignalTagZHist->GetBinError(iBinHist));
+                            }
+                            promptSignalTagZHistSafe->SetEntries(promptSignalTagZHist->GetEntries());
+                            
+                            // Create comprehensive comparison plot
+                            TCanvas* promptTagZCanvas = new TCanvas(("promptTagZCanvas_bin" + std::to_string(iBin)).c_str(), 
+                                                                  ("Prompt Signal TagZ Analysis - Bin " + std::to_string(iBin)).c_str(), 
+                                                                  1200, 800);
+                            promptTagZCanvas->Divide(2, 2);
+
+                            // Plot 1: Original tagZ distribution (using safe copy)
+                            promptTagZCanvas->cd(1);
+                            tagZHistSafe->SetLineColor(kBlack);
+                            tagZHistSafe->SetMarkerColor(kBlack);
+                            tagZHistSafe->SetMarkerStyle(20);
+                            tagZHistSafe->SetTitle("Original TagZ Distribution");
+                            tagZHistSafe->GetXaxis()->SetTitle("#it{z}_{T}");
+                            tagZHistSafe->GetYaxis()->SetTitle("Entries");
+                            tagZHistSafe->Draw("pe");
+
+                            // Plot 2: Background-subtracted tagZ distribution
+                            promptTagZCanvas->cd(2);
+                            backgroundSubtractedTagZHistSafe->SetLineColor(kBlue);
+                            backgroundSubtractedTagZHistSafe->SetMarkerColor(kBlue);
+                            backgroundSubtractedTagZHistSafe->SetMarkerStyle(21);
+                            backgroundSubtractedTagZHistSafe->SetTitle("Signal TagZ (Mass sPlot)");
+                            backgroundSubtractedTagZHistSafe->GetXaxis()->SetTitle("#it{z}_{T}");
+                            backgroundSubtractedTagZHistSafe->GetYaxis()->SetTitle("Weighted Entries");
+                            backgroundSubtractedTagZHistSafe->Draw("pe");
+
+                            // Plot 3: Prompt signal tagZ distribution
+                            promptTagZCanvas->cd(3);
+                            promptSignalTagZHistSafe->SetLineColor(kRed);
+                            promptSignalTagZHistSafe->SetMarkerColor(kRed);
+                            promptSignalTagZHistSafe->SetMarkerStyle(22);
+                            promptSignalTagZHistSafe->SetTitle("Prompt Signal TagZ (Combined sPlot)");
+                            promptSignalTagZHistSafe->GetXaxis()->SetTitle("#it{z}_{T}");
+                            promptSignalTagZHistSafe->GetYaxis()->SetTitle("Weighted Entries");
+                            promptSignalTagZHistSafe->Draw("pe");
+
+                            double meanTagZ_weighted = promptSignalTagZHistSafe->GetMean();
+        double stdDevTagZ_weighted = promptSignalTagZHistSafe->GetStdDev();
+        std::cout << "Mean tagZ: " << meanTagZ_weighted << ", StdDev: " << stdDevTagZ_weighted << std::endl;
+        Bin_TagZMean_weighted[iBin][0] = meanTagZ_weighted;  // Store mean tagZ for this bin
+
+                            // Plot 4: Normalized comparison
+                            promptTagZCanvas->cd(4);
+                            TH1D* tagZHistNorm = (TH1D*)tagZHistSafe->Clone("tagZHistNorm");
+                            TH1D* bkgSubNorm = (TH1D*)backgroundSubtractedTagZHistSafe->Clone("bkgSubNorm");
+                            TH1D* promptNorm = (TH1D*)promptSignalTagZHistSafe->Clone("promptNorm");
+                            // Normalize histograms
+                            if (tagZHistNorm->Integral() > 0) tagZHistNorm->Scale(1.0 / tagZHistNorm->Integral());
+                            if (bkgSubNorm->Integral() > 0) bkgSubNorm->Scale(1.0 / bkgSubNorm->Integral());
+                            if (promptNorm->Integral() > 0) promptNorm->Scale(1.0 / promptNorm->Integral());
+                            
+                            // Set maximum for better visualization
+                            double maxY = std::max({tagZHistNorm->GetMaximum(), bkgSubNorm->GetMaximum(), promptNorm->GetMaximum()});
+                            tagZHistNorm->GetYaxis()->SetRangeUser(0, maxY * 1.2);
+                            
+                            tagZHistNorm->SetTitle("TagZ Distributions Comparison (Normalized)");
+                            tagZHistNorm->GetYaxis()->SetTitle("Normalized Entries");
+                            tagZHistNorm->Draw("pe");
+                            bkgSubNorm->Draw("pe same");
+                            promptNorm->Draw("pe same");
+                            
+                            // Add legend
+                            TLegend* legend = new TLegend(0.6, 0.7, 0.9, 0.9);
+                            legend->AddEntry(tagZHistNorm, "Original", "pe");
+                            legend->AddEntry(bkgSubNorm, "Signal (Mass sPlot)", "pe");
+                            legend->AddEntry(promptNorm, "Prompt Signal (Combined)", "pe");
+                            legend->SetBorderSize(0);
+                            legend->SetFillStyle(0);
+                            legend->Draw();
+                            
+                            // Save canvas
+                            std::string promptTagZOutputFile = outfilePath + "promptSignalTagZ_bin" + std::to_string(iBin) + ".png";
+                            promptTagZCanvas->SaveAs(promptTagZOutputFile.c_str());
+                            
+                            // Save histograms to sPlot file
+                            splotFile->cd();
+                            promptSignalTagZHist->Write();
+                            backgroundSubtractedTagZHist->Write();
+                            
+                            std::cout << "  Stage 4 completed: Prompt signal tagZ distribution created and saved" << std::endl;
+                            
+                            // Clean up
+                            delete promptTagZCanvas;
+                            delete tagZHistNorm;
+                            delete bkgSubNorm;
+                            delete promptNorm;
+                            delete legend;
+                            delete backgroundSubtractedTagZHist;
+                            delete promptSignalTagZHist;
+                            delete tagZHistSafe;  // Clean up the safe copies
+                            delete backgroundSubtractedTagZHistSafe;
+                            delete promptSignalTagZHistSafe;
+                            
+                        } else {
+                            std::cout << "    Warning: Failed to create prompt signal tagZ distribution" << std::endl;
+                        }
+                    } else {
+                        std::cout << "    Warning: Could not read IP chi2 sPlot tree from file" << std::endl;
+                    }
+                } else {
+                    std::cout << "  Warning: Failed to save IP chi2 sPlot weights to file" << std::endl;
+                }
+            
+            // Add debug output for sPlot workflow verification
+            if (enableSPlot) {
+                std::cout << "\n=== sPlot Workflow Debug Information ===" << std::endl;
+                std::cout << "Bin " << iBin << " sPlot workflow status:" << std::endl;
+                std::cout << "  Mass fit completed: " << (massFitHisto ? "YES" : "NO") << std::endl;
+                std::cout << "  Signal-enhanced data created: " << (signalEnhancedData ? "YES" : "NO") << std::endl;
+                std::cout << "  IP chi2 fit completed: " << (ipChi2Histo ? "YES" : "NO") << std::endl;
+                std::cout << "  IP chi2 model available: " << (ipChi2Model ? "YES" : "NO") << std::endl;
+                
+                // Safe check for yield variables without accessing their values
+                bool yieldVarsValid = (sig_yieldLim != nullptr) && (prompt_frac != nullptr);
+                std::cout << "  IP chi2 yield variables available: " << (yieldVarsValid ? "YES" : "NO") << std::endl;
+                
+                // Use stored values from IP chi2 fit results instead of accessing potentially invalid pointers
+                if (enableSPlot && splotFile && ipChi2Model && yieldVarsValid) {
+                    // These values were already calculated and stored in Stage 3
+                    std::cout << "  Final total yield: " << FitIPRes_SYield[iBin][0] << std::endl;
+                    std::cout << "  Final prompt fraction: " << FitIPRes_PromptFrac[iBin][0] << std::endl;
+                    std::cout << "  Final prompt yield: " << FitIPRes_PromptYield[iBin][0] << std::endl;
+                    std::cout << "  Final nonprompt yield: " << FitIPRes_NonPromptYield[iBin][0] << std::endl;
+                }
+                std::cout << "=======================================" << std::endl;
             }
             
             // Clean up
-            delete sigData;
-            delete bkgLeft;
-            delete bkgRight;
-            delete bkgData;
+            // if (enableSPlot && signalEnhancedData != dataBin) {
+            //     delete signalEnhancedData;  // Only delete if it's a different dataset
+            // }
+            // if (bkgLeft) delete bkgLeft;
+            // if (bkgRight) delete bkgRight;
+            // if (bkgData) delete bkgData;
             
         } catch (const std::exception& e) {
             std::cerr << "ERROR in bin fitting: " << e.what() << std::endl;
+            // Emergency cleanup in case of exception
+            // These pointers might be null, so we need to check
         }
         
         // Clean up
-        delete dataBin;
-        delete tagZHist;
+        // delete dataBin;
+        // delete tagZHist;
+    }
+    
+    // Finalize sPlot output file
+    if (enableSPlot && splotFile) {
+        std::cout << "\nFinalizing sPlot output file..." << std::endl;
+        
+        // Create summary TTree with bin information
+        splotFile->cd();
+        TTree* summaryTree = new TTree("splotSummary", "sPlot Analysis Summary");
+        std::cout << "Creating summary tree with bin information..." << std::endl;
+        int binIndex;
+        double binCenter, binWidth;
+        int nEntries;
+        std::cout << "Adding branches to summary tree..." << std::endl;
+        summaryTree->Branch("binIndex", &binIndex, "binIndex/I");
+        summaryTree->Branch("binCenter", &binCenter, "binCenter/D");
+        summaryTree->Branch("binWidth", &binWidth, "binWidth/D");
+        summaryTree->Branch("nEntries", &nEntries, "nEntries/I");
+        std::cout << "Filling summary tree with bin data..." << std::endl;
+        for (int i = 0; i < nzTBins; ++i) {
+            binIndex = i;
+            binCenter = binCenters[i];
+            binWidth = binWidths[i];
+            
+            // Count entries in this bin
+            std::string zCut;
+            if (zTObservable) {
+                zCut = "tagZ >= " + std::to_string(zBins[i]) + 
+                       " && tagZ < " + std::to_string(zBins[i+1]);
+            } else {
+                zCut = "tagY >= " + std::to_string(zBins[i]) + 
+                       " && tagY < " + std::to_string(zBins[i+1]);
+            }
+            std::cout << "  Counting entries for bin " << i << ": " << zCut << std::endl;
+            RooDataSet* binData = static_cast<RooDataSet*>(dataMaster->reduce(zCut.c_str()));
+            nEntries = binData ? binData->numEntries() : 0;
+            if (binData) delete binData;
+            std::cout << "  Bin " << i << ": Center = " << binCenter 
+                      << ", Width = " << binWidth 
+                      << ", Entries = " << nEntries << std::endl;
+            summaryTree->Fill();
+            std::cout << "  Filled summary tree for bin " << i << std::endl;
+        }
+        
+        summaryTree->Write();
+        std::cout << "Summary tree written to sPlot file" << std::endl;
+        
+        // Close the sPlot file properly
+        if (splotFile) {
+            splotFile->Close();
+            delete splotFile;
+            splotFile = nullptr;
+        }
+        
+        std::cout << "sPlot analysis completed and saved to file" << std::endl;
     }
     
     // Save results to file
@@ -626,7 +1646,20 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
 // Helper method to save results to ROOT files
 void FitSpectraObject::saveResultsToFile(const std::vector<double>& binCenters, 
                                        const std::vector<double>& binWidths) {
-    std::cout << "\nSaving results to file..." << std::endl;
+    std::cout << "\n===== DEBUG: Starting saveResultsToFile =====" << std::endl;
+    std::cout << "DEBUG: nzTBins = " << nzTBins << std::endl;
+    std::cout << "DEBUG: binCenters.size() = " << binCenters.size() << std::endl;
+    std::cout << "DEBUG: binWidths.size() = " << binWidths.size() << std::endl;
+    
+    // Check if sizes match
+    if (static_cast<int>(binCenters.size()) != nzTBins || static_cast<int>(binWidths.size()) != nzTBins) {
+        std::cerr << "ERROR: Size mismatch - nzTBins=" << nzTBins 
+                  << ", binCenters.size()=" << binCenters.size() 
+                  << ", binWidths.size()=" << binWidths.size() << std::endl;
+        return;
+    }
+    
+    std::cout << "DEBUG: Creating arrays for graph creation..." << std::endl;
     
     // Create arrays for graph creation
     std::vector<double> promptYield(nzTBins);
@@ -634,172 +1667,337 @@ void FitSpectraObject::saveResultsToFile(const std::vector<double>& binCenters,
     std::vector<double> totalYield(nzTBins);
     std::vector<double> zeros(nzTBins, 0.0);
     
+    std::cout << "DEBUG: Checking result array sizes..." << std::endl;
+    std::cout << "DEBUG: FitIPRes_PromptYield.size() = " << FitIPRes_PromptYield.size() << std::endl;
+    std::cout << "DEBUG: FitIPRes_NonPromptYield.size() = " << FitIPRes_NonPromptYield.size() << std::endl;
+    std::cout << "DEBUG: FitMRes_SYield.size() = " << FitMRes_SYield.size() << std::endl;
+    
+    // Check if result arrays are properly initialized
+    if (FitIPRes_PromptYield.size() != static_cast<size_t>(nzTBins)) {
+        std::cerr << "ERROR: FitIPRes_PromptYield size mismatch!" << std::endl;
+        return;
+    }
+    if (FitIPRes_NonPromptYield.size() != static_cast<size_t>(nzTBins)) {
+        std::cerr << "ERROR: FitIPRes_NonPromptYield size mismatch!" << std::endl;
+        return;
+    }
+    if (FitMRes_SYield.size() != static_cast<size_t>(nzTBins)) {
+        std::cerr << "ERROR: FitMRes_SYield size mismatch!" << std::endl;
+        return;
+    }
+    
+    std::cout << "DEBUG: Filling yield arrays..." << std::endl;
     for (int i = 0; i < nzTBins; ++i) {
-        promptYield[i] = FitIPRes_PromptYield[i][0];
-        nonpromptYield[i] = FitIPRes_NonPromptYield[i][0];
-        totalYield[i] = FitMRes_SYield[i][0];
-    }
-    
-    // Create fragmentation function graphs
-    TGraphErrors* inclFragFunc = new TGraphErrors(
-        nzTBins, binCenters.data(), totalYield.data(),
-        binWidths.data(), zeros.data()
-    );
-    inclFragFunc->SetName("ginclFragFunc");
-    
-    TGraphErrors* promptFragFunc = new TGraphErrors(
-        nzTBins, binCenters.data(), promptYield.data(),
-        binWidths.data(), zeros.data()
-    );
-    promptFragFunc->SetName("promptFragFunc");
-    
-    TGraphErrors* nonpromptFragFunc = new TGraphErrors(
-        nzTBins, binCenters.data(), nonpromptYield.data(),
-        binWidths.data(), zeros.data()
-    );
-    nonpromptFragFunc->SetName("nonpromptFragFunc");
-    
-    // Create parameter graphs for mass fit
-    std::map<std::string, std::vector<TGraphErrors*>> massGraphs;
-    std::map<std::string, TGraphAsymmErrors*> massRangeGraphs;
-    
-    // Create graphs for each mass parameter
-    massGraphs["SYield"] = createParameterGraphs("FitMSYield", nzTBins, binCenters, FitMRes_SYield, binWidths);
-    massGraphs["BYield"] = createParameterGraphs("FitMBYield", nzTBins, binCenters, FitMRes_BYield, binWidths);
-    massGraphs["Mean"] = createParameterGraphs("FitMMean", nzTBins, binCenters, FitMRes_Mean, binWidths);
-    massGraphs["Sig1"] = createParameterGraphs("FitMSig1", nzTBins, binCenters, FitMRes_Sig1, binWidths);
-    massGraphs["deltaSig"] = createParameterGraphs("FitMDeltaSig", nzTBins, binCenters, FitMRes_deltaSig, binWidths);
-    massGraphs["Sig2"] = createParameterGraphs("FitMSig2", nzTBins, binCenters, FitMRes_Sig2, binWidths);
-    massGraphs["alpha"] = createParameterGraphs("FitMAlpha", nzTBins, binCenters, FitMRes_alpha, binWidths);
-    massGraphs["n"] = createParameterGraphs("FitMN", nzTBins, binCenters, FitMRes_n, binWidths);
-    massGraphs["CBFrac"] = createParameterGraphs("FitMCBFrac", nzTBins, binCenters, FitMRes_DGFrac, binWidths);
-    massGraphs["pol1"] = createParameterGraphs("FitMPol1", nzTBins, binCenters, FitMRes_pol1, binWidths);
-    massGraphs["pol2"] = createParameterGraphs("FitMPol2", nzTBins, binCenters, FitMRes_pol2, binWidths);
-    massGraphs["SYieldLim"] = createParameterGraphs("FitMSYieldLim", nzTBins, binCenters, FitMRes_SYieldLim, binWidths);
-    massGraphs["BYieldLim"] = createParameterGraphs("FitMBYieldLim", nzTBins, binCenters, FitMRes_BYieldLim, binWidths);
-    massGraphs["SYieldSG"] = createParameterGraphs("FitMSYieldSG", nzTBins, binCenters, FitMRes_SYieldSG, binWidths);
-    massGraphs["SYieldDCB"] = createParameterGraphs("FitMSYieldDCB", nzTBins, binCenters, FitMRes_SYieldDCB, binWidths);
-
-    massGraphs["TagZMean"] = createParameterGraphs("BinTagZMean", nzTBins, binCenters, Bin_TagZMean, binWidths);
-    
-    // Create range graphs for mass parameters
-    massRangeGraphs["MeanR"] = createGraphsAsymmErr("FitMMeanRange", nzTBins, binCenters, FitMRes_Mean, binWidths);
-    massRangeGraphs["Sig1R"] = createGraphsAsymmErr("FitMSig1Range", nzTBins, binCenters, FitMRes_Sig1, binWidths);
-    massRangeGraphs["deltaSigR"] = createGraphsAsymmErr("FitMDeltaSigRange", nzTBins, binCenters, FitMRes_deltaSig, binWidths);
-    massRangeGraphs["Sig2R"] = createGraphsAsymmErr("FitMSig2Range", nzTBins, binCenters, FitMRes_Sig2, binWidths);
-    massRangeGraphs["alphaR"] = createGraphsAsymmErr("FitMAlphaRange", nzTBins, binCenters, FitMRes_alpha, binWidths);
-    massRangeGraphs["nR"] = createGraphsAsymmErr("FitMNRange", nzTBins, binCenters, FitMRes_n, binWidths);
-    massRangeGraphs["CBFracR"] = createGraphsAsymmErr("FitMCBFracRange", nzTBins, binCenters, FitMRes_DGFrac, binWidths);
-    
-    // Create parameter graphs for IP chi2 fit
-    std::map<std::string, std::vector<TGraphErrors*>> ipchi2Graphs;
-    std::map<std::string, TGraphAsymmErrors*> ipchi2RangeGraphs;
-    
-    // Create graphs for each IP chi2 parameter
-    ipchi2Graphs["SYield"] = createParameterGraphs("FitIPSYield", nzTBins, binCenters, FitIPRes_SYield, binWidths);
-    // Single Bukin parameters for prompt and non-prompt components
-    ipchi2Graphs["XpPrompt"] = createParameterGraphs("FitIPXpPrompt", nzTBins, binCenters, FitIPRes_XpPrompt, binWidths);
-    ipchi2Graphs["SigmaPrompt"] = createParameterGraphs("FitIPSigmaPrompt", nzTBins, binCenters, FitIPRes_SigmaPrompt, binWidths);
-    ipchi2Graphs["XiPrompt"] = createParameterGraphs("FitIPXiPrompt", nzTBins, binCenters, FitIPRes_XiPrompt, binWidths);
-    ipchi2Graphs["XpNonprompt"] = createParameterGraphs("FitIPXpNonprompt", nzTBins, binCenters, FitIPRes_XpNonprompt, binWidths);
-    ipchi2Graphs["SigmaNonprompt"] = createParameterGraphs("FitIPSigmaNonprompt", nzTBins, binCenters, FitIPRes_SigmaNonprompt, binWidths);
-    ipchi2Graphs["XiNonprompt"] = createParameterGraphs("FitIPXiNonprompt", nzTBins, binCenters, FitIPRes_XiNonprompt, binWidths);
-    // Fractions and yields
-    ipchi2Graphs["PromptFrac"] = createParameterGraphs("FitIPPromptFrac", nzTBins, binCenters, FitIPRes_PromptFrac, binWidths);
-    ipchi2Graphs["PromptYield"] = createParameterGraphs("FitIPPromptYield", nzTBins, binCenters, FitIPRes_PromptYield, binWidths);
-    ipchi2Graphs["NonPromptYield"] = createParameterGraphs("FitIPNonPromptYield", nzTBins, binCenters, FitIPRes_NonPromptYield, binWidths);
-    
-    // Create range graphs for IP chi2 parameters
-    ipchi2RangeGraphs["XpPromptR"] = createGraphsAsymmErr("FitIPXpPromptRange", nzTBins, binCenters, FitIPRes_XpPrompt, binWidths);
-    ipchi2RangeGraphs["SigmaPromptR"] = createGraphsAsymmErr("FitIPSigmaPromptRange", nzTBins, binCenters, FitIPRes_SigmaPrompt, binWidths);
-    ipchi2RangeGraphs["XiPromptR"] = createGraphsAsymmErr("FitIPXiPromptRange", nzTBins, binCenters, FitIPRes_XiPrompt, binWidths);
-    ipchi2RangeGraphs["XpNonpromptR"] = createGraphsAsymmErr("FitIPXpNonpromptRange", nzTBins, binCenters, FitIPRes_XpNonprompt, binWidths);
-    ipchi2RangeGraphs["SigmaNonpromptR"] = createGraphsAsymmErr("FitIPSigmaNonpromptRange", nzTBins, binCenters, FitIPRes_SigmaNonprompt, binWidths);
-    ipchi2RangeGraphs["XiNonpromptR"] = createGraphsAsymmErr("FitIPXiNonpromptRange", nzTBins, binCenters, FitIPRes_XiNonprompt, binWidths);
-    ipchi2RangeGraphs["PromptFracR"] = createGraphsAsymmErr("FitIPPromptFracRange", nzTBins, binCenters, FitIPRes_PromptFrac, binWidths);
-    
-    // Save to parameter file
-    TFile* fOutData = new TFile((fOutDataName + ".root").c_str(), "RECREATE");
-    
-    // Save fragmentation functions
-    inclFragFunc->Write();
-    promptFragFunc->Write();
-    nonpromptFragFunc->Write();
-    
-    // Save mass parameter graphs
-    for (const auto& graphSet : massGraphs) {
-        for (const auto& graph : graphSet.second) {
-            if (graph) graph->Write();
+        std::cout << "DEBUG: Processing bin " << i << std::endl;
+        
+        // Check if sub-arrays are properly sized
+        if (FitIPRes_PromptYield[i].size() == 0) {
+            std::cerr << "WARNING: FitIPRes_PromptYield[" << i << "] is empty, setting to 0" << std::endl;
+            promptYield[i] = 0.0;
+        } else {
+            promptYield[i] = FitIPRes_PromptYield[i][0];
         }
-    }
-    
-    // Save IP chi2 parameter graphs
-    for (const auto& graphSet : ipchi2Graphs) {
-        for (const auto& graph : graphSet.second) {
-            if (graph) graph->Write();
+        
+        if (FitIPRes_NonPromptYield[i].size() == 0) {
+            std::cerr << "WARNING: FitIPRes_NonPromptYield[" << i << "] is empty, setting to 0" << std::endl;
+            nonpromptYield[i] = 0.0;
+        } else {
+            nonpromptYield[i] = FitIPRes_NonPromptYield[i][0];
         }
-    }
-    
-    // Save range graphs
-    for (const auto& [key, graph] : massRangeGraphs) {
-        if (graph) graph->Write();
-    }
-    
-    for (const auto& [key, graph] : ipchi2RangeGraphs) {
-        if (graph) graph->Write();
-    }
-    
-    fOutData->Close();
-    
-    // Save to histogram file
-    TFile* fOutHisto = new TFile((fOutDataNameB + ".root").c_str(), "RECREATE");
-    
-    // Save fragmentation functions again
-    inclFragFunc->Write();
-    promptFragFunc->Write();
-    nonpromptFragFunc->Write();
-    
-    // Save histograms
-    for (int i = 0; i < nzTBins; ++i) {
-        if (ipchi2HistoArray[i]) {
-            ipchi2HistoArray[i]->SetName(("hIPChi2_" + std::to_string(i)).c_str());
-            ipchi2HistoArray[i]->Write();
+        
+        if (FitMRes_SYield[i].size() == 0) {
+            std::cerr << "WARNING: FitMRes_SYield[" << i << "] is empty, setting to 0" << std::endl;
+            totalYield[i] = 0.0;
+        } else {
+            totalYield[i] = FitMRes_SYield[i][0];
         }
-        if (massHistoArray[i]) {
-            massHistoArray[i]->SetName(("hMassSpectr_" + std::to_string(i)).c_str());
-            massHistoArray[i]->Write();
+        
+        std::cout << "DEBUG: Bin " << i << " yields - prompt: " << promptYield[i] 
+                  << ", nonprompt: " << nonpromptYield[i] << ", total: " << totalYield[i] << std::endl;
+    }
+    
+    std::cout << "DEBUG: Creating fragmentation function graphs..." << std::endl;
+    
+    try {
+        TGraphErrors* inclFragFunc = new TGraphErrors(
+            nzTBins, binCenters.data(), totalYield.data(),
+            binWidths.data(), zeros.data()
+        );
+        inclFragFunc->SetName("ginclFragFunc");
+        std::cout << "DEBUG: Created inclFragFunc graph successfully" << std::endl;
+        
+        TGraphErrors* promptFragFunc = new TGraphErrors(
+            nzTBins, binCenters.data(), promptYield.data(),
+            binWidths.data(), zeros.data()
+        );
+        promptFragFunc->SetName("promptFragFunc");
+        std::cout << "DEBUG: Created promptFragFunc graph successfully" << std::endl;
+        
+        TGraphErrors* nonpromptFragFunc = new TGraphErrors(
+            nzTBins, binCenters.data(), nonpromptYield.data(),
+            binWidths.data(), zeros.data()
+        );
+        nonpromptFragFunc->SetName("nonpromptFragFunc");
+        std::cout << "DEBUG: Created nonpromptFragFunc graph successfully" << std::endl;
+        
+        // Create parameter graphs for mass fit
+        std::cout << "DEBUG: Creating mass parameter graphs..." << std::endl;
+        std::map<std::string, std::vector<TGraphErrors*>> massGraphs;
+        std::map<std::string, TGraphAsymmErrors*> massRangeGraphs;
+        
+        std::cout << "DEBUG: Checking FitMRes array sizes before graph creation..." << std::endl;
+        std::cout << "DEBUG: FitMRes_SYield.size() = " << FitMRes_SYield.size() << std::endl;
+        std::cout << "DEBUG: FitMRes_BYield.size() = " << FitMRes_BYield.size() << std::endl;
+        std::cout << "DEBUG: FitMRes_Mean.size() = " << FitMRes_Mean.size() << std::endl;
+        
+        // Create graphs for each mass parameter
+        try {
+            std::cout << "DEBUG: Creating SYield graphs..." << std::endl;
+            massGraphs["SYield"] = createParameterGraphs("FitMSYield", nzTBins, binCenters, FitMRes_SYield, binWidths);
+            std::cout << "DEBUG: Created SYield graphs successfully" << std::endl;
+            
+            std::cout << "DEBUG: Creating BYield graphs..." << std::endl;
+            massGraphs["BYield"] = createParameterGraphs("FitMBYield", nzTBins, binCenters, FitMRes_BYield, binWidths);
+            std::cout << "DEBUG: Created BYield graphs successfully" << std::endl;
+            
+            std::cout << "DEBUG: Creating Mean graphs..." << std::endl;
+            massGraphs["Mean"] = createParameterGraphs("FitMMean", nzTBins, binCenters, FitMRes_Mean, binWidths);
+            std::cout << "DEBUG: Created Mean graphs successfully" << std::endl;
+            
+            std::cout << "DEBUG: Creating remaining mass parameter graphs..." << std::endl;
+            massGraphs["Sig1"] = createParameterGraphs("FitMSig1", nzTBins, binCenters, FitMRes_Sig1, binWidths);
+            massGraphs["deltaSig"] = createParameterGraphs("FitMDeltaSig", nzTBins, binCenters, FitMRes_deltaSig, binWidths);
+            massGraphs["Sig2"] = createParameterGraphs("FitMSig2", nzTBins, binCenters, FitMRes_Sig2, binWidths);
+            massGraphs["alpha"] = createParameterGraphs("FitMAlpha", nzTBins, binCenters, FitMRes_alpha, binWidths);
+            massGraphs["n"] = createParameterGraphs("FitMN", nzTBins, binCenters, FitMRes_n, binWidths);
+            massGraphs["CBFrac"] = createParameterGraphs("FitMCBFrac", nzTBins, binCenters, FitMRes_DGFrac, binWidths);
+            massGraphs["pol1"] = createParameterGraphs("FitMPol1", nzTBins, binCenters, FitMRes_pol1, binWidths);
+            massGraphs["pol2"] = createParameterGraphs("FitMPol2", nzTBins, binCenters, FitMRes_pol2, binWidths);
+            massGraphs["SYieldLim"] = createParameterGraphs("FitMSYieldLim", nzTBins, binCenters, FitMRes_SYieldLim, binWidths);
+            massGraphs["BYieldLim"] = createParameterGraphs("FitMBYieldLim", nzTBins, binCenters, FitMRes_BYieldLim, binWidths);
+            massGraphs["SYieldSG"] = createParameterGraphs("FitMSYieldSG", nzTBins, binCenters, FitMRes_SYieldSG, binWidths);
+            massGraphs["SYieldDCB"] = createParameterGraphs("FitMSYieldDCB", nzTBins, binCenters, FitMRes_SYieldDCB, binWidths);
+            massGraphs["TagZMean"] = createParameterGraphs("BinTagZMean", nzTBins, binCenters, Bin_TagZMean, binWidths);
+            massGraphs["TagZMean_weighted"] = createParameterGraphs("BinTagZMean_weighted", nzTBins, binCenters, Bin_TagZMean_weighted, binWidths);
+            std::cout << "DEBUG: Created all mass parameter graphs successfully" << std::endl;
+            
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR: Exception in createParameterGraphs: " << e.what() << std::endl;
+            return;
         }
-    }
-    
-    fOutHisto->Close();
-    
-    // Clean up
-    delete inclFragFunc;
-    delete promptFragFunc;
-    delete nonpromptFragFunc;
-    
-    // Clean up mass graphs
-    for (auto& graphSet : massGraphs) {
-        for (auto& graph : graphSet.second) {
-            delete graph;
+        
+        // Create range graphs for mass parameters
+        try {
+            std::cout << "DEBUG: Creating mass range graphs..." << std::endl;
+            massRangeGraphs["MeanR"] = createGraphsAsymmErr("FitMMeanRange", nzTBins, binCenters, FitMRes_Mean, binWidths);
+            massRangeGraphs["Sig1R"] = createGraphsAsymmErr("FitMSig1Range", nzTBins, binCenters, FitMRes_Sig1, binWidths);
+            massRangeGraphs["deltaSigR"] = createGraphsAsymmErr("FitMDeltaSigRange", nzTBins, binCenters, FitMRes_deltaSig, binWidths);
+            massRangeGraphs["Sig2R"] = createGraphsAsymmErr("FitMSig2Range", nzTBins, binCenters, FitMRes_Sig2, binWidths);
+            massRangeGraphs["alphaR"] = createGraphsAsymmErr("FitMAlphaRange", nzTBins, binCenters, FitMRes_alpha, binWidths);
+            massRangeGraphs["nR"] = createGraphsAsymmErr("FitMNRange", nzTBins, binCenters, FitMRes_n, binWidths);
+            massRangeGraphs["CBFracR"] = createGraphsAsymmErr("FitMCBFracRange", nzTBins, binCenters, FitMRes_DGFrac, binWidths);
+            std::cout << "DEBUG: Created all mass range graphs successfully" << std::endl;
+            
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR: Exception in createGraphsAsymmErr for mass: " << e.what() << std::endl;
+            return;
+        }        
+        // Create parameter graphs for IP chi2 fit
+        std::cout << "DEBUG: Creating IP chi2 parameter graphs..." << std::endl;
+        std::map<std::string, std::vector<TGraphErrors*>> ipchi2Graphs;
+        std::map<std::string, TGraphAsymmErrors*> ipchi2RangeGraphs;
+        
+        // Create graphs for each IP chi2 parameter
+        try {
+            std::cout << "DEBUG: Creating IP chi2 parameter graphs..." << std::endl;
+            ipchi2Graphs["SYield"] = createParameterGraphs("FitIPSYield", nzTBins, binCenters, FitIPRes_SYield, binWidths);
+            // Single Bukin parameters for prompt and non-prompt components
+            ipchi2Graphs["XpPrompt"] = createParameterGraphs("FitIPXpPrompt", nzTBins, binCenters, FitIPRes_XpPrompt, binWidths);
+            ipchi2Graphs["SigmaPrompt"] = createParameterGraphs("FitIPSigmaPrompt", nzTBins, binCenters, FitIPRes_SigmaPrompt, binWidths);
+            ipchi2Graphs["XiPrompt"] = createParameterGraphs("FitIPXiPrompt", nzTBins, binCenters, FitIPRes_XiPrompt, binWidths);
+            ipchi2Graphs["XpNonprompt"] = createParameterGraphs("FitIPXpNonprompt", nzTBins, binCenters, FitIPRes_XpNonprompt, binWidths);
+            ipchi2Graphs["SigmaNonprompt"] = createParameterGraphs("FitIPSigmaNonprompt", nzTBins, binCenters, FitIPRes_SigmaNonprompt, binWidths);
+            ipchi2Graphs["XiNonprompt"] = createParameterGraphs("FitIPXiNonprompt", nzTBins, binCenters, FitIPRes_XiNonprompt, binWidths);
+            // Fractions and yields
+            ipchi2Graphs["PromptFrac"] = createParameterGraphs("FitIPPromptFrac", nzTBins, binCenters, FitIPRes_PromptFrac, binWidths);
+            ipchi2Graphs["PromptYield"] = createParameterGraphs("FitIPPromptYield", nzTBins, binCenters, FitIPRes_PromptYield, binWidths);
+            ipchi2Graphs["NonPromptYield"] = createParameterGraphs("FitIPNonPromptYield", nzTBins, binCenters, FitIPRes_NonPromptYield, binWidths);
+            std::cout << "DEBUG: Created all IP chi2 parameter graphs successfully" << std::endl;
+            
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR: Exception in createParameterGraphs for IP chi2: " << e.what() << std::endl;
+            return;
         }
-    }
-    
-    // Clean up IP chi2 graphs
-    for (auto& graphSet : ipchi2Graphs) {
-        for (auto& graph : graphSet.second) {
-            delete graph;
+        
+        // Create range graphs for IP chi2 parameters
+        try {
+            std::cout << "DEBUG: Creating IP chi2 range graphs..." << std::endl;
+            ipchi2RangeGraphs["XpPromptR"] = createGraphsAsymmErr("FitIPXpPromptRange", nzTBins, binCenters, FitIPRes_XpPrompt, binWidths);
+            ipchi2RangeGraphs["SigmaPromptR"] = createGraphsAsymmErr("FitIPSigmaPromptRange", nzTBins, binCenters, FitIPRes_SigmaPrompt, binWidths);
+            ipchi2RangeGraphs["XiPromptR"] = createGraphsAsymmErr("FitIPXiPromptRange", nzTBins, binCenters, FitIPRes_XiPrompt, binWidths);
+            ipchi2RangeGraphs["XpNonpromptR"] = createGraphsAsymmErr("FitIPXpNonpromptRange", nzTBins, binCenters, FitIPRes_XpNonprompt, binWidths);
+            ipchi2RangeGraphs["SigmaNonpromptR"] = createGraphsAsymmErr("FitIPSigmaNonpromptRange", nzTBins, binCenters, FitIPRes_SigmaNonprompt, binWidths);
+            ipchi2RangeGraphs["XiNonpromptR"] = createGraphsAsymmErr("FitIPXiNonpromptRange", nzTBins, binCenters, FitIPRes_XiNonprompt, binWidths);
+            ipchi2RangeGraphs["PromptFracR"] = createGraphsAsymmErr("FitIPPromptFracRange", nzTBins, binCenters, FitIPRes_PromptFrac, binWidths);
+            std::cout << "DEBUG: Created all IP chi2 range graphs successfully" << std::endl;
+            
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR: Exception in createGraphsAsymmErr for IP chi2: " << e.what() << std::endl;
+            return;
+        }        
+        // Save to parameter file
+        std::cout << "DEBUG: Creating parameter output file: " << fOutDataName << ".root" << std::endl;
+        TFile* fOutData = new TFile((fOutDataName + ".root").c_str(), "RECREATE");
+        
+        if (!fOutData || fOutData->IsZombie()) {
+            std::cerr << "ERROR: Cannot create parameter output file: " << fOutDataName << ".root" << std::endl;
+            return;
         }
+        
+        std::cout << "DEBUG: Writing fragmentation functions..." << std::endl;
+        // Save fragmentation functions
+        inclFragFunc->Write();
+        promptFragFunc->Write();
+        nonpromptFragFunc->Write();
+        
+        std::cout << "DEBUG: Writing mass parameter graphs..." << std::endl;
+        // Save mass parameter graphs
+        for (const auto& graphSet : massGraphs) {
+            std::cout << "DEBUG: Writing graph set: " << graphSet.first << std::endl;
+            for (const auto& graph : graphSet.second) {
+                if (graph) {
+                    graph->Write();
+                } else {
+                    std::cout << "WARNING: Null graph in set " << graphSet.first << std::endl;
+                }
+            }
+        }
+        
+        std::cout << "DEBUG: Writing IP chi2 parameter graphs..." << std::endl;
+        // Save IP chi2 parameter graphs
+        for (const auto& graphSet : ipchi2Graphs) {
+            std::cout << "DEBUG: Writing IP chi2 graph set: " << graphSet.first << std::endl;
+            for (const auto& graph : graphSet.second) {
+                if (graph) {
+                    graph->Write();
+                } else {
+                    std::cout << "WARNING: Null graph in IP chi2 set " << graphSet.first << std::endl;
+                }
+            }
+        }        
+        std::cout << "DEBUG: Writing range graphs..." << std::endl;
+        // Save range graphs
+        for (const auto& [key, graph] : massRangeGraphs) {
+            if (graph) {
+                graph->Write();
+            } else {
+                std::cout << "WARNING: Null mass range graph: " << key << std::endl;
+            }
+        }
+        
+        for (const auto& [key, graph] : ipchi2RangeGraphs) {
+            if (graph) {
+                graph->Write();
+            } else {
+                std::cout << "WARNING: Null IP chi2 range graph: " << key << std::endl;
+            }
+        }
+        
+        std::cout << "DEBUG: Closing parameter file..." << std::endl;
+        fOutData->Close();
+        
+        // Save to histogram file
+        std::cout << "DEBUG: Creating histogram output file: " << fOutDataNameB << ".root" << std::endl;
+        TFile* fOutHisto = new TFile((fOutDataNameB + ".root").c_str(), "RECREATE");
+        
+        if (!fOutHisto || fOutHisto->IsZombie()) {
+            std::cerr << "ERROR: Cannot create histogram output file: " << fOutDataNameB << ".root" << std::endl;
+            return;
+        }
+        
+        std::cout << "DEBUG: Writing fragmentation functions to histogram file..." << std::endl;
+        // Save fragmentation functions again
+        inclFragFunc->Write();
+        promptFragFunc->Write();
+        nonpromptFragFunc->Write();
+        
+        std::cout << "DEBUG: Writing histograms..." << std::endl;
+        // Save histograms with robust error checking and validation
+        for (int i = 0; i < nzTBins; ++i) {
+            std::cout << "DEBUG: Processing histograms for bin " << i << std::endl;
+            
+            // Write IP chi2 histogram with comprehensive safety checks
+            try {
+                if (i < static_cast<int>(ipchi2HistoArray.size()) && 
+                    ipchi2HistoArray[i] != nullptr) {
+                    
+                    // Additional validation - check if histogram is still valid
+                    TH1* ipchi2Hist = ipchi2HistoArray[i];
+                    if (ipchi2Hist->GetEntries() >= 0 && ipchi2Hist->GetNbinsX() > 0) {
+                        // Create a safe copy to avoid potential pointer issues
+                        TH1* ipchi2HistCopy = (TH1*)ipchi2Hist->Clone(("hIPChi2_" + std::to_string(i)).c_str());
+                        if (ipchi2HistCopy) {
+                            ipchi2HistCopy->SetDirectory(fOutHisto);  // Set directory first
+                            ipchi2HistCopy->Write();
+                            std::cout << "DEBUG: Wrote IPChi2 histogram for bin " << i << std::endl;
+                            delete ipchi2HistCopy;  // Clean up the copy
+                        } else {
+                            std::cout << "WARNING: Failed to create IPChi2 histogram copy for bin " << i << std::endl;
+                        }
+                    } else {
+                        std::cout << "WARNING: Invalid IPChi2 histogram data for bin " << i << std::endl;
+                    }
+                } else {
+                    std::cout << "WARNING: Null or out-of-bounds IPChi2 histogram for bin " << i << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "ERROR: Exception writing IPChi2 histogram for bin " << i << ": " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "ERROR: Unknown exception writing IPChi2 histogram for bin " << i << std::endl;
+            }
+            
+            // Write mass histogram with comprehensive safety checks
+            std::cout << "DEBUG: Writing mass histogram for bin " << i << std::endl;
+            try {
+                if (i < static_cast<int>(massHistoArray.size()) && 
+                    massHistoArray[i] != nullptr) {
+                    
+                    // Additional validation - check if histogram is still valid
+                    TH1* massHist = massHistoArray[i];
+                    if (massHist->GetEntries() >= 0 && massHist->GetNbinsX() > 0) {
+                        // Create a safe copy to avoid potential pointer issues
+                        TH1* massHistCopy = (TH1*)massHist->Clone(("hMassSpectr_" + std::to_string(i)).c_str());
+                        if (massHistCopy) {
+                            massHistCopy->SetDirectory(fOutHisto);  // Set directory first
+                            massHistCopy->Write();
+                            std::cout << "DEBUG: Wrote mass histogram for bin " << i << std::endl;
+                            delete massHistCopy;  // Clean up the copy
+                        } else {
+                            std::cout << "WARNING: Failed to create mass histogram copy for bin " << i << std::endl;
+                        }
+                    } else {
+                        std::cout << "WARNING: Invalid mass histogram data for bin " << i << std::endl;
+                    }
+                } else {
+                    std::cout << "WARNING: Null or out-of-bounds mass histogram for bin " << i << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "ERROR: Exception writing mass histogram for bin " << i << ": " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "ERROR: Unknown exception writing mass histogram for bin " << i << std::endl;
+            }
+        }        
+        std::cout << "DEBUG: Closing histogram file..." << std::endl;
+        fOutHisto->Close();
+                
+        std::cout << "DEBUG: saveResultsToFile completed successfully" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "ERROR: Exception in saveResultsToFile: " << e.what() << std::endl;
+        return;
     }
     
-    // Clean up range graphs
-    for (auto& [key, graph] : massRangeGraphs) {
-        delete graph;
-    }
-    
-    for (auto& [key, graph] : ipchi2RangeGraphs) {
-        delete graph;
-    }
+    std::cout << "===== DEBUG: saveResultsToFile completed =====" << std::endl;
     
     std::cout << "Results saved to:" << std::endl;
     std::cout << "  Parameters: " << fOutDataName << ".root" << std::endl;
@@ -891,6 +2089,331 @@ std::vector<TGraphErrors*> FitSpectraObject::createParameterGraphs(
     return graphs;
 }
 
+void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& corrValueKaon, 
+                                                   const std::vector<double>& corrValueErrKaon,
+                                                   const std::vector<double>& corrValuePion, 
+                                                   const std::vector<double>& corrValueErrPion) {
+    
+    std::cout << "Creating correction factor graphs..." << std::endl;
+    // std::cout << "Input: nBins=" << nBins << ", nzTBins=" << nzTBins << ", zBins.size()=" << zBins.size() << std::endl;
+    
+    // Validate input vectors
+    if (corrValueKaon.size() != corrValueErrKaon.size() || 
+        corrValuePion.size() != corrValueErrPion.size() ||
+        corrValueKaon.size() != corrValuePion.size()) {
+        std::cerr << "Error: Inconsistent correction factor vector sizes" << std::endl;
+        return;
+    }
+    
+    int nBins = corrValueKaon.size();
+    if (nBins == 0) {
+        std::cerr << "Error: Empty correction factor vectors" << std::endl;
+        return;
+    }
+    
+    // Create vectors for valid points only
+    std::vector<double> validBinCenters, validBinErrors;
+    std::vector<double> validKaonCorr, validKaonErr;
+    std::vector<double> validPionCorr, validPionErr;
+    std::vector<int> validBinIndices;
+    
+    // Filter out invalid correction factors (0, negative, or NaN)
+    for (int i = 0; i < nBins; ++i) {
+        bool kaonValid = (corrValueKaon[i] > 0 && std::isfinite(corrValueKaon[i]) && 
+                         corrValueErrKaon[i] >= 0 && std::isfinite(corrValueErrKaon[i]));
+        bool pionValid = (corrValuePion[i] > 0 && std::isfinite(corrValuePion[i]) && 
+                         corrValueErrPion[i] >= 0 && std::isfinite(corrValueErrPion[i]));
+        
+        if (kaonValid && pionValid) {
+            // Calculate bin center from zBins if possible
+            double binCenter, binError;
+            if (i < nzTBins - 1 && i < static_cast<int>(zBins.size()) - 1) {
+                binCenter = (zBins[i] + zBins[i + 1]) / 2.0;
+                binError = (zBins[i + 1] - zBins[i]) / 2.0;
+                std::cout << "  Bin " << i << ": binCenter=" << binCenter << " (from zBins[" << i << "]=" << zBins[i] << " to zBins[" << i+1 << "]=" << zBins[i+1] << ")" << std::endl;
+            } else {
+                // Skip bins that are out of range - don't use fallback sequential binning
+                std::cout << "Warning: Skipping bin " << i << " - out of valid zBins range (i=" << i << ", nzTBins-1=" << (nzTBins-1) << ", zBins.size()-1=" << (zBins.size()-1) << ")" << std::endl;
+                continue;
+            }
+            
+            validBinCenters.push_back(binCenter);
+            validBinErrors.push_back(binError);
+            validKaonCorr.push_back(corrValueKaon[i]);
+            validKaonErr.push_back(corrValueErrKaon[i]);
+            validPionCorr.push_back(corrValuePion[i]);
+            validPionErr.push_back(corrValueErrPion[i]);
+            validBinIndices.push_back(i);
+        } else {
+            std::cout << "Warning: Skipping bin " << i << " due to invalid correction factors" << std::endl;
+            if (!kaonValid) {
+                std::cout << "  Kaon: value=" << corrValueKaon[i] << ", error=" << corrValueErrKaon[i] << std::endl;
+            }
+            if (!pionValid) {
+                std::cout << "  Pion: value=" << corrValuePion[i] << ", error=" << corrValueErrPion[i] << std::endl;
+            }
+        }
+    }
+    
+    int nValidBins = validBinCenters.size();
+    if (nValidBins == 0) {
+        std::cerr << "Error: No valid correction factors found" << std::endl;
+        return;
+    }
+    
+    std::cout << "Using " << nValidBins << " valid bins out of " << nBins << " total bins" << std::endl;
+    
+    // Final validation: check for reasonable x-axis values
+    if (nValidBins > 0) {
+        double minX = *std::min_element(validBinCenters.begin(), validBinCenters.end());
+        double maxX = *std::max_element(validBinCenters.begin(), validBinCenters.end());
+        
+        std::cout << "Final x-axis range: " << minX << " to " << maxX << std::endl;
+        
+        // Check if x values are reasonable (for zT: 0-1, for y: 2-5)
+        double maxExpected = zTObservable ? 1.2 : 6.0;  // Allow some margin
+        if (maxX > maxExpected) {
+            std::cerr << "ERROR: X-values are unreasonably large (maxX=" << maxX << ", expected < " << maxExpected << ")" << std::endl;
+            std::cerr << "This suggests a problem with bin center calculation. Aborting graph creation." << std::endl;
+            return;
+        }
+    }
+    
+    // Create individual correction factor graphs
+    TGraphErrors* graphKaon = new TGraphErrors(nValidBins);
+    TGraphErrors* graphPion = new TGraphErrors(nValidBins);
+    TGraphErrors* graphCombined = new TGraphErrors(nValidBins);
+    
+    // Fill graphs with valid data
+    for (int i = 0; i < nValidBins; ++i) {
+        graphKaon->SetPoint(i, validBinCenters[i], validKaonCorr[i]);
+        graphKaon->SetPointError(i, validBinErrors[i], validKaonErr[i]);
+        
+        graphPion->SetPoint(i, validBinCenters[i], validPionCorr[i]);
+        graphPion->SetPointError(i, validBinErrors[i], validPionErr[i]);
+        
+        // Combined correction is the product of kaon and pion corrections
+        double combinedValue = validKaonCorr[i] * validPionCorr[i];
+        double combinedError = 0.0;
+        if (validKaonCorr[i] > 0 && validPionCorr[i] > 0) {
+            combinedError = combinedValue * sqrt(pow(validKaonErr[i]/validKaonCorr[i], 2) + 
+                                               pow(validPionErr[i]/validPionCorr[i], 2));
+        }
+        graphCombined->SetPoint(i, validBinCenters[i], combinedValue);
+        graphCombined->SetPointError(i, validBinErrors[i], combinedError);
+    }
+    
+    // Set graph properties
+    graphKaon->SetMarkerStyle(20);
+    graphKaon->SetMarkerColor(kBlue);
+    graphKaon->SetLineColor(kBlue);
+    graphKaon->SetMarkerSize(1.2);
+    graphKaon->SetTitle("Kaon PID Efficiency Correction");
+    
+    graphPion->SetMarkerStyle(21);
+    graphPion->SetMarkerColor(kRed);
+    graphPion->SetLineColor(kRed);
+    graphPion->SetMarkerSize(1.2);
+    graphPion->SetTitle("Pion PID Efficiency Correction");
+    
+    graphCombined->SetMarkerStyle(22);
+    graphCombined->SetMarkerColor(kGreen + 2);
+    graphCombined->SetLineColor(kGreen + 2);
+    graphCombined->SetMarkerSize(1.2);
+    graphCombined->SetTitle("Combined PID Efficiency Correction");
+    
+    // Create combined canvas
+    TCanvas* canvasCombined = new TCanvas("canvasCorrectionFactors", "PID Efficiency Correction Factors", 1200, 800);
+    canvasCombined->SetLeftMargin(0.12);
+    canvasCombined->SetRightMargin(0.05);
+    canvasCombined->SetTopMargin(0.08);
+    canvasCombined->SetBottomMargin(0.12);
+    
+    // Set axis labels and ranges
+    std::string xAxisLabel = zTObservable ? "z_{T}" : "y";
+    graphKaon->GetXaxis()->SetTitle(xAxisLabel.c_str());
+    graphKaon->GetYaxis()->SetTitle("Correction Factor");
+    graphKaon->GetYaxis()->SetTitleOffset(1.2);
+    
+    // Find y-axis range using valid data
+    double yMin = 0.8, yMax = 1.2;
+    for (int i = 0; i < nValidBins; ++i) {
+        yMin = std::min(yMin, std::min(validKaonCorr[i] - validKaonErr[i], 
+                                      validPionCorr[i] - validPionErr[i]));
+        yMax = std::max(yMax, std::max(validKaonCorr[i] + validKaonErr[i], 
+                                      validPionCorr[i] + validPionErr[i]));
+    }
+    graphKaon->GetYaxis()->SetRangeUser(yMin * 0.9, yMax * 1.1);
+    
+    // Draw graphs
+    graphKaon->Draw("APE");
+    graphPion->Draw("PE same");
+    graphCombined->Draw("PE same");
+    
+    // Add unity line
+    if (nValidBins > 0) {
+        TLine* unityLine = new TLine(validBinCenters[0] - validBinErrors[0], 1.0, 
+                                    validBinCenters[nValidBins-1] + validBinErrors[nValidBins-1], 1.0);
+        unityLine->SetLineStyle(2);
+        unityLine->SetLineColor(kBlack);
+        unityLine->SetLineWidth(2);
+        unityLine->Draw("same");
+        
+        // Create legend
+        TLegend* legend = new TLegend(0.15, 0.75, 0.45, 0.92);
+        legend->SetBorderSize(0);
+        legend->SetFillStyle(0);
+        legend->AddEntry(graphKaon, "Kaon PID Correction", "pe");
+        legend->AddEntry(graphPion, "Pion PID Correction", "pe");
+        legend->AddEntry(graphCombined, "Combined Correction", "pe");
+        legend->AddEntry(unityLine, "Unity", "l");
+        legend->Draw();
+    } else {
+        // Create legend without unity line
+        TLegend* legend = new TLegend(0.15, 0.75, 0.45, 0.92);
+        legend->SetBorderSize(0);
+        legend->SetFillStyle(0);
+        legend->AddEntry(graphKaon, "Kaon PID Correction", "pe");
+        legend->AddEntry(graphPion, "Pion PID Correction", "pe");
+        legend->AddEntry(graphCombined, "Combined Correction", "pe");
+        legend->Draw();
+    }
+    
+    // Add title
+    TPaveText* title = new TPaveText(0.5, 0.82, 0.95, 0.92, "NDC");
+    title->SetBorderSize(0);
+    title->SetFillStyle(0);
+    title->AddText(Form("PID Efficiency Correction Factors (%.0f < p_{T}^{jet} < %.0f GeV)", 
+                       jetPt.first, jetPt.second));
+    title->Draw();
+    
+    // Save combined plot
+    std::string combinedFileName = outfilePath + "CorrectionFactors_Combined.png";
+    canvasCombined->SaveAs(combinedFileName.c_str());
+    std::cout << "Saved combined correction factors plot: " << combinedFileName << std::endl;
+    
+    // Create individual plots
+    std::vector<TGraphErrors*> graphs = {graphKaon, graphPion, graphCombined};
+    std::vector<std::string> names = {"Kaon", "Pion", "Combined"};
+    std::vector<std::string> titles = {"Kaon PID Efficiency Correction", 
+                                      "Pion PID Efficiency Correction", 
+                                      "Combined PID Efficiency Correction"};
+    
+    for (size_t i = 0; i < graphs.size(); ++i) {
+        TCanvas* canvas = new TCanvas(("canvas" + names[i]).c_str(), titles[i].c_str(), 800, 600);
+        canvas->SetLeftMargin(0.12);
+        canvas->SetRightMargin(0.05);
+        canvas->SetTopMargin(0.08);
+        canvas->SetBottomMargin(0.12);
+        
+        graphs[i]->GetXaxis()->SetTitle(xAxisLabel.c_str());
+        graphs[i]->GetYaxis()->SetTitle("Correction Factor");
+        graphs[i]->GetYaxis()->SetTitleOffset(1.2);
+        graphs[i]->Draw("APE");
+        
+        // Add unity line if we have valid data
+        TLine* line = nullptr;
+        if (nValidBins > 0) {
+            line = new TLine(validBinCenters[0] - validBinErrors[0], 1.0, 
+                            validBinCenters[nValidBins-1] + validBinErrors[nValidBins-1], 1.0);
+            line->SetLineStyle(2);
+            line->SetLineColor(kBlack);
+            line->SetLineWidth(2);
+            line->Draw("same");
+        }
+        
+        // Add legend
+        TLegend* leg = new TLegend(0.15, 0.80, 0.45, 0.92);
+        leg->SetBorderSize(0);
+        leg->SetFillStyle(0);
+        leg->AddEntry(graphs[i], (names[i] + " PID Correction").c_str(), "pe");
+        if (line) {
+            leg->AddEntry(line, "Unity", "l");
+        }
+        leg->Draw();
+        
+        // Save individual plot
+        std::string fileName = outfilePath + "CorrectionFactors_" + names[i] + ".png";
+        canvas->SaveAs(fileName.c_str());
+        std::cout << "Saved " << names[i] << " correction factors plot: " << fileName << std::endl;
+        
+        delete canvas;
+        if (line) delete line;
+        delete leg;
+    }
+    
+    // Save graphs to ROOT file in main directory with pT range in graph names
+    std::string mainDir;
+    if (isMC) {
+        mainDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC";
+    } else {
+        mainDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA";
+    }
+    
+    // Create pT range string for graph names
+    std::stringstream ptRangeStr;
+    ptRangeStr << jetPt.first << "_" << jetPt.second;
+    std::string ptString = ptRangeStr.str();
+    
+    std::string rootFileName = mainDir + "/CorrectionFactors.root";
+    TFile* rootFile = new TFile(rootFileName.c_str(), "UPDATE");  // Use UPDATE to append if file exists
+    if (rootFile && rootFile->IsOpen()) {
+        // Include pT range in graph names
+        std::string kaonName = "graphKaonCorrection_" + ptString;
+        std::string pionName = "graphPionCorrection_" + ptString;
+        std::string combinedName = "graphCombinedCorrection_" + ptString;
+        
+        graphKaon->Write(kaonName.c_str());
+        graphPion->Write(pionName.c_str());
+        graphCombined->Write(combinedName.c_str());
+        rootFile->Close();
+        std::cout << "Saved correction factor graphs to ROOT file: " << rootFileName << std::endl;
+        std::cout << "  Graph names: " << kaonName << ", " << pionName << ", " << combinedName << std::endl;
+    } else {
+        std::cerr << "Error: Could not create ROOT file for correction factors" << std::endl;
+    }
+    
+    // Always delete the root file object (whether successful or not)
+    if (rootFile) {
+        delete rootFile;
+        rootFile = nullptr;
+    }
+    
+    // Print summary
+    std::cout << "\n=== PID Efficiency Correction Factor Summary ===" << std::endl;
+    std::cout << "Valid Bin\tOriginal Bin\t" << xAxisLabel << " Center\tKaon Corr\tPion Corr\tCombined Corr" << std::endl;
+    
+    // Check for reasonable x-axis range
+    if (nValidBins > 0) {
+        double minX = *std::min_element(validBinCenters.begin(), validBinCenters.end());
+        double maxX = *std::max_element(validBinCenters.begin(), validBinCenters.end());
+        std::cout << "X-axis range: " << minX << " to " << maxX << std::endl;
+        
+        // Warn if x values seem unreasonably large
+        if (maxX > 10.0) {
+            std::cout << "WARNING: Large x-values detected (maxX=" << maxX << ")!" << std::endl;
+        }
+    }
+    
+    for (int i = 0; i < nValidBins; ++i) {
+        double combinedValue = validKaonCorr[i] * validPionCorr[i];
+        std::cout << i << "\t\t" << validBinIndices[i] << "\t\t" << std::fixed << std::setprecision(3) << validBinCenters[i] 
+                  << "\t\t" << validKaonCorr[i] << "±" << validKaonErr[i]
+                  << "\t" << validPionCorr[i] << "±" << validPionErr[i]
+                  << "\t" << combinedValue << std::endl;
+    }
+    std::cout << "Total valid bins: " << nValidBins << " out of " << nBins << " original bins" << std::endl;
+    std::cout << "=================================================" << std::endl;
+    
+    // Clean up
+    delete canvasCombined;
+    delete graphKaon;
+    delete graphPion;
+    delete graphCombined;
+    
+    std::cout << "Correction factor graphs creation completed." << std::endl;
+}
+
 // Implementation of createGraphsAsymmErr
 TGraphAsymmErrors* FitSpectraObject::createGraphsAsymmErr(
     const std::string& key, int nBins, const std::vector<double>& xPos,
@@ -947,7 +2470,7 @@ TGraphAsymmErrors* FitSpectraObject::createGraphsAsymmErr(
     return graph;
 }
 
-void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = false)
+void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = false, bool enableSPlot = true)
 {
 
     std::string mcTag = isMC ? "MC" : "";
@@ -985,7 +2508,8 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
         FitSpectraObject fitter(
             jetPt, isMC, zBins, 
             isZtObservable,
-            tree  // Pass the tree
+            tree,  // Pass the tree
+            enableSPlot  // Pass the sPlot flag
         );
         fitter.startFitting();
     } 
@@ -1001,7 +2525,8 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
         // there are 
         std::vector<double> rBins = {0, 0.015, 0.03, 0.06, 0.1, 0.2, 0.5};  // D0 R bins
         //LHCb y bins (rapidity)
-        std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
+        // std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
+        std::vector<double> yBins = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
         
         // pT binning for jets
         std::vector<double> startPt = {5, 10, 15, 20, 30};
@@ -1025,7 +2550,8 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
             FitSpectraObject fitter(
                 jetPt, isMC, binArray,
                 isZtObservable,
-                tree  // Pass the tree
+                tree,  // Pass the tree
+                enableSPlot  // Pass the sPlot flag
             );
             fitter.startFitting();
         }

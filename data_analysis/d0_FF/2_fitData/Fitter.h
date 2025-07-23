@@ -30,6 +30,7 @@
 #include "RooFitResult.h"
 #include "RooMsgService.h"
 #include "RooPlot.h"
+#include "RooStats/SPlot.h"
 
 // Forward declaration for Plotter class
 class Plotter;
@@ -147,7 +148,7 @@ public:
                               const std::string& name, 
                               const std::string& fidCutString = "", 
                               bool isMass = true, 
-                              int bin = 0, 
+                            //   int bin = 0, 
                               int corrVer = -1, 
                               const std::string& fitVarName = "ipchi2");
     
@@ -161,13 +162,77 @@ public:
             bool splot = false, 
             TFile* sFile = nullptr);
     
-    std::tuple<TH1*, std::vector<double>, std::vector<double>> 
-    ipchi2Fit(const std::string& resonance, 
-              RooDataSet* data, 
-              RooDataSet* background = nullptr, 
-              const std::string& figKey = "All", 
-              int bin = 0, 
-              const std::string& zRange = "");
+    // std::tuple<TH1*, std::vector<double>, std::vector<double>> 
+    // ipchi2Fit(const std::string& resonance, 
+    //           RooDataSet* data, 
+    //           RooDataSet* background = nullptr, 
+    //           const std::string& figKey = "All", 
+    //           int bin = 0, 
+    //           const std::string& zRange = "");
+    
+    // IP chi2 fit method that returns yield variables for sPlot
+    std::tuple<TH1*, std::vector<double>, std::vector<double>, RooAbsPdf*, RooRealVar*, RooRealVar*> 
+    ipchi2FitWithYields(const std::string& resonance, 
+                       RooDataSet* data, 
+                       RooDataSet* background = nullptr, 
+                       const std::string& figKey = "All", 
+                       int bin = 0, 
+                       const std::string& zRange = "",
+                       bool enableSPlot = false,
+                       TFile* splotFile = nullptr);
+    
+    // sPlot utility methods
+    std::pair<RooDataSet*, RooDataSet*> 
+    createSPlotDatasets(RooDataSet* originalData, 
+                       RooAbsPdf* model, 
+                       RooRealVar* sigYield, 
+                       RooRealVar* bkgYield, 
+                       const std::string& baseName = "splot");
+    
+    std::pair<RooDataSet*, RooDataSet*> 
+    createIPChi2SPlotDatasets(RooDataSet* originalData, 
+                             RooAbsPdf* model, 
+                             RooRealVar* sig_yieldLim,
+                             RooRealVar* prompt_frac, 
+                             const std::string& baseName = "ipchi2_splot");
+    
+    RooDataSet* createWeightedDataset(RooDataSet* originalData, 
+                                     const std::string& splotFileName, 
+                                     int bin,
+                                     const std::string& weightType,
+                                     const std::string& datasetName);
+
+    
+    bool applySPlotWeights(RooDataSet* data, 
+                          const std::string& splotFileName, 
+                          int bin,
+                          const std::string& weightType = "sig_sWeight");
+    
+    /**
+     * Creates a prompt signal tagZ distribution by applying both mass and IP chi2 sPlot weights.
+     * 
+     * This method implements two-stage statistical separation:
+     * 1. Mass sPlot weights: Separate signal from combinatorial background  
+     * 2. IP chi2 sPlot weights: Separate prompt from nonprompt signal
+     * 
+     * @param data: Original dataset
+     * @param splotFileName: File containing mass sPlot weights
+     * @param bin: Bin number for identification  
+     * @param ipChi2Weights: Map of IP chi2 sPlot weights
+     * @param histName: Base histogram name
+     * @param nBins: Number of bins for tagZ histogram
+     * @param xMin: Minimum tagZ value
+     * @param xMax: Maximum tagZ value
+     * @return: Histogram of prompt signal tagZ distribution
+     */
+    TH1D* createPromptSignalTagZDistribution(RooDataSet* data,
+                                           const std::string& splotFileName,
+                                           int bin,
+                                           const std::map<std::pair<double, double>, std::pair<double, double>>& ipChi2Weights,
+                                           const std::string& histName = "promptSignalTagZ",
+                                           int nBins = 20,
+                                           double xMin = 0.0,
+                                           double xMax = 1.0);
     
     // Accessor methods
     MassConfig getMassDict(const std::string& resonance) const {
@@ -178,6 +243,17 @@ public:
         throw std::runtime_error("Resonance not found in mass dictionary: " + resonance);
     }
     
+    // Method to update sig_yieldLim with fitted signal yield
+    void updateSigYieldLim(const std::string& resonance, double fittedSignalYield) {
+        auto it = massDict.find(resonance);
+        if (it != massDict.end()) {
+            it->second.sigYieldLim.value = fittedSignalYield;
+            std::cout << "Updated sig_yieldLim for " << resonance << " to " << fittedSignalYield << std::endl;
+        } else {
+            std::cout << "Warning: Resonance not found in mass dictionary: " << resonance << std::endl;
+        }
+    }
+    
     IPChi2Config getIPChi2Dict(const std::string& resonance) const {
         std::string key = "Sig" + resonance;
         auto it = ipchi2Dict.find(key);
@@ -186,6 +262,15 @@ public:
         }
         throw std::runtime_error("Resonance not found in IP chi2 dictionary: " + key);
     }
+    
+    // Save IP chi2 sPlot weights to ROOT file
+    bool saveIPChi2SPlotWeights(RooDataSet* originalData, 
+                               RooAbsPdf* model, 
+                               RooRealVar* sig_yieldLim,
+                               RooRealVar* prompt_frac, 
+                               TFile* outputFile,
+                               int bin,
+                               const std::string& treeName = "ipSplotTree");
 };
 
 #endif // FITTER_H

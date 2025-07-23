@@ -156,6 +156,18 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         std::cerr << "Error opening file: " << e.what() << std::endl;
         fInFileHisto = nullptr;
     }
+
+    std::string rootFileNameCorrections = basepath + "/CorrectionFactors.root";
+
+    TFile* fInFileHistoCorrections = nullptr;
+    
+    try {
+        fInFileHistoCorrections = TFile::Open(rootFileNameCorrections.c_str());
+    } catch (const std::exception& e) {
+        std::cerr << "Error opening corrections file: " << e.what() << std::endl;
+        fInFileHistoCorrections = nullptr;
+    }
+    std::cout << "Opened corrections file: " << rootFileNameCorrections << std::endl;
     
     // Create output directory
     OutfilePath = basepath + "/RawSignalYields_D0/";
@@ -239,71 +251,60 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         
         // Get correction histograms with error checking
         try {
-            gAccCorr0 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_TypeRnd"));
+            // Load the actual correction graphs created by MassFitter.C with pT range in name
+            std::string kaonGraphName = "graphKaonCorrection_" + ptString;
+            std::string pionGraphName = "graphPionCorrection_" + ptString;
+            std::string combinedGraphName = "graphCombinedCorrection_" + ptString;
+            
+            gAccCorr0 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(kaonGraphName.c_str()));
             if (!is_valid_graph(gAccCorr0)) {
-                std::cout << "Warning: CorrHist_TypeRnd is not a valid graph, creating empty graph" << std::endl;
+                std::cout << "Warning: " << kaonGraphName << " is not a valid graph, creating empty graph" << std::endl;
                 gAccCorr0 = create_empty_graph();
             }
+            std::cout << "Loaded kaon correction graph: " << kaonGraphName << std::endl;
             
-            gAccCorr1 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_Type1"));
+            gAccCorr1 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(pionGraphName.c_str()));
             if (!is_valid_graph(gAccCorr1)) {
-                std::cout << "Warning: CorrHist_Type1 is not a valid graph, creating empty graph" << std::endl;
+                std::cout << "Warning: " << pionGraphName << " is not a valid graph, creating empty graph" << std::endl;
                 gAccCorr1 = create_empty_graph();
             }
+            std::cout << "Loaded pion correction graph: " << pionGraphName << std::endl;
             
-            gAccCorr2 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_Type2"));
+            gAccCorr2 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(combinedGraphName.c_str()));
             if (!is_valid_graph(gAccCorr2)) {
-                std::cout << "Warning: CorrHist_Type2 is not a valid graph, creating empty graph" << std::endl;
+                std::cout << "Warning: " << combinedGraphName << " is not a valid graph, creating empty graph" << std::endl;
                 gAccCorr2 = create_empty_graph();
             }
             
-            gAccCorr3 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_Type3"));
-            if (!is_valid_graph(gAccCorr3)) {
-                std::cout << "Warning: CorrHist_Type3 is not a valid graph, creating empty graph" << std::endl;
-                gAccCorr3 = create_empty_graph();
-            }
-            
-            gAccCorr4 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_Type4"));
-            if (!is_valid_graph(gAccCorr4)) {
-                std::cout << "Warning: CorrHist_Type4 is not a valid graph, creating empty graph" << std::endl;
-                gAccCorr4 = create_empty_graph();
-            }
-            
-            gAccCorr5 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_Type5"));
-            if (!is_valid_graph(gAccCorr5)) {
-                std::cout << "Warning: CorrHist_Type5 is not a valid graph, creating empty graph" << std::endl;
-                gAccCorr5 = create_empty_graph();
-            }
-            
-            gAccCorr6 = dynamic_cast<TGraphErrors*>(fInFileHisto->Get("CorrHist_Type6"));
-            if (!is_valid_graph(gAccCorr6)) {
-                std::cout << "Warning: CorrHist_Type6 is not a valid graph, creating empty graph" << std::endl;
-                gAccCorr6 = create_empty_graph();
-            }
+            // Create empty graphs for unused correction factors (backward compatibility)
+            gAccCorr3 = create_empty_graph();
+            gAccCorr4 = create_empty_graph();
+            gAccCorr5 = create_empty_graph();
+            gAccCorr6 = create_empty_graph();
         } catch (const std::exception& e) {
             std::cerr << "Error loading correction histograms: " << e.what() << std::endl;
             // Create empty graphs as fallbacks
-            gAccCorr0 = create_empty_graph();
-            gAccCorr1 = create_empty_graph();
-            gAccCorr2 = create_empty_graph();
+            gAccCorr0 = create_empty_graph();  // Kaon correction
+            gAccCorr1 = create_empty_graph();  // Pion correction
+            gAccCorr2 = create_empty_graph();  // Combined correction
             gAccCorr3 = create_empty_graph();
             gAccCorr4 = create_empty_graph();
             gAccCorr5 = create_empty_graph();
             gAccCorr6 = create_empty_graph();
         }
         
-        // Calculate total combined factor
-        gAccCorr = multiplyGraphs(gAccCorr0, gAccCorr1);
+        // Calculate total combined factor using the combined correction graph
+        gAccCorr = gAccCorr2;  // Use the combined correction directly
         
-        // Convert factor to efficiency
-        gAccCorr = invertGraphs(gAccCorr);
-        gAccCorr0 = invertGraphs(gAccCorr0);
-        gAccCorr1 = invertGraphs(gAccCorr1);
-        gAccCorr2 = invertGraphs(gAccCorr2);
-        gAccCorr3 = invertGraphs(gAccCorr3);
-        gAccCorr4 = invertGraphs(gAccCorr4);
-        gAccCorr5 = invertGraphs(gAccCorr5);
-        gAccCorr6 = invertGraphs(gAccCorr6);
+        // Convert factor to efficiency - invert all correction graphs
+        // gAccCorr = invertGraphs(gAccCorr);
+        // gAccCorr0 = invertGraphs(gAccCorr0);  // Kaon
+        // gAccCorr1 = invertGraphs(gAccCorr1);  // Pion
+        // gAccCorr2 = invertGraphs(gAccCorr2);  // Combined
+        // gAccCorr3 = invertGraphs(gAccCorr3);
+        // gAccCorr4 = invertGraphs(gAccCorr4);
+        // gAccCorr5 = invertGraphs(gAccCorr5);
+        // gAccCorr6 = invertGraphs(gAccCorr6);
         
         gAccCorr5_Ext = nullptr;
         // if (ptRange == "40_60" && resonance == "Psi2S") {
@@ -311,18 +312,27 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         //     gAccCorr5_Ext = extrapolateIfNecessary(gAccCorr5);
         // }
         
-        // Create total acceptance correction graph
-        gAccCorrTotal = multiplyGraphs(gAccCorr0, gAccCorr2);
-        gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr3);
-        gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr4);
+        // For total acceptance correction, use the combined PID correction
+        // (since gAccCorr2 is the combined kaon+pion correction)
+        gAccCorrTotal = gAccCorr2;  // Start with combined PID correction
         
-        if (gAccCorr5_Ext) {
+        // Multiply with other correction factors if they exist and are not empty
+        if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0) {
+            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr3);
+        }
+        if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0) {
+            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr4);
+        }
+        
+        if (gAccCorr5_Ext && is_valid_graph(gAccCorr5_Ext)) {
             gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr5_Ext);
-        } else {
+        } else if (is_valid_graph(gAccCorr5) && gAccCorr5->GetN() > 0) {
             gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr5);
         }
         
-        gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr6);
+        if (is_valid_graph(gAccCorr6) && gAccCorr6->GetN() > 0) {
+            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr6);
+        }
         
         // Create prompt and non-prompt fractions
         createPNPFractions(hMYield, hMYieldSG, hMYieldFix, hIPNonPromptFraction, true);
@@ -330,6 +340,12 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         // Close the file when done
         fInFileHisto->Close();
         delete fInFileHisto;
+        
+        // Close corrections file if it was opened
+        if (fInFileHistoCorrections) {
+            fInFileHistoCorrections->Close();
+            delete fInFileHistoCorrections;
+        }
     } else {
         std::cout << "o File: " << rootFileName << " does not exist or is invalid, creating fallback graphs" << std::endl;
         
@@ -339,10 +355,10 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         hMYieldFix = create_constant_graph(90.0, "FitMSYieldFixF_fallback");
         hIPNonPromptFraction = create_constant_graph(0.5, "FitIPPromptFracF_default");
         
-        // Create empty graphs for other histograms
-        gAccCorr0 = create_empty_graph();
-        gAccCorr1 = create_empty_graph();
-        gAccCorr2 = create_empty_graph();
+        // Create empty graphs for correction factors
+        gAccCorr0 = create_empty_graph();  // Kaon correction
+        gAccCorr1 = create_empty_graph();  // Pion correction
+        gAccCorr2 = create_empty_graph();  // Combined correction
         gAccCorr3 = create_empty_graph();
         gAccCorr4 = create_empty_graph();
         gAccCorr5 = create_empty_graph();
@@ -354,6 +370,12 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         if (fInFileHisto) {
             fInFileHisto->Close();
             delete fInFileHisto;
+        }
+        
+        // Close corrections file if it was opened
+        if (fInFileHistoCorrections) {
+            fInFileHistoCorrections->Close();
+            delete fInFileHistoCorrections;
         }
     }
     
@@ -427,7 +449,7 @@ TGraphErrors* PlotGraphsObject::extrapolateIfNecessary(TGraphErrors* graph) {
 // Implementation of plotCorrFacAcceptance method
 void PlotGraphsObject::plotCorrFacAcceptance() {
     setOptions();
-    
+    std::cout << "Plotting Acceptance Correction Factors for " << obsTag << " in pT range: " << ptString << std::endl;
     std::string outputFilename = OutfilePath + "FinFig_AccCorrFactor_" + obsTag + "_" + ptString + ".png";
     
     TCanvas* c = new TCanvas("c", "c: hist", 500*2, 450*2);
@@ -437,8 +459,8 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     // Set pad and histo arrangement
     TPad* myPad2 = new TPad("myPad", "The pad", 0, 0, 1, 1);
     myPad2->SetLeftMargin(0.15);
-    myPad2->SetTopMargin(0.06);
-    myPad2->SetRightMargin(0.04);
+    myPad2->SetTopMargin(0.01);
+    myPad2->SetRightMargin(0.02);
     myPad2->SetBottomMargin(0.15);
     myPad2->SetTicks();
     myPad2->Draw();
@@ -462,42 +484,54 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     myBlankHisto2->SetLineColor(0);
     
     myBlankHisto2->SetYTitle("corr Facor");
-    myBlankHisto2->GetYaxis()->SetRangeUser(0, 1);
+    myBlankHisto2->GetYaxis()->SetRangeUser(0, 1.02);
     myBlankHisto2->Draw("E");
     
     double MarkerScale = 1.6;
+    //print gAccCorr0 - Kaon PID correction
+    gAccCorr0->Print();
     
-    setHisto(gAccCorr0, MarkerScale, kGreen-8); // random sel
+    setHisto(gAccCorr0, MarkerScale, kBlue); // Kaon PID correction
     gAccCorr0->Draw("same EP");
     
-    setHisto(gAccCorr2, MarkerScale, kRed-10);
+    setHisto(gAccCorr1, MarkerScale, kRed); // Pion PID correction
+    gAccCorr1->Draw("same EP");
+    
+    setHisto(gAccCorr2, MarkerScale, kGreen+2); // Combined PID correction
     gAccCorr2->Draw("same EP");
     
-    setHisto(gAccCorr3, MarkerScale, kRed-7);
-    gAccCorr3->Draw("same EP");
+    // Only draw additional correction factors if they are valid and non-empty
+    if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0) {
+        setHisto(gAccCorr3, MarkerScale, kRed-7);
+        gAccCorr3->Draw("same EP");
+    }
     
-    setHisto(gAccCorr4, MarkerScale, kBlue-9);
-    gAccCorr4->Draw("same EP");
+    if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0) {
+        setHisto(gAccCorr4, MarkerScale, kBlue-9);
+        gAccCorr4->Draw("same EP");
+    }
     
     if (gAccCorr5_Ext) {
         setHisto(gAccCorr5_Ext, MarkerScale, kBlue-4);
         gAccCorr5_Ext->SetMarkerStyle(24);
         gAccCorr5_Ext->Draw("same EP");
+    } else if (is_valid_graph(gAccCorr5) && gAccCorr5->GetN() > 0) {
+        setHisto(gAccCorr5, MarkerScale, kBlue-4);
+        gAccCorr5->Draw("same EP");
     }
     
-    setHisto(gAccCorr5, MarkerScale, kBlue-4);
-    gAccCorr5->Draw("same EP");
+    if (is_valid_graph(gAccCorr6) && gAccCorr6->GetN() > 0) {
+        setHisto(gAccCorr6, MarkerScale, kBlue+2);
+        gAccCorr6->Draw("same EP");
+    }
     
-    setHisto(gAccCorr6, MarkerScale, kBlue+2);
-    gAccCorr6->Draw("same EP");
-    
-    setHisto(gAccCorrTotal, MarkerScale, kGreen+2);
+    setHisto(gAccCorrTotal, MarkerScale, kMagenta+2);
     gAccCorrTotal->Draw("same EP");
     
     // Create legend
     TLegend* myLegend0;
     if (obsTag.find("Y") != std::string::npos) {
-        myLegend0 = new TLegend(0.5, 0.62, 0.7, 0.8);
+        myLegend0 = new TLegend(0.14, 0.85, 0.4, 0.97);
     } else {
         myLegend0 = new TLegend(0.15, 0.76, 0.4, 0.9);
     }
@@ -510,10 +544,10 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     myLegend0->SetTextSize(0.04);
     
     myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
-    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>2 (GeV/#it{c})", "");
+    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>1 (GeV/#it{c})", "");
     myLegend0->Draw();
     
-    TLegend* myLegend1 = new TLegend(0.17, 0.4, 0.45, 0.72);
+    TLegend* myLegend1 = new TLegend(0.17, 0.2, 0.45, 0.52);
     myLegend1->SetTextFont(42);
     myLegend1->SetBorderSize(0);
     myLegend1->SetFillStyle(0);
@@ -521,14 +555,26 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     myLegend1->SetMargin(0.25);
     myLegend1->SetTextSize(0.04);
     
-    myLegend1->AddEntry(gAccCorrTotal, "total corr factor", "pl");
-    myLegend1->AddEntry(gAccCorr0, "Rnd sel. corr", "pl");
-    myLegend1->AddEntry(gAccCorr2, "#pi reco", "pl");
-    myLegend1->AddEntry(gAccCorr3, "#pi sel.", "pl");
-    myLegend1->AddEntry(gAccCorr4, "#mu reco", "pl");
-    myLegend1->AddEntry(gAccCorr5, "stripping line corr", "pl");
-    myLegend1->AddEntry(gAccCorr6, "trigger eff", "pl");
-    myLegend1->AddEntry(gAccCorr6, "?? tag selection", "");
+    myLegend1->AddEntry(gAccCorrTotal, "total PID corr factor", "pl");
+    myLegend1->AddEntry(gAccCorr0, "Kaon PID corr", "pl");
+    myLegend1->AddEntry(gAccCorr1, "Pion PID corr", "pl");
+    myLegend1->AddEntry(gAccCorr2, "Combined PID corr", "pl");
+    
+    // Only add legend entries for correction factors that are actually plotted
+    if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0) {
+        myLegend1->AddEntry(gAccCorr3, "Additional corr 3", "pl");
+    }
+    if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0) {
+        myLegend1->AddEntry(gAccCorr4, "Additional corr 4", "pl");
+    }
+    if ((gAccCorr5_Ext && is_valid_graph(gAccCorr5_Ext)) || 
+        (is_valid_graph(gAccCorr5) && gAccCorr5->GetN() > 0)) {
+        myLegend1->AddEntry(gAccCorr5, "Additional corr 5", "pl");
+    }
+    if (is_valid_graph(gAccCorr6) && gAccCorr6->GetN() > 0) {
+        myLegend1->AddEntry(gAccCorr6, "Additional corr 6", "pl");
+    }
+    
     myLegend1->Draw();
     
     c->SaveAs(outputFilename.c_str());

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <TH2D.h>
 
 void createResponseMatrix(const char *inputFile, const char *outputFile);
 
@@ -195,6 +196,9 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     float v_decayVtxChi2 = 0;
     float v_Dist1 = 0; // Will use d0_DOCA
     float v_tagY = 0;
+    float v_kaon_efficiency = 0;
+    float v_pion_efficiency = 0;
+    float v_combined_efficiency = 0; // New variable for combined efficiency
 
     // Create branches for output tree
     outputTree->Branch("tagJetdR", &v_tagdR, "tagJetdR/F");
@@ -218,11 +222,34 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     outputTree->Branch("Distance1", &v_Dist1, "Distance1/F");
     outputTree->Branch("isPrimary", &v_isPrimary, "isPrimary/F");
     outputTree->Branch("tagY", &v_tagY, "tagY/F");
+    outputTree->Branch("kaon_efficiency", &v_kaon_efficiency, "kaon_efficiency/F");
+    outputTree->Branch("pion_efficiency", &v_pion_efficiency, "pion_efficiency/F");
+    outputTree->Branch("combined_efficiency", &v_combined_efficiency, "combined_efficiency/F");
 
     // Additional MC branches if needed
     if (inputMC)
     {
         outputTree->Branch("isPrimary", &v_isPrimary, "isPrimary/F");
+    }
+
+    //load efficiency maps for pions and kaons
+    TFile* effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    if (!effFile_kaon || effFile_kaon->IsZombie())
+    {
+        std::cerr << "Error: Could not open kaon pid efficiency map file" << std::endl;
+        return;
+    }
+
+    TFile* effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+
+    TH2D* effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
+    TH2D* effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
+    if (!effMapKaon || !effMapPion)
+    {
+        std::cerr << "Error: Could not find efficiency maps in file" << std::endl;
+        effFile_kaon->Close();
+        effFile_Pion->Close();
+        return;
     }
 
     // Process events
@@ -349,6 +376,15 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
             if (kaon_chi2 > 4.0 || pion_chi2 > 4.0)
                 continue; // Track chi2 cut
 
+            // get efficiencies for kaon and pion
+            float kaon_efficiency = effMapKaon->GetBinContent(
+                effMapKaon->GetXaxis()->FindBin(kaon_p*1000),
+                effMapKaon->GetYaxis()->FindBin(kaon_eta));
+            float pion_efficiency = effMapPion->GetBinContent(
+                effMapPion->GetXaxis()->FindBin(pion_p*1000),
+                effMapPion->GetYaxis()->FindBin(pion_eta));
+            float combined_efficiency = kaon_efficiency * pion_efficiency;
+
             // Fill output variables
             v_tagdR = (*d0_jet_dr)[i_d0];
             v_tagMass = (*d0_mass)[i_d0];
@@ -369,6 +405,9 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
             v_piPTrckChi2 = pion_chi2;
             v_decayVtxChi2 = (*d0_vtx_chi2)[i_d0];
             v_Dist1 = (*d0_DOCA)[i_d0];
+            v_kaon_efficiency = kaon_efficiency;
+            v_pion_efficiency = pion_efficiency;
+            v_combined_efficiency = combined_efficiency;
 
             // MC specific variables
             if (inputMC && i_d0 < mc_d0_origin->size())
