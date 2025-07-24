@@ -1508,6 +1508,207 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             legend->SetFillStyle(0);
                             legend->Draw();
                             
+                            // Calculate correction factors for tagZ distributions
+                            std::cout << "  Calculating kaon and pion correction factors for tagZ distributions..." << std::endl;
+                            
+                            // Create histograms for correction factors in tagZ bins
+                            TH1D* tagZKaonCorrHist = new TH1D(("tagZKaonCorr_bin" + std::to_string(iBin)).c_str(), 
+                                                              ("Kaon Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
+                                                              20, 0, 1);
+                            TH1D* tagZPionCorrHist = new TH1D(("tagZPionCorr_bin" + std::to_string(iBin)).c_str(), 
+                                                              ("Pion Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
+                                                              20, 0, 1);
+                            TH1D* tagZCombinedCorrHist = new TH1D(("tagZCombinedCorr_bin" + std::to_string(iBin)).c_str(), 
+                                                                  ("Combined Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
+                                                                  20, 0, 1);
+                            
+                            // Create counter histograms for averaging
+                            TH1D* tagZKaonCountHist = new TH1D(("tagZKaonCount_bin" + std::to_string(iBin)).c_str(), 
+                                                               "Kaon Count", 20, 0, 1);
+                            TH1D* tagZPionCountHist = new TH1D(("tagZPionCount_bin" + std::to_string(iBin)).c_str(), 
+                                                               "Pion Count", 20, 0, 1);
+                            TH1D* tagZCombinedCountHist = new TH1D(("tagZCombinedCount_bin" + std::to_string(iBin)).c_str(), 
+                                                                   "Combined Count", 20, 0, 1);
+                            
+                            // Fill correction histograms by iterating through the bin dataset
+                            for (int i = 0; i < dataBin->numEntries(); ++i) {
+                                const RooArgSet* row = dataBin->get(i);
+                                RooRealVar* tagZVar = dynamic_cast<RooRealVar*>(row->find("tagZ"));
+                                RooAbsReal* kaonEff = dynamic_cast<RooAbsReal*>(row->find("kaon_efficiency"));
+                                RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(row->find("pion_efficiency"));
+                                RooAbsReal* combinedEff = dynamic_cast<RooAbsReal*>(row->find("combined_efficiency"));
+                                
+                                if (tagZVar && kaonEff && pionEff) {
+                                    double tagZ = tagZVar->getVal();
+                                    double kaonEffVal = kaonEff->getVal();
+                                    double pionEffVal = pionEff->getVal();
+                                    double combinedEffVal = combinedEff ? combinedEff->getVal() : kaonEffVal * pionEffVal;
+                                    
+                                    // Only use events with valid efficiency values
+                                    if (kaonEffVal > 0 && kaonEffVal <= 1.0 && 
+                                        pionEffVal > 0 && pionEffVal <= 1.0 &&
+                                        tagZ >= 0 && tagZ <= 1.0) {
+                                        
+                                        // Add to sum histograms
+                                        tagZKaonCorrHist->Fill(tagZ, kaonEffVal);
+                                        tagZKaonCountHist->Fill(tagZ);
+                                        
+                                        tagZPionCorrHist->Fill(tagZ, pionEffVal);
+                                        tagZPionCountHist->Fill(tagZ);
+                                        
+                                        tagZCombinedCorrHist->Fill(tagZ, combinedEffVal);
+                                        tagZCombinedCountHist->Fill(tagZ);
+                                    }
+                                }
+                            }
+                            
+                            // Calculate average efficiency in each tagZ bin
+                            for (int bin = 1; bin <= tagZKaonCorrHist->GetNbinsX(); ++bin) {
+                                if (tagZKaonCountHist->GetBinContent(bin) > 0) {
+                                    double avgKaonEff = tagZKaonCorrHist->GetBinContent(bin) / tagZKaonCountHist->GetBinContent(bin);
+                                    tagZKaonCorrHist->SetBinContent(bin, avgKaonEff);
+                                    tagZKaonCorrHist->SetBinError(bin, 0.01); // Placeholder error
+                                }
+                                
+                                if (tagZPionCountHist->GetBinContent(bin) > 0) {
+                                    double avgPionEff = tagZPionCorrHist->GetBinContent(bin) / tagZPionCountHist->GetBinContent(bin);
+                                    tagZPionCorrHist->SetBinContent(bin, avgPionEff);
+                                    tagZPionCorrHist->SetBinError(bin, 0.01); // Placeholder error
+                                }
+                                
+                                if (tagZCombinedCountHist->GetBinContent(bin) > 0) {
+                                    double avgCombinedEff = tagZCombinedCorrHist->GetBinContent(bin) / tagZCombinedCountHist->GetBinContent(bin);
+                                    tagZCombinedCorrHist->SetBinContent(bin, avgCombinedEff);
+                                    tagZCombinedCorrHist->SetBinError(bin, 0.01); // Placeholder error
+                                }
+                            }
+                            
+                            // Create TGraphErrors from histograms for easier handling
+                            TGraphErrors* tagZKaonCorrGraph = new TGraphErrors();
+                            TGraphErrors* tagZPionCorrGraph = new TGraphErrors();
+                            TGraphErrors* tagZCombinedCorrGraph = new TGraphErrors();
+                            
+                            int pointIndex = 0;
+                            for (int bin = 1; bin <= tagZKaonCorrHist->GetNbinsX(); ++bin) {
+                                if (tagZKaonCorrHist->GetBinContent(bin) > 0) {
+                                    double binCenter = tagZKaonCorrHist->GetBinCenter(bin);
+                                    double binWidth = tagZKaonCorrHist->GetBinWidth(bin) / 2.0;
+                                    
+                                    tagZKaonCorrGraph->SetPoint(pointIndex, binCenter, tagZKaonCorrHist->GetBinContent(bin));
+                                    tagZKaonCorrGraph->SetPointError(pointIndex, binWidth, tagZKaonCorrHist->GetBinError(bin));
+                                    
+                                    tagZPionCorrGraph->SetPoint(pointIndex, binCenter, tagZPionCorrHist->GetBinContent(bin));
+                                    tagZPionCorrGraph->SetPointError(pointIndex, binWidth, tagZPionCorrHist->GetBinError(bin));
+                                    
+                                    tagZCombinedCorrGraph->SetPoint(pointIndex, binCenter, tagZCombinedCorrHist->GetBinContent(bin));
+                                    tagZCombinedCorrGraph->SetPointError(pointIndex, binWidth, tagZCombinedCorrHist->GetBinError(bin));
+                                    
+                                    pointIndex++;
+                                }
+                            }
+                            
+                            // Set graph properties
+                            tagZKaonCorrGraph->SetName(("tagZKaonCorr_bin" + std::to_string(iBin)).c_str());
+                            tagZKaonCorrGraph->SetTitle(("Kaon PID Efficiency vs z_{T} - Bin " + std::to_string(iBin)).c_str());
+                            tagZKaonCorrGraph->SetMarkerStyle(20);
+                            tagZKaonCorrGraph->SetMarkerColor(kBlue);
+                            tagZKaonCorrGraph->SetLineColor(kBlue);
+                            
+                            tagZPionCorrGraph->SetName(("tagZPionCorr_bin" + std::to_string(iBin)).c_str());
+                            tagZPionCorrGraph->SetTitle(("Pion PID Efficiency vs z_{T} - Bin " + std::to_string(iBin)).c_str());
+                            tagZPionCorrGraph->SetMarkerStyle(21);
+                            tagZPionCorrGraph->SetMarkerColor(kRed);
+                            tagZPionCorrGraph->SetLineColor(kRed);
+                            
+                            tagZCombinedCorrGraph->SetName(("tagZCombinedCorr_bin" + std::to_string(iBin)).c_str());
+                            tagZCombinedCorrGraph->SetTitle(("Combined PID Efficiency vs z_{T} - Bin " + std::to_string(iBin)).c_str());
+                            tagZCombinedCorrGraph->SetMarkerStyle(22);
+                            tagZCombinedCorrGraph->SetMarkerColor(kGreen + 2);
+                            tagZCombinedCorrGraph->SetLineColor(kGreen + 2);
+                            
+                            // Save correction factor graphs to ROOT file in main directory
+                            std::string mainDir;
+                            if (isMC) {
+                                mainDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC";
+                            } else {
+                                mainDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA";
+                            }
+                            
+                            // Create pT range string for graph names
+                            std::stringstream ptRangeStr;
+                            ptRangeStr << jetPt.first << "_" << jetPt.second;
+                            std::string ptString = ptRangeStr.str();
+                            
+                            std::string rootFileName = mainDir + "/TagZCorrectionFactors.root";
+                            TFile* tagZCorrFile = new TFile(rootFileName.c_str(), "UPDATE");
+                            if (tagZCorrFile && tagZCorrFile->IsOpen()) {
+                                // Include pT range and bin in graph names
+                                std::string kaonName = "tagZKaonCorrection_" + ptString + "_bin" + std::to_string(iBin);
+                                std::string pionName = "tagZPionCorrection_" + ptString + "_bin" + std::to_string(iBin);
+                                std::string combinedName = "tagZCombinedCorrection_" + ptString + "_bin" + std::to_string(iBin);
+                                
+                                tagZKaonCorrGraph->Write(kaonName.c_str());
+                                tagZPionCorrGraph->Write(pionName.c_str());
+                                tagZCombinedCorrGraph->Write(combinedName.c_str());
+                                
+                                tagZCorrFile->Close();
+                                std::cout << "  Saved tagZ correction factor graphs to: " << rootFileName << std::endl;
+                                std::cout << "    Graph names: " << kaonName << ", " << pionName << ", " << combinedName << std::endl;
+                            } else {
+                                std::cerr << "  Error: Could not create tagZ correction factors ROOT file" << std::endl;
+                            }
+                            
+                            if (tagZCorrFile) {
+                                delete tagZCorrFile;
+                                tagZCorrFile = nullptr;
+                            }
+                            
+                            // Create plot showing correction factors vs tagZ
+                            TCanvas* tagZCorrCanvas = new TCanvas(("tagZCorrCanvas_bin" + std::to_string(iBin)).c_str(), 
+                                                                 ("TagZ Correction Factors - Bin " + std::to_string(iBin)).c_str(), 
+                                                                 800, 600);
+                            tagZCorrCanvas->SetLeftMargin(0.12);
+                            tagZCorrCanvas->SetRightMargin(0.05);
+                            tagZCorrCanvas->SetTopMargin(0.08);
+                            tagZCorrCanvas->SetBottomMargin(0.12);
+                            
+                            // Set axis labels and ranges
+                            tagZKaonCorrGraph->GetXaxis()->SetTitle("z_{T}");
+                            tagZKaonCorrGraph->GetYaxis()->SetTitle("PID Efficiency");
+                            tagZKaonCorrGraph->GetYaxis()->SetRangeUser(0.5, 1.1);
+                            
+                            tagZKaonCorrGraph->Draw("APE");
+                            tagZPionCorrGraph->Draw("PE same");
+                            tagZCombinedCorrGraph->Draw("PE same");
+                            
+                            // Add legend
+                            TLegend* corrLegend = new TLegend(0.7, 0.7, 0.95, 0.9);
+                            corrLegend->SetBorderSize(0);
+                            corrLegend->SetFillStyle(0);
+                            corrLegend->AddEntry(tagZKaonCorrGraph, "Kaon PID", "pe");
+                            corrLegend->AddEntry(tagZPionCorrGraph, "Pion PID", "pe");
+                            corrLegend->AddEntry(tagZCombinedCorrGraph, "Combined", "pe");
+                            corrLegend->Draw();
+                            
+                            // Save plot
+                            std::string tagZCorrOutputFile = outfilePath + "tagZCorrectionFactors_bin" + std::to_string(iBin) + ".png";
+                            tagZCorrCanvas->SaveAs(tagZCorrOutputFile.c_str());
+                            
+                            // Clean up
+                            delete tagZCorrCanvas;
+                            delete corrLegend;
+                            delete tagZKaonCorrHist;
+                            delete tagZPionCorrHist;
+                            delete tagZCombinedCorrHist;
+                            delete tagZKaonCountHist;
+                            delete tagZPionCountHist;
+                            delete tagZCombinedCountHist;
+                            delete tagZKaonCorrGraph;
+                            delete tagZPionCorrGraph;
+                            delete tagZCombinedCorrGraph;
+                            
+                            std::cout << "  TagZ correction factors calculation and saving completed." << std::endl;
+                            
                             // Save canvas
                             std::string promptTagZOutputFile = outfilePath + "promptSignalTagZ_bin" + std::to_string(iBin) + ".png";
                             promptTagZCanvas->SaveAs(promptTagZOutputFile.c_str());
@@ -1518,6 +1719,31 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             backgroundSubtractedTagZHist->Write();
                             
                             std::cout << "  Stage 4 completed: Prompt signal tagZ distribution created and saved" << std::endl;
+                            
+                            // Save tagZ histograms to ROOT file
+                            std::string tagZHistRootFileName = mainDir + "/TagZHistograms_" + ptString + ".root";
+                            TFile* tagZHistFile = new TFile(tagZHistRootFileName.c_str(), "UPDATE");
+                            if (tagZHistFile && tagZHistFile->IsOpen()) {
+                                // Save the safe copies of tagZ histograms with descriptive names
+                                std::string tagZHistName = "tagZHist_" + ptString + "_bin" + std::to_string(iBin);
+                                std::string bkgSubTagZHistName = "backgroundSubtractedTagZHist_" + ptString + "_bin" + std::to_string(iBin);
+                                std::string promptTagZHistName = "promptSignalTagZHist_" + ptString + "_bin" + std::to_string(iBin);
+                                
+                                tagZHistSafe->Write(tagZHistName.c_str());
+                                backgroundSubtractedTagZHistSafe->Write(bkgSubTagZHistName.c_str());
+                                promptSignalTagZHistSafe->Write(promptTagZHistName.c_str());
+                                
+                                tagZHistFile->Close();
+                                std::cout << "  Saved tagZ histograms to: " << tagZHistRootFileName << std::endl;
+                                std::cout << "    Histogram names: " << tagZHistName << ", " << bkgSubTagZHistName << ", " << promptTagZHistName << std::endl;
+                            } else {
+                                std::cerr << "  Error: Could not create tagZ histograms ROOT file: " << tagZHistRootFileName << std::endl;
+                            }
+                            
+                            if (tagZHistFile) {
+                                delete tagZHistFile;
+                                tagZHistFile = nullptr;
+                            }
                             
                             // Clean up
                             delete promptTagZCanvas;
