@@ -55,6 +55,58 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
         return;
     }
 
+
+
+    //load efficiency maps for pions and kaons
+    TFile* effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    if (!effFile_kaon || effFile_kaon->IsZombie())
+    {
+        std::cerr << "Error: Could not open kaon pid efficiency map file" << std::endl;
+        return;
+    }
+
+    TFile* effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+
+    TH2D* effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
+    TH2D* effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
+    if (!effMapKaon || !effMapPion)
+    {
+        std::cerr << "Error: Could not find efficiency maps in file" << std::endl;
+        effFile_kaon->Close();
+        effFile_Pion->Close();
+        return;
+    }
+
+    TFile* effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone.root");
+    if(!effFile_Reconstruction || effFile_Reconstruction->IsZombie())
+    {
+        std::cerr << "Error: Could not open reconstruction efficiency file" << std::endl;
+        return;
+    }
+
+    TH2F* effMapReco = dynamic_cast<TH2F*>(effFile_Reconstruction->Get("reco_efficiency"));
+    if(!effMapReco)
+    {
+        std::cerr << "Error: Could not find reconstruction efficiency map in file" << std::endl;
+        effFile_Reconstruction->Close();
+        return;
+    }
+
+    TFile* acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap.root");
+    if (!acceptanceFile || acceptanceFile->IsZombie())
+    {
+        std::cerr << "Error: Could not open acceptance map file" << std::endl;
+        return;
+    }
+    TH2D* acceptanceMap = dynamic_cast<TH2D*>(acceptanceFile->Get("hAcceptance"));
+    if(!acceptanceMap)
+    {
+        std::cerr << "Error: Could not find acceptance map in file" << std::endl;
+        acceptanceFile->Close();
+        return;
+    }
+
+
     // Create output file
     TFile *outputRoot = TFile::Open(fOutputFileName, "RECREATE");
     if (!outputRoot || outputRoot->IsZombie())
@@ -198,7 +250,11 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     float v_tagY = 0;
     float v_kaon_efficiency = 0;
     float v_pion_efficiency = 0;
+    float v_reconstruction_efficiency = 0;
+    float v_combined_PID_efficiency = 0; // New variable for combined efficiency
     float v_combined_efficiency = 0; // New variable for combined efficiency
+    float v_combined_eff_and_acceptance = 0; // New variable for combined efficiency and acceptance
+    float v_acceptance = 0; // New variable for acceptance
 
     // Create branches for output tree
     outputTree->Branch("tagJetdR", &v_tagdR, "tagJetdR/F");
@@ -224,32 +280,16 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     outputTree->Branch("tagY", &v_tagY, "tagY/F");
     outputTree->Branch("kaon_efficiency", &v_kaon_efficiency, "kaon_efficiency/F");
     outputTree->Branch("pion_efficiency", &v_pion_efficiency, "pion_efficiency/F");
+    outputTree->Branch("reconstruction_efficiency", &v_reconstruction_efficiency, "reconstruction_efficiency/F");
+    outputTree->Branch("combined_PID_efficiency", &v_combined_PID_efficiency, "combined_PID_efficiency/F");
     outputTree->Branch("combined_efficiency", &v_combined_efficiency, "combined_efficiency/F");
+    outputTree->Branch("combined_eff_and_acceptance", &v_combined_eff_and_acceptance, "combined_eff_and_acceptance/F");
+    outputTree->Branch("acceptance", &v_acceptance, "acceptance/F");
 
     // Additional MC branches if needed
     if (inputMC)
     {
         outputTree->Branch("isPrimary", &v_isPrimary, "isPrimary/F");
-    }
-
-    //load efficiency maps for pions and kaons
-    TFile* effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
-    if (!effFile_kaon || effFile_kaon->IsZombie())
-    {
-        std::cerr << "Error: Could not open kaon pid efficiency map file" << std::endl;
-        return;
-    }
-
-    TFile* effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
-
-    TH2D* effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
-    TH2D* effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
-    if (!effMapKaon || !effMapPion)
-    {
-        std::cerr << "Error: Could not find efficiency maps in file" << std::endl;
-        effFile_kaon->Close();
-        effFile_Pion->Close();
-        return;
     }
 
     // Process events
@@ -263,12 +303,21 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
     {
         inputTree->GetEntry(iEntry);
 
-        if (iEntry % 1000 == 0)
+        if (iEntry % 100000 == 0)
         {
             std::cout << "Processing event " << iEntry << " of " << nEntries << std::endl;
         }
 
         events_processed++;
+
+        if(n_pvs > 1) // Only process events with less than 1 primary vertex 
+        //TODO VALIDATE THIS IS CORRECT
+        //TODO VALIDATE THIS IS CORRECT
+        //TODO VALIDATE THIS IS CORRECT
+        {
+            continue; // Skip events with more than 1 primary vertex
+        }
+
 
         // Process each D0 in the event
         for (size_t i_d0 = 0; i_d0 < d0_pt->size(); i_d0++)
@@ -383,8 +432,17 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
             float pion_efficiency = effMapPion->GetBinContent(
                 effMapPion->GetXaxis()->FindBin(pion_p*1000),
                 effMapPion->GetYaxis()->FindBin(pion_eta));
-            float combined_efficiency = kaon_efficiency * pion_efficiency;
+            float combined_PID_efficiency = kaon_efficiency * pion_efficiency;
 
+            float reconstruction_efficiency = effMapReco->GetBinContent(
+                effMapReco->GetXaxis()->FindBin((*d0_pt)[i_d0]),
+                effMapReco->GetYaxis()->FindBin((*d0_eta)[i_d0]));
+            float combined_efficiency = combined_PID_efficiency * reconstruction_efficiency;
+
+            float acceptance = acceptanceMap->GetBinContent(
+                acceptanceMap->GetXaxis()->FindBin((*d0_pt)[i_d0]),
+                acceptanceMap->GetYaxis()->FindBin((*d0_eta)[i_d0]));
+            float combined_eff_and_acceptance = combined_efficiency * acceptance;
             // Fill output variables
             v_tagdR = (*d0_jet_dr)[i_d0];
             v_tagMass = (*d0_mass)[i_d0];
@@ -407,7 +465,11 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
             v_Dist1 = (*d0_DOCA)[i_d0];
             v_kaon_efficiency = kaon_efficiency;
             v_pion_efficiency = pion_efficiency;
+            v_reconstruction_efficiency = reconstruction_efficiency;
+            v_combined_PID_efficiency = combined_PID_efficiency;
             v_combined_efficiency = combined_efficiency;
+            v_combined_eff_and_acceptance = combined_eff_and_acceptance;
+            v_acceptance = acceptance;
 
             // MC specific variables
             if (inputMC && i_d0 < mc_d0_origin->size())
@@ -647,7 +709,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
 
     for (Long64_t iEntry = 0; iEntry < nEntries; iEntry++)
     {
-        if (iEntry % 1000 == 0)
+        if (iEntry % 100000 == 0)
         {
             std::cout << "Processing event " << iEntry << " of " << nEntries
                       << " for response matrix" << std::endl;

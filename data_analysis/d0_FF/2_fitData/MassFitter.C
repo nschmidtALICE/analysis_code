@@ -136,7 +136,15 @@ public:
     void createCorrectionFactorGraphs(const std::vector<double>& corrValueKaon, 
                                      const std::vector<double>& corrValueErrKaon,
                                      const std::vector<double>& corrValuePion, 
-                                     const std::vector<double>& corrValueErrPion);
+                                     const std::vector<double>& corrValueErrPion,
+                                     const std::vector<double>& corrValueRecoEff, 
+                                     const std::vector<double>& corrValueErrRecoEff,
+                                     const std::vector<double>& corrValueAcceptance, 
+                                     const std::vector<double>& corrValueErrAcceptance,
+                                     const std::vector<double>& corrValueCombinedPID, 
+                                     const std::vector<double>& corrValueErrCombinedPID,
+                                     const std::vector<double>& corrValueCombinedAll, 
+                                     const std::vector<double>& corrValueErrCombinedAll);
         void processFitsByBin(Fitter* fitter, RooDataSet* dataMaster, 
                         const std::vector<double>& binCenters, 
                         const std::vector<double>& binWidths);
@@ -438,33 +446,66 @@ void FitSpectraObject::processCorrectionFactors(Fitter* fitter, RooDataSet* data
     
     RooAbsReal* kaonEff = dynamic_cast<RooAbsReal*>(vars->find("kaon_efficiency"));
     RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(vars->find("pion_efficiency"));
+    RooAbsReal* recoEff = dynamic_cast<RooAbsReal*>(vars->find("reconstruction_efficiency"));
+    RooAbsReal* combinedEff = dynamic_cast<RooAbsReal*>(vars->find("combined_efficiency"));
+    RooAbsReal* combinedPID = dynamic_cast<RooAbsReal*>(vars->find("combined_PID_efficiency"));
+    RooAbsReal* acceptance = dynamic_cast<RooAbsReal*>(vars->find("acceptance"));
+    RooAbsReal* combinedEffAndAcceptance = dynamic_cast<RooAbsReal*>(vars->find("combined_eff_and_acceptance"));
     
     if (!kaonEff || !pionEff) {
-        std::cerr << "Error: Efficiency variables not found in dataset" << std::endl;
+        std::cerr << "Error: Required efficiency variables (kaon_efficiency, pion_efficiency) not found in dataset" << std::endl;
         std::cerr << "Available variables: ";
         vars->Print("v");
         return;
     }
     
+    if (!recoEff) {
+        std::cerr << "Warning: reconstruction_efficiency not found in dataset, will skip reco efficiency correction" << std::endl;
+    }
+    
+    if (!combinedEff) {
+        std::cerr << "Warning: combined_efficiency not found in dataset, will skip combined efficiency correction" << std::endl;
+    }
+    
+    if (!combinedPID) {
+        std::cerr << "Warning: combined_PID_efficiency not found in dataset, will skip combined PID efficiency correction" << std::endl;
+    }
+    
+    if (!acceptance) {
+        std::cerr << "Warning: acceptance not found in dataset, will skip acceptance correction" << std::endl;
+    }
+    
+    if (!combinedEffAndAcceptance) {
+        std::cerr << "Warning: combined_eff_and_acceptance not found in dataset, will skip combined all efficiency correction" << std::endl;
+    }
+    
     // Process correction factors for different versions
-    std::vector<int> corrVersions = {1, 2, 3}; // kaon, pion, combined
-    std::vector<std::string> corrTypes = {"kaon", "pion", "combined"};
+    std::vector<int> corrVersions = {1, 2, 3, 4, 5, 6}; // kaon, pion, reco_eff, acceptance, combined_pid, combined_all
+    std::vector<std::string> corrTypes = {"kaon", "pion", "reco_eff", "acceptance", "combined_pid", "combined_all"};
     
     // Create canvases for correction parameter extraction
-    std::vector<TCanvas*> canvas(3);
-    std::vector<TCanvas*> canvasNorm(3);
-    std::vector<TCanvas*> canvasDiv(3);
+    std::vector<TCanvas*> canvas(6);
+    std::vector<TCanvas*> canvasNorm(6);
+    std::vector<TCanvas*> canvasDiv(6);
     
     // Initialize correction value arrays
     std::vector<double> corrValueKaon(nzTBins, 0.0);
     std::vector<double> corrValueErrKaon(nzTBins, 0.0);
     std::vector<double> corrValuePion(nzTBins, 0.0);
     std::vector<double> corrValueErrPion(nzTBins, 0.0);
-    std::vector<double> corrValueCombined(nzTBins, 0.0);
-    std::vector<double> corrValueErrCombined(nzTBins, 0.0);
+    std::vector<double> corrValueRecoEff(nzTBins, 0.0);
+    std::vector<double> corrValueErrRecoEff(nzTBins, 0.0);
+    std::vector<double> corrValueAcceptance(nzTBins, 0.0);
+    std::vector<double> corrValueErrAcceptance(nzTBins, 0.0);
+    std::vector<double> corrValueCombinedPID(nzTBins, 0.0);
+    std::vector<double> corrValueErrCombinedPID(nzTBins, 0.0);
+    std::vector<double> corrValueCombinedAll(nzTBins, 0.0);
+    std::vector<double> corrValueErrCombinedAll(nzTBins, 0.0);
     
-    std::vector<std::vector<double>*> corrValueArrays = {&corrValueKaon, &corrValuePion, &corrValueCombined};
-    std::vector<std::vector<double>*> corrValueErrArrays = {&corrValueErrKaon, &corrValueErrPion, &corrValueErrCombined};
+    std::vector<std::vector<double>*> corrValueArrays = {&corrValueKaon, &corrValuePion, &corrValueRecoEff, 
+                                                        &corrValueAcceptance, &corrValueCombinedPID, &corrValueCombinedAll};
+    std::vector<std::vector<double>*> corrValueErrArrays = {&corrValueErrKaon, &corrValueErrPion, &corrValueErrRecoEff,
+                                                           &corrValueErrAcceptance, &corrValueErrCombinedPID, &corrValueErrCombinedAll};
     
     // Create legends
     std::vector<TLegend*> legendList(nzTBins);
@@ -476,7 +517,7 @@ void FitSpectraObject::processCorrectionFactors(Fitter* fitter, RooDataSet* data
     }
     
     // Create canvases
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 6; ++i) {
         std::string canvasName = "canvas_" + corrTypes[i];
         std::string canvasNormName = "canvasNorm_" + corrTypes[i];
         std::string canvasDivName = "canvasDiv_" + corrTypes[i];
@@ -538,13 +579,13 @@ void FitSpectraObject::processCorrectionFactors(Fitter* fitter, RooDataSet* data
                     // Also check the actual efficiency values
                     RooAbsReal* kaonEff = dynamic_cast<RooAbsReal*>(row->find("kaon_efficiency"));
                     RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(row->find("pion_efficiency"));
-                    RooAbsReal* combinedEff = dynamic_cast<RooAbsReal*>(row->find("combined_efficiency"));
+                    RooAbsReal* combinedPID = dynamic_cast<RooAbsReal*>(row->find("combined_PID_efficiency"));
                     
                     if (i < 5) {  // Print first 5 entries
                         std::cout << "  Entry " << i << ": weight=" << weight;
                         if (kaonEff) std::cout << ", kaon_eff=" << kaonEff->getVal();
                         if (pionEff) std::cout << ", pion_eff=" << pionEff->getVal();
-                        if (combinedEff) std::cout << ", combined_eff=" << combinedEff->getVal();
+                        if (combinedPID) std::cout << ", combined_PID_eff=" << combinedPID->getVal();
                         std::cout << std::endl;
                     }
                     
@@ -636,7 +677,12 @@ void FitSpectraObject::processCorrectionFactors(Fitter* fitter, RooDataSet* data
     }
     
     // Create and save correction factor graphs
-    createCorrectionFactorGraphs(corrValueKaon, corrValueErrKaon, corrValuePion, corrValueErrPion);
+    createCorrectionFactorGraphs(corrValueKaon, corrValueErrKaon, 
+                                 corrValuePion, corrValueErrPion,
+                                 corrValueRecoEff, corrValueErrRecoEff,
+                                 corrValueAcceptance, corrValueErrAcceptance,
+                                 corrValueCombinedPID, corrValueErrCombinedPID,
+                                 corrValueCombinedAll, corrValueErrCombinedAll);
     
     // Clean up
     delete massVar;
@@ -756,7 +802,10 @@ void FitSpectraObject::extractCorParam(const std::string& idString, int bin, con
     int typeIndex = 0;
     if (type == "kaon") typeIndex = 0;
     else if (type == "pion") typeIndex = 1;
-    else if (type == "combined") typeIndex = 2;
+    else if (type == "reco_eff") typeIndex = 2;
+    else if (type == "acceptance") typeIndex = 3;
+    else if (type == "combined_pid") typeIndex = 4;
+    else if (type == "combined_all") typeIndex = 5;
     else {
         std::cerr << "Warning: Unknown correction type: " << type << std::endl;
         typeIndex = 0;  // Default to first type
@@ -1509,7 +1558,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             legend->Draw();
                             
                             // Calculate correction factors for tagZ distributions
-                            std::cout << "  Calculating kaon and pion correction factors for tagZ distributions..." << std::endl;
+                            std::cout << "  Calculating efficiency corrections for tagZ distributions..." << std::endl;
                             
                             // Create histograms for correction factors in tagZ bins
                             TH1D* tagZKaonCorrHist = new TH1D(("tagZKaonCorr_bin" + std::to_string(iBin)).c_str(), 
@@ -1518,8 +1567,14 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             TH1D* tagZPionCorrHist = new TH1D(("tagZPionCorr_bin" + std::to_string(iBin)).c_str(), 
                                                               ("Pion Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
                                                               20, 0, 1);
+                            TH1D* tagZRecoEffCorrHist = new TH1D(("tagZRecoEffCorr_bin" + std::to_string(iBin)).c_str(),
+                                                                ("Reconstruction Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(),
+                                                                20, 0, 1);
+                            TH1D* tagZAcceptanceCorrHist = new TH1D(("tagZAcceptanceCorr_bin" + std::to_string(iBin)).c_str(),
+                                                                   ("Acceptance vs TagZ - Bin " + std::to_string(iBin)).c_str(),
+                                                                   20, 0, 1);
                             TH1D* tagZCombinedCorrHist = new TH1D(("tagZCombinedCorr_bin" + std::to_string(iBin)).c_str(), 
-                                                                  ("Combined Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
+                                                                  ("Combined PID Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
                                                                   20, 0, 1);
                             
                             // Create counter histograms for averaging
@@ -1527,36 +1582,54 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                                                "Kaon Count", 20, 0, 1);
                             TH1D* tagZPionCountHist = new TH1D(("tagZPionCount_bin" + std::to_string(iBin)).c_str(), 
                                                                "Pion Count", 20, 0, 1);
+                            TH1D* tagZRecoEffCountHist = new TH1D(("tagZRecoEffCount_bin" + std::to_string(iBin)).c_str(),
+                                                                 "Reco Eff Count", 20, 0, 1);
+                            TH1D* tagZAcceptanceCountHist = new TH1D(("tagZAcceptanceCount_bin" + std::to_string(iBin)).c_str(),
+                                                                    "Acceptance Count", 20, 0, 1);
                             TH1D* tagZCombinedCountHist = new TH1D(("tagZCombinedCount_bin" + std::to_string(iBin)).c_str(), 
                                                                    "Combined Count", 20, 0, 1);
                             
-                            // Fill correction histograms by iterating through the bin dataset
+                            // Fill correction histograms and create efficiency-weighted distributions by iterating through the bin dataset
                             for (int i = 0; i < dataBin->numEntries(); ++i) {
                                 const RooArgSet* row = dataBin->get(i);
                                 RooRealVar* tagZVar = dynamic_cast<RooRealVar*>(row->find("tagZ"));
                                 RooAbsReal* kaonEff = dynamic_cast<RooAbsReal*>(row->find("kaon_efficiency"));
                                 RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(row->find("pion_efficiency"));
-                                RooAbsReal* combinedEff = dynamic_cast<RooAbsReal*>(row->find("combined_efficiency"));
+                                RooAbsReal* recoEff = dynamic_cast<RooAbsReal*>(row->find("reconstruction_efficiency"));
+                                RooAbsReal* acceptance = dynamic_cast<RooAbsReal*>(row->find("acceptance"));
+                                RooAbsReal* combinedPIDEff = dynamic_cast<RooAbsReal*>(row->find("combined_PID_efficiency"));
                                 
                                 if (tagZVar && kaonEff && pionEff) {
                                     double tagZ = tagZVar->getVal();
                                     double kaonEffVal = kaonEff->getVal();
                                     double pionEffVal = pionEff->getVal();
-                                    double combinedEffVal = combinedEff ? combinedEff->getVal() : kaonEffVal * pionEffVal;
+                                    double recoEffVal = recoEff ? recoEff->getVal() : 1.0;
+                                    double acceptanceVal = acceptance ? acceptance->getVal() : 1.0;
+                                    double combinedPIDEffVal = combinedPIDEff ? combinedPIDEff->getVal() : kaonEffVal * pionEffVal;
                                     
                                     // Only use events with valid efficiency values
                                     if (kaonEffVal > 0 && kaonEffVal <= 1.0 && 
                                         pionEffVal > 0 && pionEffVal <= 1.0 &&
                                         tagZ >= 0 && tagZ <= 1.0) {
                                         
-                                        // Add to sum histograms
+                                        // Fill efficiency histograms for averaging
                                         tagZKaonCorrHist->Fill(tagZ, kaonEffVal);
                                         tagZKaonCountHist->Fill(tagZ);
                                         
                                         tagZPionCorrHist->Fill(tagZ, pionEffVal);
                                         tagZPionCountHist->Fill(tagZ);
                                         
-                                        tagZCombinedCorrHist->Fill(tagZ, combinedEffVal);
+                                        if (recoEff) {
+                                            tagZRecoEffCorrHist->Fill(tagZ, recoEffVal);
+                                            tagZRecoEffCountHist->Fill(tagZ);
+                                        }
+                                        
+                                        if (acceptance) {
+                                            tagZAcceptanceCorrHist->Fill(tagZ, acceptanceVal);
+                                            tagZAcceptanceCountHist->Fill(tagZ);
+                                        }
+                                        
+                                        tagZCombinedCorrHist->Fill(tagZ, combinedPIDEffVal);
                                         tagZCombinedCountHist->Fill(tagZ);
                                     }
                                 }
@@ -1576,6 +1649,18 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                     tagZPionCorrHist->SetBinError(bin, 0.01); // Placeholder error
                                 }
                                 
+                                if (tagZRecoEffCountHist->GetBinContent(bin) > 0) {
+                                    double avgRecoEff = tagZRecoEffCorrHist->GetBinContent(bin) / tagZRecoEffCountHist->GetBinContent(bin);
+                                    tagZRecoEffCorrHist->SetBinContent(bin, avgRecoEff);
+                                    tagZRecoEffCorrHist->SetBinError(bin, 0.01); // Placeholder error
+                                }
+                                
+                                if (tagZAcceptanceCountHist->GetBinContent(bin) > 0) {
+                                    double avgAcceptance = tagZAcceptanceCorrHist->GetBinContent(bin) / tagZAcceptanceCountHist->GetBinContent(bin);
+                                    tagZAcceptanceCorrHist->SetBinContent(bin, avgAcceptance);
+                                    tagZAcceptanceCorrHist->SetBinError(bin, 0.01); // Placeholder error
+                                }
+                                
                                 if (tagZCombinedCountHist->GetBinContent(bin) > 0) {
                                     double avgCombinedEff = tagZCombinedCorrHist->GetBinContent(bin) / tagZCombinedCountHist->GetBinContent(bin);
                                     tagZCombinedCorrHist->SetBinContent(bin, avgCombinedEff);
@@ -1586,6 +1671,8 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             // Create TGraphErrors from histograms for easier handling
                             TGraphErrors* tagZKaonCorrGraph = new TGraphErrors();
                             TGraphErrors* tagZPionCorrGraph = new TGraphErrors();
+                            TGraphErrors* tagZRecoEffCorrGraph = new TGraphErrors();
+                            TGraphErrors* tagZAcceptanceCorrGraph = new TGraphErrors();
                             TGraphErrors* tagZCombinedCorrGraph = new TGraphErrors();
                             
                             int pointIndex = 0;
@@ -1599,6 +1686,16 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                     
                                     tagZPionCorrGraph->SetPoint(pointIndex, binCenter, tagZPionCorrHist->GetBinContent(bin));
                                     tagZPionCorrGraph->SetPointError(pointIndex, binWidth, tagZPionCorrHist->GetBinError(bin));
+                                    
+                                    if (tagZRecoEffCorrHist->GetBinContent(bin) > 0) {
+                                        tagZRecoEffCorrGraph->SetPoint(pointIndex, binCenter, tagZRecoEffCorrHist->GetBinContent(bin));
+                                        tagZRecoEffCorrGraph->SetPointError(pointIndex, binWidth, tagZRecoEffCorrHist->GetBinError(bin));
+                                    }
+                                    
+                                    if (tagZAcceptanceCorrHist->GetBinContent(bin) > 0) {
+                                        tagZAcceptanceCorrGraph->SetPoint(pointIndex, binCenter, tagZAcceptanceCorrHist->GetBinContent(bin));
+                                        tagZAcceptanceCorrGraph->SetPointError(pointIndex, binWidth, tagZAcceptanceCorrHist->GetBinError(bin));
+                                    }
                                     
                                     tagZCombinedCorrGraph->SetPoint(pointIndex, binCenter, tagZCombinedCorrHist->GetBinContent(bin));
                                     tagZCombinedCorrGraph->SetPointError(pointIndex, binWidth, tagZCombinedCorrHist->GetBinError(bin));
@@ -1619,6 +1716,18 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             tagZPionCorrGraph->SetMarkerStyle(21);
                             tagZPionCorrGraph->SetMarkerColor(kRed);
                             tagZPionCorrGraph->SetLineColor(kRed);
+                            
+                            tagZRecoEffCorrGraph->SetName(("tagZRecoEffCorr_bin" + std::to_string(iBin)).c_str());
+                            tagZRecoEffCorrGraph->SetTitle(("Reconstruction Efficiency vs z_{T} - Bin " + std::to_string(iBin)).c_str());
+                            tagZRecoEffCorrGraph->SetMarkerStyle(23);
+                            tagZRecoEffCorrGraph->SetMarkerColor(kOrange);
+                            tagZRecoEffCorrGraph->SetLineColor(kOrange);
+                            
+                            tagZAcceptanceCorrGraph->SetName(("tagZAcceptanceCorr_bin" + std::to_string(iBin)).c_str());
+                            tagZAcceptanceCorrGraph->SetTitle(("Acceptance vs z_{T} - Bin " + std::to_string(iBin)).c_str());
+                            tagZAcceptanceCorrGraph->SetMarkerStyle(24);
+                            tagZAcceptanceCorrGraph->SetMarkerColor(kMagenta);
+                            tagZAcceptanceCorrGraph->SetLineColor(kMagenta);
                             
                             tagZCombinedCorrGraph->SetName(("tagZCombinedCorr_bin" + std::to_string(iBin)).c_str());
                             tagZCombinedCorrGraph->SetTitle(("Combined PID Efficiency vs z_{T} - Bin " + std::to_string(iBin)).c_str());
@@ -1645,15 +1754,19 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                 // Include pT range and bin in graph names
                                 std::string kaonName = "tagZKaonCorrection_" + ptString + "_bin" + std::to_string(iBin);
                                 std::string pionName = "tagZPionCorrection_" + ptString + "_bin" + std::to_string(iBin);
+                                std::string recoName = "tagZRecoEffCorrection_" + ptString + "_bin" + std::to_string(iBin);
+                                std::string acceptanceName = "tagZAcceptanceCorrection_" + ptString + "_bin" + std::to_string(iBin);
                                 std::string combinedName = "tagZCombinedCorrection_" + ptString + "_bin" + std::to_string(iBin);
                                 
                                 tagZKaonCorrGraph->Write(kaonName.c_str());
                                 tagZPionCorrGraph->Write(pionName.c_str());
+                                if (tagZRecoEffCorrGraph->GetN() > 0) tagZRecoEffCorrGraph->Write(recoName.c_str());
+                                if (tagZAcceptanceCorrGraph->GetN() > 0) tagZAcceptanceCorrGraph->Write(acceptanceName.c_str());
                                 tagZCombinedCorrGraph->Write(combinedName.c_str());
                                 
                                 tagZCorrFile->Close();
                                 std::cout << "  Saved tagZ correction factor graphs to: " << rootFileName << std::endl;
-                                std::cout << "    Graph names: " << kaonName << ", " << pionName << ", " << combinedName << std::endl;
+                                std::cout << "    Graph names: " << kaonName << ", " << pionName << ", " << recoName << ", " << acceptanceName << ", " << combinedName << std::endl;
                             } else {
                                 std::cerr << "  Error: Could not create tagZ correction factors ROOT file" << std::endl;
                             }
@@ -1663,9 +1776,9 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                 tagZCorrFile = nullptr;
                             }
                             
-                            // Create plot showing correction factors vs tagZ
+                            // Create plot showing correction factors vs tagZ (original layout)
                             TCanvas* tagZCorrCanvas = new TCanvas(("tagZCorrCanvas_bin" + std::to_string(iBin)).c_str(), 
-                                                                 ("TagZ Correction Factors - Bin " + std::to_string(iBin)).c_str(), 
+                                                                 ("TagZ PID Correction Factors - Bin " + std::to_string(iBin)).c_str(), 
                                                                  800, 600);
                             tagZCorrCanvas->SetLeftMargin(0.12);
                             tagZCorrCanvas->SetRightMargin(0.05);
@@ -1690,22 +1803,13 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             corrLegend->AddEntry(tagZCombinedCorrGraph, "Combined", "pe");
                             corrLegend->Draw();
                             
-                            // Save plot
-                            std::string tagZCorrOutputFile = outfilePath + "tagZCorrectionFactors_bin" + std::to_string(iBin) + ".png";
+                            // Save TagZ correction plots
+                            std::string tagZCorrOutputFile = outfilePath + "tagZPIDCorrections_bin" + std::to_string(iBin) + ".png";
                             tagZCorrCanvas->SaveAs(tagZCorrOutputFile.c_str());
                             
-                            // Clean up
+                            // Clean up canvas and legends for this plot only
                             delete tagZCorrCanvas;
                             delete corrLegend;
-                            delete tagZKaonCorrHist;
-                            delete tagZPionCorrHist;
-                            delete tagZCombinedCorrHist;
-                            delete tagZKaonCountHist;
-                            delete tagZPionCountHist;
-                            delete tagZCombinedCountHist;
-                            delete tagZKaonCorrGraph;
-                            delete tagZPionCorrGraph;
-                            delete tagZCombinedCorrGraph;
                             
                             std::cout << "  TagZ correction factors calculation and saving completed." << std::endl;
                             
@@ -1744,6 +1848,219 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                 delete tagZHistFile;
                                 tagZHistFile = nullptr;
                             }
+                            
+                            // Create efficiency-weighted prompt signal distributions before cleanup
+                            std::cout << "  Creating efficiency-weighted prompt signal distributions..." << std::endl;
+                            
+                            // Create efficiency-weighted histograms
+                            TH1D* promptSignalTagZHist_PIDWeighted = new TH1D(("promptSignalTagZHist_PIDWeighted_bin" + std::to_string(iBin)).c_str(),
+                                                                             ("Prompt Signal TagZ (PID Weighted) - Bin " + std::to_string(iBin)).c_str(),
+                                                                             20, 0, 1);
+                            TH1D* promptSignalTagZHist_RecoWeighted = new TH1D(("promptSignalTagZHist_RecoWeighted_bin" + std::to_string(iBin)).c_str(),
+                                                                              ("Prompt Signal TagZ (Reco Weighted) - Bin " + std::to_string(iBin)).c_str(),
+                                                                              20, 0, 1);
+                            TH1D* promptSignalTagZHist_AcceptanceWeighted = new TH1D(("promptSignalTagZHist_AcceptanceWeighted_bin" + std::to_string(iBin)).c_str(),
+                                                                                    ("Prompt Signal TagZ (Acceptance Weighted) - Bin " + std::to_string(iBin)).c_str(),
+                                                                                    20, 0, 1);
+                            TH1D* promptSignalTagZHist_FullyWeighted = new TH1D(("promptSignalTagZHist_FullyWeighted_bin" + std::to_string(iBin)).c_str(),
+                                                                               ("Prompt Signal TagZ (Fully Weighted) - Bin " + std::to_string(iBin)).c_str(),
+                                                                               20, 0, 1);
+                            
+                            // Fill efficiency-weighted histograms from the original prompt signal histogram
+                            for (int bin = 1; bin <= promptSignalTagZHistSafe->GetNbinsX(); ++bin) {
+                                double binCenter = promptSignalTagZHistSafe->GetBinCenter(bin);
+                                double originalWeight = promptSignalTagZHistSafe->GetBinContent(bin);
+                                double originalError = promptSignalTagZHistSafe->GetBinError(bin);
+                                
+                                if (originalWeight > 0) {
+                                    // Get average efficiencies for this tagZ bin from the correction histograms
+                                    int corrBin = tagZKaonCorrHist->FindBin(binCenter);
+                                    double kaonEff = tagZKaonCorrHist->GetBinContent(corrBin);
+                                    double pionEff = tagZPionCorrHist->GetBinContent(corrBin);
+                                    double recoEff = tagZRecoEffCorrHist->GetBinContent(corrBin);
+                                    double acceptance = tagZAcceptanceCorrHist->GetBinContent(corrBin);
+                                    double combinedPIDEff = tagZCombinedCorrHist->GetBinContent(corrBin);
+                                    
+                                    // Apply efficiency corrections (divide by efficiency to correct)
+                                    double pidWeightedVal = (combinedPIDEff > 0) ? originalWeight / combinedPIDEff : originalWeight;
+                                    double recoWeightedVal = (recoEff > 0) ? originalWeight / recoEff : originalWeight;
+                                    double acceptanceWeightedVal = (acceptance > 0) ? originalWeight / acceptance : originalWeight;
+                                    double fullyWeightedVal = originalWeight;
+                                    if (combinedPIDEff > 0) fullyWeightedVal /= combinedPIDEff;
+                                    if (recoEff > 0) fullyWeightedVal /= recoEff;
+                                    if (acceptance > 0) fullyWeightedVal /= acceptance;
+                                    
+                                    // Set bin contents and errors
+                                    promptSignalTagZHist_PIDWeighted->SetBinContent(bin, pidWeightedVal);
+                                    promptSignalTagZHist_PIDWeighted->SetBinError(bin, originalError);
+                                    
+                                    promptSignalTagZHist_RecoWeighted->SetBinContent(bin, recoWeightedVal);
+                                    promptSignalTagZHist_RecoWeighted->SetBinError(bin, originalError);
+                                    
+                                    promptSignalTagZHist_AcceptanceWeighted->SetBinContent(bin, acceptanceWeightedVal);
+                                    promptSignalTagZHist_AcceptanceWeighted->SetBinError(bin, originalError);
+                                    
+                                    promptSignalTagZHist_FullyWeighted->SetBinContent(bin, fullyWeightedVal);
+                                    promptSignalTagZHist_FullyWeighted->SetBinError(bin, originalError);
+                                }
+                            }
+                            
+                            // Create comprehensive efficiency correction plot
+                            TCanvas* tagZEffCorrCanvas = new TCanvas(("tagZEffCorrCanvas_bin" + std::to_string(iBin)).c_str(), 
+                                                                    ("All Efficiency Corrections vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
+                                                                    1000, 800);
+                            tagZEffCorrCanvas->SetLeftMargin(0.08);
+                            tagZEffCorrCanvas->SetRightMargin(0.01);
+                            tagZEffCorrCanvas->SetTopMargin(0.08);
+                            tagZEffCorrCanvas->SetBottomMargin(0.08);
+                            
+                            // Set axis labels and ranges
+                            tagZKaonCorrGraph->GetXaxis()->SetTitle("z_{T}");
+                            tagZKaonCorrGraph->GetYaxis()->SetTitle("Efficiency");
+                            tagZKaonCorrGraph->GetYaxis()->SetRangeUser(0.0, 1.1);
+                            
+                            tagZKaonCorrGraph->Draw("APE");
+                            tagZPionCorrGraph->Draw("PE same");
+                            if (tagZRecoEffCorrGraph->GetN() > 0) tagZRecoEffCorrGraph->Draw("PE same");
+                            if (tagZAcceptanceCorrGraph->GetN() > 0) tagZAcceptanceCorrGraph->Draw("PE same");
+                            tagZCombinedCorrGraph->Draw("PE same");
+                            
+                            // Add comprehensive legend
+                            TLegend* effCorrLegend = new TLegend(0.65, 0.65, 0.95, 0.9);
+                            effCorrLegend->SetBorderSize(0);
+                            effCorrLegend->SetFillStyle(0);
+                            effCorrLegend->AddEntry(tagZKaonCorrGraph, "Kaon PID", "pe");
+                            effCorrLegend->AddEntry(tagZPionCorrGraph, "Pion PID", "pe");
+                            if (tagZRecoEffCorrGraph->GetN() > 0) effCorrLegend->AddEntry(tagZRecoEffCorrGraph, "Reconstruction", "pe");
+                            if (tagZAcceptanceCorrGraph->GetN() > 0) effCorrLegend->AddEntry(tagZAcceptanceCorrGraph, "Acceptance", "pe");
+                            effCorrLegend->AddEntry(tagZCombinedCorrGraph, "Combined PID", "pe");
+                            effCorrLegend->Draw();
+                            
+                            // Save comprehensive efficiency plot
+                            std::string tagZEffCorrOutputFile = outfilePath + "tagZAllEfficiencyCorrections_bin" + std::to_string(iBin) + ".png";
+                            tagZEffCorrCanvas->SaveAs(tagZEffCorrOutputFile.c_str());
+                            
+                            // Create efficiency-weighted prompt signal comparison plot
+                            TCanvas* promptSignalWeightedCanvas = new TCanvas(("promptSignalWeightedCanvas_bin" + std::to_string(iBin)).c_str(),
+                                                                             ("Efficiency-Weighted Prompt Signal TagZ - Bin " + std::to_string(iBin)).c_str(),
+                                                                             1200, 900);
+                            promptSignalWeightedCanvas->Divide(2, 3);
+                            
+                            // Plot 1: Original prompt signal
+                            promptSignalWeightedCanvas->cd(1);
+                            promptSignalTagZHistSafe->SetLineColor(kBlack);
+                            promptSignalTagZHistSafe->SetMarkerColor(kBlack);
+                            promptSignalTagZHistSafe->SetMarkerStyle(20);
+                            promptSignalTagZHistSafe->SetTitle("Original Prompt Signal");
+                            promptSignalTagZHistSafe->GetXaxis()->SetTitle("#it{z}_{T}");
+                            promptSignalTagZHistSafe->GetYaxis()->SetTitle("Weighted Entries");
+                            promptSignalTagZHistSafe->Draw("pe");
+                            
+                            // Plot 2: PID-weighted
+                            promptSignalWeightedCanvas->cd(2);
+                            promptSignalTagZHist_PIDWeighted->SetLineColor(kBlue);
+                            promptSignalTagZHist_PIDWeighted->SetMarkerColor(kBlue);
+                            promptSignalTagZHist_PIDWeighted->SetMarkerStyle(21);
+                            promptSignalTagZHist_PIDWeighted->SetTitle("PID Efficiency Corrected");
+                            promptSignalTagZHist_PIDWeighted->GetXaxis()->SetTitle("#it{z}_{T}");
+                            promptSignalTagZHist_PIDWeighted->GetYaxis()->SetTitle("Corrected Entries");
+                            promptSignalTagZHist_PIDWeighted->Draw("pe");
+                            
+                            // Plot 3: Reconstruction-weighted
+                            promptSignalWeightedCanvas->cd(3);
+                            promptSignalTagZHist_RecoWeighted->SetLineColor(kOrange);
+                            promptSignalTagZHist_RecoWeighted->SetMarkerColor(kOrange);
+                            promptSignalTagZHist_RecoWeighted->SetMarkerStyle(23);
+                            promptSignalTagZHist_RecoWeighted->SetTitle("Reconstruction Efficiency Corrected");
+                            promptSignalTagZHist_RecoWeighted->GetXaxis()->SetTitle("#it{z}_{T}");
+                            promptSignalTagZHist_RecoWeighted->GetYaxis()->SetTitle("Corrected Entries");
+                            promptSignalTagZHist_RecoWeighted->Draw("pe");
+                            
+                            // Plot 4: Acceptance-weighted
+                            promptSignalWeightedCanvas->cd(4);
+                            promptSignalTagZHist_AcceptanceWeighted->SetLineColor(kMagenta);
+                            promptSignalTagZHist_AcceptanceWeighted->SetMarkerColor(kMagenta);
+                            promptSignalTagZHist_AcceptanceWeighted->SetMarkerStyle(24);
+                            promptSignalTagZHist_AcceptanceWeighted->SetTitle("Acceptance Corrected");
+                            promptSignalTagZHist_AcceptanceWeighted->GetXaxis()->SetTitle("#it{z}_{T}");
+                            promptSignalTagZHist_AcceptanceWeighted->GetYaxis()->SetTitle("Corrected Entries");
+                            promptSignalTagZHist_AcceptanceWeighted->Draw("pe");
+                            
+                            // Plot 5: Fully weighted
+                            promptSignalWeightedCanvas->cd(5);
+                            promptSignalTagZHist_FullyWeighted->SetLineColor(kRed);
+                            promptSignalTagZHist_FullyWeighted->SetMarkerColor(kRed);
+                            promptSignalTagZHist_FullyWeighted->SetMarkerStyle(25);
+                            promptSignalTagZHist_FullyWeighted->SetTitle("Fully Efficiency Corrected");
+                            promptSignalTagZHist_FullyWeighted->GetXaxis()->SetTitle("#it{z}_{T}");
+                            promptSignalTagZHist_FullyWeighted->GetYaxis()->SetTitle("Corrected Entries");
+                            promptSignalTagZHist_FullyWeighted->Draw("pe");
+                            
+                            // Plot 6: Normalized comparison
+                            promptSignalWeightedCanvas->cd(6);
+                            TH1D* promptOrigNorm = (TH1D*)promptSignalTagZHistSafe->Clone("promptOrigNorm");
+                            TH1D* promptPIDNorm = (TH1D*)promptSignalTagZHist_PIDWeighted->Clone("promptPIDNorm");
+                            TH1D* promptFullyNorm = (TH1D*)promptSignalTagZHist_FullyWeighted->Clone("promptFullyNorm");
+                            
+                            if (promptOrigNorm->Integral() > 0) promptOrigNorm->Scale(1.0 / promptOrigNorm->Integral());
+                            if (promptPIDNorm->Integral() > 0) promptPIDNorm->Scale(1.0 / promptPIDNorm->Integral());
+                            if (promptFullyNorm->Integral() > 0) promptFullyNorm->Scale(1.0 / promptFullyNorm->Integral());
+                            
+                            double maxYWeighted = std::max({promptOrigNorm->GetMaximum(), promptPIDNorm->GetMaximum(), promptFullyNorm->GetMaximum()});
+                            promptOrigNorm->GetYaxis()->SetRangeUser(0, maxYWeighted * 1.2);
+                            promptOrigNorm->SetTitle("Efficiency Correction Comparison (Normalized)");
+                            promptOrigNorm->GetYaxis()->SetTitle("Normalized Entries");
+                            promptOrigNorm->Draw("pe");
+                            promptPIDNorm->Draw("pe same");
+                            promptFullyNorm->Draw("pe same");
+                            
+                            TLegend* weightedLegend = new TLegend(0.6, 0.7, 0.9, 0.9);
+                            weightedLegend->SetBorderSize(0);
+                            weightedLegend->SetFillStyle(0);
+                            weightedLegend->AddEntry(promptOrigNorm, "Original", "pe");
+                            weightedLegend->AddEntry(promptPIDNorm, "PID Corrected", "pe");
+                            weightedLegend->AddEntry(promptFullyNorm, "Fully Corrected", "pe");
+                            weightedLegend->Draw();
+                            
+                            // Save efficiency-weighted prompt signal plot
+                            std::string promptWeightedOutputFile = outfilePath + "promptSignalEfficiencyWeighted_bin" + std::to_string(iBin) + ".png";
+                            promptSignalWeightedCanvas->SaveAs(promptWeightedOutputFile.c_str());
+                            
+                            std::cout << "  Efficiency-weighted distributions created and saved" << std::endl;
+                            
+                            // Clean up efficiency correction objects
+                            delete tagZEffCorrCanvas;
+                            delete promptSignalWeightedCanvas;
+                            delete effCorrLegend;
+                            delete weightedLegend;
+                            
+                            // Clean up efficiency-weighted histograms
+                            delete promptSignalTagZHist_PIDWeighted;
+                            delete promptSignalTagZHist_RecoWeighted;
+                            delete promptSignalTagZHist_AcceptanceWeighted;
+                            delete promptSignalTagZHist_FullyWeighted;
+                            
+                            // Clean up normalized histograms
+                            delete promptOrigNorm;
+                            delete promptPIDNorm;
+                            delete promptFullyNorm;
+                            
+                            // Clean up correction histograms and graphs
+                            delete tagZKaonCorrHist;
+                            delete tagZPionCorrHist;
+                            delete tagZRecoEffCorrHist;
+                            delete tagZAcceptanceCorrHist;
+                            delete tagZCombinedCorrHist;
+                            delete tagZKaonCountHist;
+                            delete tagZPionCountHist;
+                            delete tagZRecoEffCountHist;
+                            delete tagZAcceptanceCountHist;
+                            delete tagZCombinedCountHist;
+                            delete tagZKaonCorrGraph;
+                            delete tagZPionCorrGraph;
+                            delete tagZRecoEffCorrGraph;
+                            delete tagZAcceptanceCorrGraph;
+                            delete tagZCombinedCorrGraph;
                             
                             // Clean up
                             delete promptTagZCanvas;
@@ -2318,18 +2635,39 @@ std::vector<TGraphErrors*> FitSpectraObject::createParameterGraphs(
 void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& corrValueKaon, 
                                                    const std::vector<double>& corrValueErrKaon,
                                                    const std::vector<double>& corrValuePion, 
-                                                   const std::vector<double>& corrValueErrPion) {
+                                                   const std::vector<double>& corrValueErrPion,
+                                                   const std::vector<double>& corrValueRecoEff, 
+                                                   const std::vector<double>& corrValueErrRecoEff,
+                                                   const std::vector<double>& corrValueAcceptance, 
+                                                   const std::vector<double>& corrValueErrAcceptance,
+                                                   const std::vector<double>& corrValueCombinedPID, 
+                                                   const std::vector<double>& corrValueErrCombinedPID,
+                                                   const std::vector<double>& corrValueCombinedAll, 
+                                                   const std::vector<double>& corrValueErrCombinedAll) {
     
     std::cout << "Creating correction factor graphs..." << std::endl;
-    // std::cout << "Input: nBins=" << nBins << ", nzTBins=" << nzTBins << ", zBins.size()=" << zBins.size() << std::endl;
     
     // Validate input vectors
-    if (corrValueKaon.size() != corrValueErrKaon.size() || 
-        corrValuePion.size() != corrValueErrPion.size() ||
-        corrValueKaon.size() != corrValuePion.size()) {
-        std::cerr << "Error: Inconsistent correction factor vector sizes" << std::endl;
-        return;
+    std::vector<const std::vector<double>*> valueVectors = {
+        &corrValueKaon, &corrValuePion, &corrValueRecoEff, 
+        &corrValueAcceptance, &corrValueCombinedPID, &corrValueCombinedAll
+    };
+    std::vector<const std::vector<double>*> errorVectors = {
+        &corrValueErrKaon, &corrValueErrPion, &corrValueErrRecoEff,
+        &corrValueErrAcceptance, &corrValueErrCombinedPID, &corrValueErrCombinedAll
+    };
+    
+    // Check that all vectors have the same size
+    size_t expectedSize = corrValueKaon.size();
+    bool sizeError = false;
+    for (size_t i = 0; i < valueVectors.size(); ++i) {
+        if (valueVectors[i]->size() != expectedSize || errorVectors[i]->size() != expectedSize) {
+            std::cerr << "Error: Inconsistent correction factor vector sizes" << std::endl;
+            sizeError = true;
+        }
     }
+    
+    if (sizeError) return;
     
     int nBins = corrValueKaon.size();
     if (nBins == 0) {
@@ -2341,16 +2679,36 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     std::vector<double> validBinCenters, validBinErrors;
     std::vector<double> validKaonCorr, validKaonErr;
     std::vector<double> validPionCorr, validPionErr;
+    std::vector<double> validRecoEffCorr, validRecoEffErr;
+    std::vector<double> validAcceptanceCorr, validAcceptanceErr;
+    std::vector<double> validCombinedPIDCorr, validCombinedPIDErr;
+    std::vector<double> validCombinedAllCorr, validCombinedAllErr;
     std::vector<int> validBinIndices;
     
     // Filter out invalid correction factors (0, negative, or NaN)
     for (int i = 0; i < nBins; ++i) {
-        bool kaonValid = (corrValueKaon[i] > 0 && std::isfinite(corrValueKaon[i]) && 
-                         corrValueErrKaon[i] >= 0 && std::isfinite(corrValueErrKaon[i]));
-        bool pionValid = (corrValuePion[i] > 0 && std::isfinite(corrValuePion[i]) && 
-                         corrValueErrPion[i] >= 0 && std::isfinite(corrValueErrPion[i]));
+        bool allValid = true;
         
-        if (kaonValid && pionValid) {
+        // Check each correction factor for validity
+        std::vector<bool> validChecks = {
+            (corrValueKaon[i] > 0 && std::isfinite(corrValueKaon[i]) && 
+             corrValueErrKaon[i] >= 0 && std::isfinite(corrValueErrKaon[i])),
+            (corrValuePion[i] > 0 && std::isfinite(corrValuePion[i]) && 
+             corrValueErrPion[i] >= 0 && std::isfinite(corrValueErrPion[i])),
+            (corrValueRecoEff[i] > 0 && std::isfinite(corrValueRecoEff[i]) && 
+             corrValueErrRecoEff[i] >= 0 && std::isfinite(corrValueErrRecoEff[i])),
+            (corrValueAcceptance[i] > 0 && std::isfinite(corrValueAcceptance[i]) && 
+             corrValueErrAcceptance[i] >= 0 && std::isfinite(corrValueErrAcceptance[i])),
+            (corrValueCombinedPID[i] > 0 && std::isfinite(corrValueCombinedPID[i]) && 
+             corrValueErrCombinedPID[i] >= 0 && std::isfinite(corrValueErrCombinedPID[i])),
+            (corrValueCombinedAll[i] > 0 && std::isfinite(corrValueCombinedAll[i]) && 
+             corrValueErrCombinedAll[i] >= 0 && std::isfinite(corrValueErrCombinedAll[i]))
+        };
+        
+        // Require at least kaon and pion to be valid
+        allValid = validChecks[0] && validChecks[1];
+        
+        if (allValid) {
             // Calculate bin center from zBins if possible
             double binCenter, binError;
             if (i < nzTBins - 1 && i < static_cast<int>(zBins.size()) - 1) {
@@ -2358,7 +2716,7 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
                 binError = (zBins[i + 1] - zBins[i]) / 2.0;
                 std::cout << "  Bin " << i << ": binCenter=" << binCenter << " (from zBins[" << i << "]=" << zBins[i] << " to zBins[" << i+1 << "]=" << zBins[i+1] << ")" << std::endl;
             } else {
-                // Skip bins that are out of range - don't use fallback sequential binning
+                // Skip bins that are out of range
                 std::cout << "Warning: Skipping bin " << i << " - out of valid zBins range (i=" << i << ", nzTBins-1=" << (nzTBins-1) << ", zBins.size()-1=" << (zBins.size()-1) << ")" << std::endl;
                 continue;
             }
@@ -2369,14 +2727,22 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
             validKaonErr.push_back(corrValueErrKaon[i]);
             validPionCorr.push_back(corrValuePion[i]);
             validPionErr.push_back(corrValueErrPion[i]);
+            validRecoEffCorr.push_back(corrValueRecoEff[i]);
+            validRecoEffErr.push_back(corrValueErrRecoEff[i]);
+            validAcceptanceCorr.push_back(corrValueAcceptance[i]);
+            validAcceptanceErr.push_back(corrValueErrAcceptance[i]);
+            validCombinedPIDCorr.push_back(corrValueCombinedPID[i]);
+            validCombinedPIDErr.push_back(corrValueErrCombinedPID[i]);
+            validCombinedAllCorr.push_back(corrValueCombinedAll[i]);
+            validCombinedAllErr.push_back(corrValueErrCombinedAll[i]);
             validBinIndices.push_back(i);
         } else {
             std::cout << "Warning: Skipping bin " << i << " due to invalid correction factors" << std::endl;
-            if (!kaonValid) {
-                std::cout << "  Kaon: value=" << corrValueKaon[i] << ", error=" << corrValueErrKaon[i] << std::endl;
-            }
-            if (!pionValid) {
-                std::cout << "  Pion: value=" << corrValuePion[i] << ", error=" << corrValueErrPion[i] << std::endl;
+            std::vector<std::string> names = {"Kaon", "Pion", "RecoEff", "Acceptance", "CombinedPID", "CombinedAll"};
+            for (size_t j = 0; j < validChecks.size(); ++j) {
+                if (!validChecks[j]) {
+                    std::cout << "  " << names[j] << ": value=" << valueVectors[j]->at(i) << ", error=" << errorVectors[j]->at(i) << std::endl;
+                }
             }
         }
     }
@@ -2408,7 +2774,10 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     // Create individual correction factor graphs
     TGraphErrors* graphKaon = new TGraphErrors(nValidBins);
     TGraphErrors* graphPion = new TGraphErrors(nValidBins);
-    TGraphErrors* graphCombined = new TGraphErrors(nValidBins);
+    TGraphErrors* graphRecoEff = new TGraphErrors(nValidBins);
+    TGraphErrors* graphAcceptance = new TGraphErrors(nValidBins);
+    TGraphErrors* graphCombinedPID = new TGraphErrors(nValidBins);
+    TGraphErrors* graphCombinedAll = new TGraphErrors(nValidBins);
     
     // Fill graphs with valid data
     for (int i = 0; i < nValidBins; ++i) {
@@ -2418,15 +2787,17 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
         graphPion->SetPoint(i, validBinCenters[i], validPionCorr[i]);
         graphPion->SetPointError(i, validBinErrors[i], validPionErr[i]);
         
-        // Combined correction is the product of kaon and pion corrections
-        double combinedValue = validKaonCorr[i] * validPionCorr[i];
-        double combinedError = 0.0;
-        if (validKaonCorr[i] > 0 && validPionCorr[i] > 0) {
-            combinedError = combinedValue * sqrt(pow(validKaonErr[i]/validKaonCorr[i], 2) + 
-                                               pow(validPionErr[i]/validPionCorr[i], 2));
-        }
-        graphCombined->SetPoint(i, validBinCenters[i], combinedValue);
-        graphCombined->SetPointError(i, validBinErrors[i], combinedError);
+        graphRecoEff->SetPoint(i, validBinCenters[i], validRecoEffCorr[i]);
+        graphRecoEff->SetPointError(i, validBinErrors[i], validRecoEffErr[i]);
+        
+        graphAcceptance->SetPoint(i, validBinCenters[i], validAcceptanceCorr[i]);
+        graphAcceptance->SetPointError(i, validBinErrors[i], validAcceptanceErr[i]);
+        
+        graphCombinedPID->SetPoint(i, validBinCenters[i], validCombinedPIDCorr[i]);
+        graphCombinedPID->SetPointError(i, validBinErrors[i], validCombinedPIDErr[i]);
+        
+        graphCombinedAll->SetPoint(i, validBinCenters[i], validCombinedAllCorr[i]);
+        graphCombinedAll->SetPointError(i, validBinErrors[i], validCombinedAllErr[i]);
     }
     
     // Set graph properties
@@ -2442,14 +2813,32 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     graphPion->SetMarkerSize(1.2);
     graphPion->SetTitle("Pion PID Efficiency Correction");
     
-    graphCombined->SetMarkerStyle(22);
-    graphCombined->SetMarkerColor(kGreen + 2);
-    graphCombined->SetLineColor(kGreen + 2);
-    graphCombined->SetMarkerSize(1.2);
-    graphCombined->SetTitle("Combined PID Efficiency Correction");
+    graphRecoEff->SetMarkerStyle(22);
+    graphRecoEff->SetMarkerColor(kGreen + 2);
+    graphRecoEff->SetLineColor(kGreen + 2);
+    graphRecoEff->SetMarkerSize(1.2);
+    graphRecoEff->SetTitle("Reconstruction Efficiency Correction");
+    
+    graphAcceptance->SetMarkerStyle(23);
+    graphAcceptance->SetMarkerColor(kMagenta);
+    graphAcceptance->SetLineColor(kMagenta);
+    graphAcceptance->SetMarkerSize(1.2);
+    graphAcceptance->SetTitle("Acceptance Correction");
+    
+    graphCombinedPID->SetMarkerStyle(24);
+    graphCombinedPID->SetMarkerColor(kCyan + 2);
+    graphCombinedPID->SetLineColor(kCyan + 2);
+    graphCombinedPID->SetMarkerSize(1.2);
+    graphCombinedPID->SetTitle("Combined PID Efficiency Correction");
+    
+    graphCombinedAll->SetMarkerStyle(25);
+    graphCombinedAll->SetMarkerColor(kOrange + 2);
+    graphCombinedAll->SetLineColor(kOrange + 2);
+    graphCombinedAll->SetMarkerSize(1.2);
+    graphCombinedAll->SetTitle("Combined All Corrections");
     
     // Create combined canvas
-    TCanvas* canvasCombined = new TCanvas("canvasCorrectionFactors", "PID Efficiency Correction Factors", 1200, 800);
+    TCanvas* canvasCombined = new TCanvas("canvasCorrectionFactors", "All Efficiency Correction Factors", 1400, 1000);
     canvasCombined->SetLeftMargin(0.12);
     canvasCombined->SetRightMargin(0.05);
     canvasCombined->SetTopMargin(0.08);
@@ -2461,20 +2850,28 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     graphKaon->GetYaxis()->SetTitle("Correction Factor");
     graphKaon->GetYaxis()->SetTitleOffset(1.2);
     
-    // Find y-axis range using valid data
+    // Find y-axis range using valid data from all graphs
     double yMin = 0.8, yMax = 1.2;
+    std::vector<std::vector<double>*> allCorr = {&validKaonCorr, &validPionCorr, &validRecoEffCorr, 
+                                                &validAcceptanceCorr, &validCombinedPIDCorr, &validCombinedAllCorr};
+    std::vector<std::vector<double>*> allErr = {&validKaonErr, &validPionErr, &validRecoEffErr,
+                                               &validAcceptanceErr, &validCombinedPIDErr, &validCombinedAllErr};
+    
     for (int i = 0; i < nValidBins; ++i) {
-        yMin = std::min(yMin, std::min(validKaonCorr[i] - validKaonErr[i], 
-                                      validPionCorr[i] - validPionErr[i]));
-        yMax = std::max(yMax, std::max(validKaonCorr[i] + validKaonErr[i], 
-                                      validPionCorr[i] + validPionErr[i]));
+        for (size_t j = 0; j < allCorr.size(); ++j) {
+            yMin = std::min(yMin, (*allCorr[j])[i] - (*allErr[j])[i]);
+            yMax = std::max(yMax, (*allCorr[j])[i] + (*allErr[j])[i]);
+        }
     }
     graphKaon->GetYaxis()->SetRangeUser(yMin * 0.9, yMax * 1.1);
     
     // Draw graphs
     graphKaon->Draw("APE");
     graphPion->Draw("PE same");
-    graphCombined->Draw("PE same");
+    graphRecoEff->Draw("PE same");
+    graphAcceptance->Draw("PE same");
+    graphCombinedPID->Draw("PE same");
+    graphCombinedAll->Draw("PE same");
     
     // Add unity line
     if (nValidBins > 0) {
@@ -2486,22 +2883,28 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
         unityLine->Draw("same");
         
         // Create legend
-        TLegend* legend = new TLegend(0.15, 0.75, 0.45, 0.92);
+        TLegend* legend = new TLegend(0.15, 0.65, 0.45, 0.92);
         legend->SetBorderSize(0);
         legend->SetFillStyle(0);
         legend->AddEntry(graphKaon, "Kaon PID Correction", "pe");
         legend->AddEntry(graphPion, "Pion PID Correction", "pe");
-        legend->AddEntry(graphCombined, "Combined Correction", "pe");
+        legend->AddEntry(graphRecoEff, "Reco Eff Correction", "pe");
+        legend->AddEntry(graphAcceptance, "Acceptance Correction", "pe");
+        legend->AddEntry(graphCombinedPID, "Combined PID Correction", "pe");
+        legend->AddEntry(graphCombinedAll, "Combined All Corrections", "pe");
         legend->AddEntry(unityLine, "Unity", "l");
         legend->Draw();
     } else {
         // Create legend without unity line
-        TLegend* legend = new TLegend(0.15, 0.75, 0.45, 0.92);
+        TLegend* legend = new TLegend(0.15, 0.65, 0.45, 0.92);
         legend->SetBorderSize(0);
         legend->SetFillStyle(0);
         legend->AddEntry(graphKaon, "Kaon PID Correction", "pe");
         legend->AddEntry(graphPion, "Pion PID Correction", "pe");
-        legend->AddEntry(graphCombined, "Combined Correction", "pe");
+        legend->AddEntry(graphRecoEff, "Reco Eff Correction", "pe");
+        legend->AddEntry(graphAcceptance, "Acceptance Correction", "pe");
+        legend->AddEntry(graphCombinedPID, "Combined PID Correction", "pe");
+        legend->AddEntry(graphCombinedAll, "Combined All Corrections", "pe");
         legend->Draw();
     }
     
@@ -2509,7 +2912,7 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     TPaveText* title = new TPaveText(0.5, 0.82, 0.95, 0.92, "NDC");
     title->SetBorderSize(0);
     title->SetFillStyle(0);
-    title->AddText(Form("PID Efficiency Correction Factors (%.0f < p_{T}^{jet} < %.0f GeV)", 
+    title->AddText(Form("All Efficiency Correction Factors (%.0f < p_{T}^{jet} < %.0f GeV)", 
                        jetPt.first, jetPt.second));
     title->Draw();
     
@@ -2519,11 +2922,14 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     std::cout << "Saved combined correction factors plot: " << combinedFileName << std::endl;
     
     // Create individual plots
-    std::vector<TGraphErrors*> graphs = {graphKaon, graphPion, graphCombined};
-    std::vector<std::string> names = {"Kaon", "Pion", "Combined"};
+    std::vector<TGraphErrors*> graphs = {graphKaon, graphPion, graphRecoEff, graphAcceptance, graphCombinedPID, graphCombinedAll};
+    std::vector<std::string> names = {"Kaon", "Pion", "RecoEff", "Acceptance", "CombinedPID", "CombinedAll"};
     std::vector<std::string> titles = {"Kaon PID Efficiency Correction", 
                                       "Pion PID Efficiency Correction", 
-                                      "Combined PID Efficiency Correction"};
+                                      "Reconstruction Efficiency Correction",
+                                      "Acceptance Correction",
+                                      "Combined PID Efficiency Correction",
+                                      "Combined All Corrections"};
     
     for (size_t i = 0; i < graphs.size(); ++i) {
         TCanvas* canvas = new TCanvas(("canvas" + names[i]).c_str(), titles[i].c_str(), 800, 600);
@@ -2552,7 +2958,7 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
         TLegend* leg = new TLegend(0.15, 0.80, 0.45, 0.92);
         leg->SetBorderSize(0);
         leg->SetFillStyle(0);
-        leg->AddEntry(graphs[i], (names[i] + " PID Correction").c_str(), "pe");
+        leg->AddEntry(graphs[i], (names[i] + " Correction").c_str(), "pe");
         if (line) {
             leg->AddEntry(line, "Unity", "l");
         }
@@ -2587,14 +2993,21 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
         // Include pT range in graph names
         std::string kaonName = "graphKaonCorrection_" + ptString;
         std::string pionName = "graphPionCorrection_" + ptString;
-        std::string combinedName = "graphCombinedCorrection_" + ptString;
+        std::string recoEffName = "graphRecoEffCorrection_" + ptString;
+        std::string acceptanceName = "graphAcceptanceCorrection_" + ptString;
+        std::string combinedPIDName = "graphCombinedPIDCorrection_" + ptString;
+        std::string combinedAllName = "graphCombinedAllCorrection_" + ptString;
         
         graphKaon->Write(kaonName.c_str());
         graphPion->Write(pionName.c_str());
-        graphCombined->Write(combinedName.c_str());
+        graphRecoEff->Write(recoEffName.c_str());
+        graphAcceptance->Write(acceptanceName.c_str());
+        graphCombinedPID->Write(combinedPIDName.c_str());
+        graphCombinedAll->Write(combinedAllName.c_str());
         rootFile->Close();
         std::cout << "Saved correction factor graphs to ROOT file: " << rootFileName << std::endl;
-        std::cout << "  Graph names: " << kaonName << ", " << pionName << ", " << combinedName << std::endl;
+        std::cout << "  Graph names: " << kaonName << ", " << pionName << ", " << recoEffName << ", " 
+                  << acceptanceName << ", " << combinedPIDName << ", " << combinedAllName << std::endl;
     } else {
         std::cerr << "Error: Could not create ROOT file for correction factors" << std::endl;
     }
@@ -2606,8 +3019,8 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     }
     
     // Print summary
-    std::cout << "\n=== PID Efficiency Correction Factor Summary ===" << std::endl;
-    std::cout << "Valid Bin\tOriginal Bin\t" << xAxisLabel << " Center\tKaon Corr\tPion Corr\tCombined Corr" << std::endl;
+    std::cout << "\n=== All Efficiency Correction Factor Summary ===" << std::endl;
+    std::cout << "Valid Bin\tOriginal Bin\t" << xAxisLabel << " Center\tKaon\tPion\tRecoEff\tAcceptance\tCombPID\tCombAll" << std::endl;
     
     // Check for reasonable x-axis range
     if (nValidBins > 0) {
@@ -2622,11 +3035,13 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     }
     
     for (int i = 0; i < nValidBins; ++i) {
-        double combinedValue = validKaonCorr[i] * validPionCorr[i];
         std::cout << i << "\t\t" << validBinIndices[i] << "\t\t" << std::fixed << std::setprecision(3) << validBinCenters[i] 
                   << "\t\t" << validKaonCorr[i] << "±" << validKaonErr[i]
                   << "\t" << validPionCorr[i] << "±" << validPionErr[i]
-                  << "\t" << combinedValue << std::endl;
+                  << "\t" << validRecoEffCorr[i] << "±" << validRecoEffErr[i]
+                  << "\t" << validAcceptanceCorr[i] << "±" << validAcceptanceErr[i]
+                  << "\t" << validCombinedPIDCorr[i] << "±" << validCombinedPIDErr[i]
+                  << "\t" << validCombinedAllCorr[i] << "±" << validCombinedAllErr[i] << std::endl;
     }
     std::cout << "Total valid bins: " << nValidBins << " out of " << nBins << " original bins" << std::endl;
     std::cout << "=================================================" << std::endl;
@@ -2635,7 +3050,10 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     delete canvasCombined;
     delete graphKaon;
     delete graphPion;
-    delete graphCombined;
+    delete graphRecoEff;
+    delete graphAcceptance;
+    delete graphCombinedPID;
+    delete graphCombinedAll;
     
     std::cout << "Correction factor graphs creation completed." << std::endl;
 }
@@ -2749,7 +3167,6 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
             0.75, 0.8, 0.85, 0.9, 0.95, 
             1.0}; // D0 zT bins
         // there are 
-        std::vector<double> rBins = {0, 0.015, 0.03, 0.06, 0.1, 0.2, 0.5};  // D0 R bins
         //LHCb y bins (rapidity)
         // std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
         std::vector<double> yBins = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};

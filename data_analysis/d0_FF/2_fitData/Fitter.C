@@ -316,6 +316,10 @@ RooDataSet *Fitter::createDataSet(const std::string &resonance, const std::strin
     RooRealVar *kaon_efficiency = new RooRealVar("kaon_efficiency", "kaon_efficiency", 0, 1);
     RooRealVar *pion_efficiency = new RooRealVar("pion_efficiency", "pion_efficiency", 0, 1);
     RooRealVar *combined_efficiency = new RooRealVar("combined_efficiency", "combined_efficiency", 0, 1);
+    RooRealVar *combinedPID = new RooRealVar("combined_PID_efficiency", "combined_PID_efficiency", 0, 1);
+    RooRealVar *reconstruction_efficiency = new RooRealVar("reconstruction_efficiency", "reconstruction_efficiency", 0, 1);
+    RooRealVar *acceptance = new RooRealVar("acceptance", "acceptance", 0, 1);
+    RooRealVar *combined_eff_and_acceptance = new RooRealVar("combined_eff_and_acceptance", "combined_eff_and_acceptance", 0, 1);
     // RooRealVar* effWeight = new RooRealVar("EffWeight", "EffWeight", 0, 25000);
     // RooRealVar* effWeight_0 = new RooRealVar("EffWeight_0", "EffWeight_0", 0, 5);
     // RooRealVar* effWeight_1 = new RooRealVar("EffWeight_1", "EffWeight_1", 0, 500);
@@ -326,6 +330,10 @@ RooDataSet *Fitter::createDataSet(const std::string &resonance, const std::strin
     cutVars->add(*kaon_efficiency);
     cutVars->add(*pion_efficiency);
     cutVars->add(*combined_efficiency);
+    cutVars->add(*combinedPID);
+    cutVars->add(*reconstruction_efficiency);
+    cutVars->add(*acceptance);
+    cutVars->add(*combined_eff_and_acceptance);
     // cutVars->add(*effWeight);
     // cutVars->add(*effWeight_0);
     // cutVars->add(*effWeight_1);
@@ -363,8 +371,23 @@ RooDataSet *Fitter::createDataSet(const std::string &resonance, const std::strin
     }
     else if (corrVer == 3)
     {
-        weightName = "combined_efficiency";
-        std::cout << "Debug: Using combined_efficiency as weight" << std::endl;
+        weightName = "reconstruction_efficiency";
+        std::cout << "Debug: Using reconstruction_efficiency as weight" << std::endl;
+    }
+    else if (corrVer == 4)
+    {
+        weightName = "acceptance";
+        std::cout << "Debug: Using acceptance as weight" << std::endl;
+    }
+    else if (corrVer == 5)
+    {
+        weightName = "combined_PID_efficiency";  // Combined PID efficiency (kaon*pion)
+        std::cout << "Debug: Using combined_PID_efficiency as weight" << std::endl;
+    }
+    else if (corrVer == 6)
+    {
+        weightName = "combined_eff_and_acceptance";  // Combined all efficiencies and acceptance
+        std::cout << "Debug: Using combined_eff_and_acceptance as weight" << std::endl;
     }
     // if (corrVer == 0) weightName = effWeight_Rnd->GetName();
     // else if (corrVer == 1) weightName = effWeight->GetName();

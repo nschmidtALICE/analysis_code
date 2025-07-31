@@ -101,6 +101,9 @@ run_stage1() {
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/52/52.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/53/53.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/54/54.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/55/55.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/56/56.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1123981.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_17_MC_output_D0FF/20250514_Pbp_MC_output_D0FF.root"
@@ -142,7 +145,7 @@ run_stage2() {
     isMCswitch="false"
     if [ "$MC_MODE" = "True" ]; then
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/filtered.root"
-        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/filtered.root"
+        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250609_Pbp_MC_output/1122665/1122665_filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1_bunew.root"
