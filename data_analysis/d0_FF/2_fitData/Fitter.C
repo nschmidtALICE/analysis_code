@@ -51,16 +51,13 @@ void Fitter::initDictionary()
     d0Config.dg_frac = ParamConfig(0.5, 0.0, 0.99999);
     d0Config.pol1 = ParamConfig(-0.5, -10, 10);
     d0Config.pol2 = ParamConfig(58, -2e2, 5e2);
-    // d0Config.pol2 = ParamConfig(58, -2e2, 5e2);
     d0Config.massRange = std::make_pair(1.815, 1.925); // 150 MeV range
-    // d0Config.massRange = std::make_pair(1.81, 1.935);  // 150 MeV range
     d0Config.sigYield = ParamConfig(100, 0, 5e6);
     d0Config.sigYieldLim = ParamConfig(100, 0, 5e6);
     d0Config.bkgYield = ParamConfig(1000, 0, 4e6);
     d0Config.bkgYieldLim = ParamConfig(1000, 0, 4e6);
     d0Config.signalRegion = std::make_pair(1.845, 1.885); // 40 MeV range
     d0Config.sbRegion = std::make_pair(1.825, 1.910);     // Sideband region
-    // d0Config.sbRegion = std::make_pair(1.820, 1.840);     // Sideband region
 
     massDict["D0"] = d0Config;
 
@@ -268,79 +265,51 @@ RooDataSet *Fitter::createDataSet(const std::string &resonance, const std::strin
     // Get ranges from dictionaries
     auto res = massDict[resonance];
     auto ipchi2_params = ipchi2Dict["Sig" + resonance];
+    
+    // Declare variables - consolidated variable creation
     auto mass_range = res.massRange;
-
-    // Declare variables
-    RooRealVar *tagMass = new RooRealVar("tagMass", "tagMass",
-                                         mass_range.first, mass_range.second);
-
-    // For IP chi2 fits
+    
+    RooRealVar *tagMass = new RooRealVar("tagMass", "tagMass", mass_range.first, mass_range.second);
     RooRealVar *tag_ipchi2 = new RooRealVar("tag_ip_chi2", "tag_ip_chi2", 0, 10000);
     RooRealVar *log_tag_ipchi2 = new RooRealVar("log_tag_ipchi2", "log_tag_ipchi2",
                                                 ipchi2_params.logIpchi2Range.first,
                                                 ipchi2_params.logIpchi2Range.second);
 
-    // Other variables
-    RooRealVar *pt_jet = new RooRealVar("jetPt", "jetPt", 0, 200);
-    RooRealVar *pt_tag = new RooRealVar("tagPt", "tagPt", 0, 200);
-    RooRealVar *nConst = new RooRealVar("jetnConst", "jetnConst", 0.0, 300.0);
-    // RooRealVar* qValue = new RooRealVar("QValue", "QValue", -2, 0.5);
-    RooRealVar *dRValue = new RooRealVar("tagJetdR", "tagJetdR", 0.0, 1.0);
-    RooRealVar *tagZ = new RooRealVar("tagZ", "tagZ", 0.0, 1.01);
-    RooRealVar *tagY = new RooRealVar("tagY", "tagY", 0.0, 5.01);
+    // Standard kinematic variables
+    std::vector<std::pair<std::string, std::pair<double, double>>> kinVars = {
+        {"jetPt", {0, 200}}, {"tagPt", {0, 200}}, {"jetnConst", {0.0, 300.0}},
+        {"tagJetdR", {0.0, 1.0}}, {"tagZ", {0.0, 1.01}}, {"tagY", {0.0, 5.01}}
+    };
 
-    // Create RooArgSet with all variables
     RooArgSet *cutVars = new RooArgSet();
     cutVars->add(*tagMass);
     cutVars->add(*tag_ipchi2);
     cutVars->add(*log_tag_ipchi2);
-    cutVars->add(*pt_jet);
-    cutVars->add(*pt_tag);
-    cutVars->add(*nConst);
-    // cutVars->add(*qValue);
-    cutVars->add(*tagZ);
-    cutVars->add(*tagY);
-    cutVars->add(*dRValue);
+    
+    // Add kinematic variables
+    for (const auto& var : kinVars) {
+        RooRealVar *rooVar = new RooRealVar(var.first.c_str(), var.first.c_str(), 
+                                           var.second.first, var.second.second);
+        cutVars->add(*rooVar);
+    }
 
     // Add distance variables
     RooRealVar *distance1 = new RooRealVar("Distance1", "Distance1", -10, 200);
-    // RooRealVar* distance2 = new RooRealVar("Distance2", "Distance2", -10, 200);
-    // RooRealVar* distance3 = new RooRealVar("Distance3", "Distance3", -10, 200);
     cutVars->add(*distance1);
-    // cutVars->add(*distance2);
-    // cutVars->add(*distance3);
 
     std::cout << "Using correction version: " << corrVer << std::endl;
 
-    // Add weights
-    RooRealVar *kaon_efficiency = new RooRealVar("kaon_efficiency", "kaon_efficiency", 0, 1);
-    RooRealVar *pion_efficiency = new RooRealVar("pion_efficiency", "pion_efficiency", 0, 1);
-    RooRealVar *combined_efficiency = new RooRealVar("combined_efficiency", "combined_efficiency", 0, 1);
-    RooRealVar *combinedPID = new RooRealVar("combined_PID_efficiency", "combined_PID_efficiency", 0, 1);
-    RooRealVar *reconstruction_efficiency = new RooRealVar("reconstruction_efficiency", "reconstruction_efficiency", 0, 1);
-    RooRealVar *acceptance = new RooRealVar("acceptance", "acceptance", 0, 1);
-    RooRealVar *combined_eff_and_acceptance = new RooRealVar("combined_eff_and_acceptance", "combined_eff_and_acceptance", 0, 1);
-    // RooRealVar* effWeight = new RooRealVar("EffWeight", "EffWeight", 0, 25000);
-    // RooRealVar* effWeight_0 = new RooRealVar("EffWeight_0", "EffWeight_0", 0, 5);
-    // RooRealVar* effWeight_1 = new RooRealVar("EffWeight_1", "EffWeight_1", 0, 500);
-    // RooRealVar* effWeight_2 = new RooRealVar("EffWeight_2", "EffWeight_2", 0, 4);
-    // RooRealVar* effWeight_3 = new RooRealVar("EffWeight_3", "EffWeight_3", -1, 2);
-    // RooRealVar* effWeight_4 = new RooRealVar("EffWeight_4", "EffWeight_4", 0, 2000);
-    // RooRealVar* effWeight_Rnd = new RooRealVar("tagnRnd", "tagnRnd", -1, 25);
-    cutVars->add(*kaon_efficiency);
-    cutVars->add(*pion_efficiency);
-    cutVars->add(*combined_efficiency);
-    cutVars->add(*combinedPID);
-    cutVars->add(*reconstruction_efficiency);
-    cutVars->add(*acceptance);
-    cutVars->add(*combined_eff_and_acceptance);
-    // cutVars->add(*effWeight);
-    // cutVars->add(*effWeight_0);
-    // cutVars->add(*effWeight_1);
-    // cutVars->add(*effWeight_2);
-    // cutVars->add(*effWeight_3);
-    // cutVars->add(*effWeight_4);
-    // cutVars->add(*effWeight_Rnd);
+    // Add efficiency weights using a loop for cleaner code
+    std::vector<std::string> effVars = {
+        "kaon_efficiency", "pion_efficiency", "combined_efficiency", 
+        "combined_PID_efficiency", "reconstruction_efficiency", 
+        "acceptance", "combined_eff_and_acceptance"
+    };
+    
+    for (const auto& varName : effVars) {
+        RooRealVar *effVar = new RooRealVar(varName.c_str(), varName.c_str(), 0, 1);
+        cutVars->add(*effVar);
+    }
 
     // Create final cut string
     std::string finalCutString = fidCutString;
@@ -350,52 +319,28 @@ RooDataSet *Fitter::createDataSet(const std::string &resonance, const std::strin
     if (corrVer > -2)
     {
         finalCutString += "&& Distance1 < 0.5";
-        // finalCutString += "&& Distance1 < 0.5 && Distance2 < 0.5 && Distance3 < 0.5";
     }
 
     // Create dataset with appropriate weight
     RooDataSet *data = nullptr;
-    const char *weightName = nullptr;
-
     std::cout << "Debug: Creating dataset with corrVer = " << corrVer << std::endl;
 
-    if (corrVer == 1)
-    {
-        weightName = "kaon_efficiency";
-        std::cout << "Debug: Using kaon_efficiency as weight" << std::endl;
+    // Map correction versions to weight names for cleaner code
+    std::map<int, std::string> correctionWeights = {
+        {1, "kaon_efficiency"},
+        {2, "pion_efficiency"}, 
+        {3, "reconstruction_efficiency"},
+        {4, "acceptance"},
+        {5, "combined_PID_efficiency"},
+        {6, "combined_eff_and_acceptance"}
+    };
+
+    const char *weightName = nullptr;
+    auto it = correctionWeights.find(corrVer);
+    if (it != correctionWeights.end()) {
+        weightName = it->second.c_str();
+        std::cout << "Debug: Using " << weightName << " as weight" << std::endl;
     }
-    else if (corrVer == 2)
-    {
-        weightName = "pion_efficiency";
-        std::cout << "Debug: Using pion_efficiency as weight" << std::endl;
-    }
-    else if (corrVer == 3)
-    {
-        weightName = "reconstruction_efficiency";
-        std::cout << "Debug: Using reconstruction_efficiency as weight" << std::endl;
-    }
-    else if (corrVer == 4)
-    {
-        weightName = "acceptance";
-        std::cout << "Debug: Using acceptance as weight" << std::endl;
-    }
-    else if (corrVer == 5)
-    {
-        weightName = "combined_PID_efficiency";  // Combined PID efficiency (kaon*pion)
-        std::cout << "Debug: Using combined_PID_efficiency as weight" << std::endl;
-    }
-    else if (corrVer == 6)
-    {
-        weightName = "combined_eff_and_acceptance";  // Combined all efficiencies and acceptance
-        std::cout << "Debug: Using combined_eff_and_acceptance as weight" << std::endl;
-    }
-    // if (corrVer == 0) weightName = effWeight_Rnd->GetName();
-    // else if (corrVer == 1) weightName = effWeight->GetName();
-    // else if (corrVer == 2) weightName = effWeight_0->GetName();
-    // else if (corrVer == 3) weightName = effWeight_1->GetName();
-    // else if (corrVer == 4) weightName = effWeight_2->GetName();
-    // else if (corrVer == 5) weightName = effWeight_3->GetName();
-    // else if (corrVer == 6) weightName = effWeight_4->GetName();
 
     if (weightName)
     {
@@ -978,7 +923,9 @@ Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooD
         parameterErrArr[9] = xi_nonprompt->getError();
 
         std::cout << "  IP chi2 fit with yields completed successfully" << std::endl;
-        std::cout << "  Prompt fraction: " << prompt_frac->getVal() << " ± " << prompt_frac->getError() << std::endl;
+        std::cout << "  Results - Prompt fraction: " << prompt_frac->getVal() << " ± " << prompt_frac->getError() 
+                  << ", Prompt yield: " << prompt_yield->getVal() 
+                  << ", Non-prompt yield: " << nonprompt_yield->getVal() << std::endl;
 
         // Create sPlot weights if requested
         if (enableSPlot && splotFile)
@@ -1308,36 +1255,23 @@ RooDataSet *Fitter::createWeightedDataset(RooDataSet *originalData,
 
     try
     {
-        // Small delay to ensure file is completely closed from previous operations
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        // Try to open the file multiple times if it's not immediately available
+        // Open sPlot file with retry mechanism
         TFile *splotFile = nullptr;
-        int maxRetries = 5;
-        int retryCount = 0;
-
-        while (retryCount < maxRetries)
-        {
+        for (int retryCount = 0; retryCount < 5; ++retryCount) {
+            if (retryCount > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                std::cout << "  Retry " << retryCount << " to open sPlot file..." << std::endl;
+            }
+            
             splotFile = new TFile(splotFileName.c_str(), "READ");
-            if (splotFile && !splotFile->IsZombie())
-            {
-                break; // File opened successfully
-            }
-
-            if (splotFile)
-            {
-                delete splotFile;
-                splotFile = nullptr;
-            }
-
-            retryCount++;
-            std::cout << "  Retry " << retryCount << " to open sPlot file..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            if (splotFile && !splotFile->IsZombie()) break;
+            
+            delete splotFile;
+            splotFile = nullptr;
         }
 
-        if (!splotFile || splotFile->IsZombie())
-        {
-            std::cerr << "Error: Cannot open sPlot file after " << maxRetries << " retries: " << splotFileName << std::endl;
+        if (!splotFile || splotFile->IsZombie()) {
+            std::cerr << "Error: Cannot open sPlot file: " << splotFileName << std::endl;
             if (splotFile)
             {
                 delete splotFile;
@@ -1640,270 +1574,3 @@ bool Fitter::saveIPChi2SPlotWeights(RooDataSet *originalData,
         return false;
     }
 }
-
-/*!SECTION
-
-std::tuple<TH1*, std::vector<double>, std::vector<double>>
-Fitter::ipchi2Fit(const std::string& resonance, RooDataSet* data, RooDataSet* background,
-                 const std::string& figKey, int bin, const std::string& zRange) {
-    std::cout << "\n==== Starting IP chi2 fit with Bukin function for bin " << bin << " ====" << std::endl;
-
-    // Suppress RooFit messages
-    RooMsgService::instance().setGlobalKillBelow(RooFit::WARNING);
-
-    // Initialize return values
-    std::vector<double> parameterArr(12, 0.0);
-    std::vector<double> parameterErrArr(12, 0.0);
-    TH1* histogram = nullptr;
-
-    try {
-        // Get dictionaries with parameters
-        auto ipchi2_params = ipchi2Dict["Sig" + resonance];
-        auto mass_params = massDict[resonance];
-
-        // Print dataset info
-        std::cout << "  Signal dataset entries: " << data->numEntries() << std::endl;
-        if (background) {
-            std::cout << "  Background dataset entries: " << background->numEntries() << std::endl;
-        }
-
-        // Create RooFit variable for log(IP Chi2)
-        RooRealVar* log_ipchi2 = new RooRealVar("log_tag_ipchi2", "log(tag_ip_chi2)",
-                                              ipchi2_params.logIpchi2Range.first,
-                                              ipchi2_params.logIpchi2Range.second);
-
-        // Create variables for the model
-        RooRealVar* sig_yield = new RooRealVar("sig_yield", "sig_yield",
-                                            mass_params.sigYield.value,
-                                            mass_params.sigYield.min,
-                                            mass_params.sigYield.max);
-
-        RooRealVar* sig_yieldLim = new RooRealVar("sig_yieldLim", "sig_yieldLim",
-                                               mass_params.sigYieldLim.value,
-                                               mass_params.sigYieldLim.min,
-                                               mass_params.sigYieldLim.max);
-
-        RooRealVar* bkg_yieldLim = new RooRealVar("bkg_yieldLim", "bkg_yieldLim",
-                                               mass_params.bkgYieldLim.value,
-                                               mass_params.bkgYieldLim.min,
-                                               mass_params.bkgYieldLim.max);
-
-        RooRealVar* prompt_frac = new RooRealVar("prompt_frac", "prompt_frac",
-                                              ipchi2_params.promptFrac.value,
-                                              ipchi2_params.promptFrac.min,
-                                              ipchi2_params.promptFrac.max);
-
-        // Debug: Print the prompt_frac value that was used
-        std::cout << "  Created prompt_frac with value: " << prompt_frac->getVal() << std::endl;
-
-        // Create single Bukin for prompt component
-        RooRealVar* xp_prompt = new RooRealVar("xp_prompt", "xp_prompt",
-                                            ipchi2_params.xpPrompt.value,
-                                            ipchi2_params.xpPrompt.min,
-                                            ipchi2_params.xpPrompt.max);
-
-        RooRealVar* sigma_prompt = new RooRealVar("sigma_prompt", "sigma_prompt",
-                                               ipchi2_params.sigmaPrompt.value,
-                                               ipchi2_params.sigmaPrompt.min,
-                                               ipchi2_params.sigmaPrompt.max);
-
-        RooRealVar* xi_prompt = new RooRealVar("xi_prompt", "xi_prompt",
-                                            ipchi2_params.xiPrompt.value,
-                                            ipchi2_params.xiPrompt.min,
-                                            ipchi2_params.xiPrompt.max);
-
-        RooRealVar* rho1_prompt = new RooRealVar("rho1_prompt", "rho1_prompt",
-                                              ipchi2_params.rho1Prompt.value,
-                                              ipchi2_params.rho1Prompt.min,
-                                              ipchi2_params.rho1Prompt.max);
-
-        RooRealVar* rho2_prompt = new RooRealVar("rho2_prompt", "rho2_prompt",
-                                              ipchi2_params.rho2Prompt.value,
-                                              ipchi2_params.rho2Prompt.min,
-                                              ipchi2_params.rho2Prompt.max);
-
-        // Create the prompt Bukin PDF
-        RooBukinPdf* prompt_pdf = new RooBukinPdf("prompt_pdf", "prompt_pdf",
-                                               *log_ipchi2, *xp_prompt, *sigma_prompt, *xi_prompt,
-                                               *rho1_prompt, *rho2_prompt);
-
-        // Create non-prompt component using a single Bukin
-        RooRealVar* xp_nonprompt = new RooRealVar("xp_nonprompt", "xp_nonprompt",
-                                               ipchi2_params.xpNonprompt.value,
-                                               ipchi2_params.xpNonprompt.min,
-                                               ipchi2_params.xpNonprompt.max);
-
-        RooRealVar* sigma_nonprompt = new RooRealVar("sigma_nonprompt", "sigma_nonprompt",
-                                                  ipchi2_params.sigmaNonprompt.value,
-                                                  ipchi2_params.sigmaNonprompt.min,
-                                                  ipchi2_params.sigmaNonprompt.max);
-
-        RooRealVar* xi_nonprompt = new RooRealVar("xi_nonprompt", "xi_nonprompt",
-                                               ipchi2_params.xiNonprompt.value,
-                                               ipchi2_params.xiNonprompt.min,
-                                               ipchi2_params.xiNonprompt.max);
-
-        RooRealVar* rho1_nonprompt = new RooRealVar("rho1_nonprompt", "rho1_nonprompt",
-                                                 ipchi2_params.rho1Nonprompt.value,
-                                                 ipchi2_params.rho1Nonprompt.min,
-                                                 ipchi2_params.rho1Nonprompt.max);
-
-        RooRealVar* rho2_nonprompt = new RooRealVar("rho2_nonprompt", "rho2_nonprompt",
-                                                 ipchi2_params.rho2Nonprompt.value,
-                                                 ipchi2_params.rho2Nonprompt.min,
-                                                 ipchi2_params.rho2Nonprompt.max);
-
-        RooBukinPdf* nonprompt_pdf = new RooBukinPdf("nonprompt_pdf", "nonprompt_pdf",
-                                                  *log_ipchi2, *xp_nonprompt, *sigma_nonprompt, *xi_nonprompt,
-                                                  *rho1_nonprompt, *rho2_nonprompt);
-
-        // Calculate yields for prompt and non-prompt
-        RooFormulaVar* prompt_yield = new RooFormulaVar("prompt_yield", "prompt_yield",
-                                                     "sig_yieldLim*prompt_frac",
-                                                     RooArgList(*sig_yieldLim, *prompt_frac));
-
-        RooFormulaVar* nonprompt_yield = new RooFormulaVar("nonprompt_yield", "nonprompt_yield",
-                                                        "sig_yieldLim*(1-prompt_frac)",
-                                                        RooArgList(*sig_yieldLim, *prompt_frac));
-
-        // Create the total PDF
-        RooAbsPdf* total_pdf = new RooAddPdf("total_pdf", "total_pdf",
-                                           RooArgList(*prompt_pdf, *nonprompt_pdf),
-                                           RooArgList(*prompt_yield, *nonprompt_yield));
-
-        // Create background PDF if provided
-        // if (background && background->numEntries() > 0) {
-        //     RooRealVar* bkg_param1 = new RooRealVar("bkg_param1", "bkg_param1",
-        //                                          ipchi2_params.bkgParam1.value,
-        //                                          ipchi2_params.bkgParam1.min,
-        //                                          ipchi2_params.bkgParam1.max);
-
-        //     RooRealVar* bkg_param2 = new RooRealVar("bkg_param2", "bkg_param2",
-        //                                          ipchi2_params.bkgParam2.value,
-        //                                          ipchi2_params.bkgParam2.min,
-        //                                          ipchi2_params.bkgParam2.max);
-
-        //     // Use a polynomial for background
-        //     background_pdf = new RooPolynomial("bkg_pdf", "bkg_pdf",
-        //                                    *log_ipchi2, RooArgList(*bkg_param1, *bkg_param2));
-
-        //     // Combined model with signal and background
-        //     RooAddPdf* signal_model = new RooAddPdf("signal_model", "signal_model",
-        //                                          RooArgList(*prompt_pdf, *nonprompt_pdf),
-        //                                          RooArgList(*prompt_yield, *nonprompt_yield));
-
-        //     total_pdf = new RooAddPdf("total_pdf", "total_pdf",
-        //                              RooArgList(*signal_model, *background_pdf),
-        //                              RooArgList(*sig_yieldLim, *bkg_yieldLim));
-        // } else {
-            // Signal-only model
-            // total_pdf is already created above
-        // }
-
-        // Perform the fit
-        std::cout << "  Performing IP chi2 fit with Bukin function..." << std::endl;
-        std::cout << "  Initial prompt_frac: " << prompt_frac->getVal() << " (range: "
-                  << prompt_frac->getMin() << " - " << prompt_frac->getMax() << ")" << std::endl;
-        std::cout << "  Initial sig_yieldLim: " << sig_yieldLim->getVal() << std::endl;
-
-        // Debug: Print the sig_yieldLim value that was used
-        std::cout << "  Created sig_yieldLim with value: " << sig_yieldLim->getVal() << std::endl;
-        std::cout << "  Dictionary mass_params.sigYieldLim.value: " << mass_params.sigYieldLim.value << std::endl;
-
-        // Check if prompt_frac is constant (fixed)
-        if (prompt_frac->isConstant()) {
-            std::cout << "  WARNING: prompt_frac is constant! Setting it to variable..." << std::endl;
-            prompt_frac->setConstant(false);
-        }
-
-        // Print all parameter states before fit
-        std::cout << "  Parameter states before fit:" << std::endl;
-        std::cout << "    prompt_frac: " << prompt_frac->getVal() << " [" << prompt_frac->getMin()
-                  << ", " << prompt_frac->getMax() << "] constant=" << prompt_frac->isConstant() << std::endl;
-        std::cout << "    sig_yieldLim: " << sig_yieldLim->getVal() << " [" << sig_yieldLim->getMin()
-                  << ", " << sig_yieldLim->getMax() << "] constant=" << sig_yieldLim->isConstant() << std::endl;
-
-        // Make sure sig_yieldLim is also not constant
-        if (sig_yieldLim->isConstant()) {
-            std::cout << "  WARNING: sig_yieldLim is constant! Setting it to variable..." << std::endl;
-            sig_yieldLim->setConstant(false);
-        }
-
-        // Use improved fit strategy
-        RooFitResult* result = total_pdf->fitTo(*data,
-                                              RooFit::Save(true),
-                                              RooFit::PrintLevel(0),
-                                              RooFit::SumW2Error(true),
-                                              RooFit::Strategy(2),
-                                              RooFit::Minos(false),
-                                              RooFit::Hesse(true));
-
-        std::cout << "  Fitted prompt_frac: " << prompt_frac->getVal() << " ± " << prompt_frac->getError() << std::endl;
-        std::cout << "  Fitted sig_yieldLim: " << sig_yieldLim->getVal() << std::endl;
-        std::cout << "  Fitted prompt_yield: " << prompt_yield->getVal() << std::endl;
-        std::cout << "  Fitted nonprompt_yield: " << nonprompt_yield->getVal() << std::endl;
-
-        // Create plot
-        std::cout << "  Creating IP chi2 fit plot..." << std::endl;
-        Plotter plotter(resonance, outfilePath, bin, false, zRange, figKey);
-        histogram = plotter.ipchi2FitPlot(resonance, log_ipchi2, data, total_pdf,
-                                        nonprompt_pdf, prompt_pdf, nullptr,
-                                        prompt_yield, nonprompt_yield);
-
-        // Extract fit parameters
-        parameterArr[0] = sig_yield->getVal();
-        parameterArr[1] = prompt_frac->getVal();
-
-        // Prompt Bukin parameters
-        parameterArr[2] = xp_prompt->getVal();
-        parameterArr[3] = sigma_prompt->getVal();
-        parameterArr[4] = xi_prompt->getVal();
-        parameterArr[5] = rho1_prompt->getVal();
-        parameterArr[6] = rho2_prompt->getVal();
-
-        // Non-prompt Bukin parameters
-        parameterArr[7] = xp_nonprompt->getVal();
-        parameterArr[8] = sigma_nonprompt->getVal();
-        parameterArr[9] = xi_nonprompt->getVal();
-        parameterArr[10] = rho1_nonprompt->getVal();
-        parameterArr[11] = rho2_nonprompt->getVal();
-
-        // Extract errors
-        parameterErrArr[0] = sig_yield->getError();
-        parameterErrArr[1] = prompt_frac->getError();
-
-        parameterErrArr[2] = xp_prompt->getError();
-        parameterErrArr[3] = sigma_prompt->getError();
-        parameterErrArr[4] = xi_prompt->getError();
-
-        parameterErrArr[7] = xp_nonprompt->getError();
-        parameterErrArr[8] = sigma_nonprompt->getError();
-        parameterErrArr[9] = xi_nonprompt->getError();
-
-        std::cout << "  IP chi2 fit with Bukin function completed successfully" << std::endl;
-        std::cout << "  Prompt fraction: " << prompt_frac->getVal() << " ± " << prompt_frac->getError() << std::endl;
-        std::cout << "  Prompt yield: " << prompt_yield->getVal() << std::endl;
-        std::cout << "  Non-prompt yield: " << nonprompt_yield->getVal() << std::endl;
-
-        // Clean up fit result
-        delete result;
-
-        // Create RooRealVar objects for the yields (for sPlot compatibility)
-        RooRealVar* promptYieldVar = new RooRealVar("prompt_yield_var", "prompt_yield_var",
-                                                   prompt_yield->getVal(), 0, 1e6);
-        promptYieldVar->setError(prompt_frac->getError());
-
-        RooRealVar* nonpromptYieldVar = new RooRealVar("nonprompt_yield_var", "nonprompt_yield_var",
-                                                      nonprompt_yield->getVal(), 0, 1e6);
-        nonpromptYieldVar->setError(prompt_frac->getError());
-
-        // Return results (note: caller is responsible for cleanup of yield variables and PDF)
-        return std::make_tuple(histogram, parameterArr, parameterErrArr);
-
-    } catch (const std::exception& e) {
-        std::cerr << "Error in ipchi2Fit: " << e.what() << std::endl;
-        return std::make_tuple(nullptr, parameterArr, parameterErrArr);
-    }
-}
-
-*/

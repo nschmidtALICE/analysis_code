@@ -71,6 +71,11 @@ public:
     std::map<int, TH1D*> hTagZBackgroundSubtracted;
     std::map<int, TH1D*> hTagZPromptSignal;
     
+    // Weighted TagZ histograms (maps with bin number as key)
+    std::map<int, TH1D*> hTagZAcceptanceWeighted;
+    std::map<int, TH1D*> hTagZRecoWeighted;
+    std::map<int, TH1D*> hTagZFullyWeighted;
+    
     // PID-corrected histograms (maps with bin number as key)
     std::map<int, TH1D*> hTagZKaonCorrected;
     std::map<int, TH1D*> hTagZPionCorrected;
@@ -93,6 +98,8 @@ public:
     // Public methods
     TGraphErrors* plotPt(bool isCorrected = false);
     void plotCorrFacAcceptance();
+    void plotCombinedCorrectionDemo();
+    void plotTagZWeightedHistogramsDemo();
     TGraphErrors* plotNonPromptFraction(bool isCorrected = false);
     void plotYieldResult(bool isCorrected = false);
     void plotYieldResultWithTagZCorrections(bool isCorrected = false, int targetBin = -1);
@@ -304,7 +311,10 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
             // Load the actual correction graphs created by MassFitter.C with pT range in name
             std::string kaonGraphName = "graphKaonCorrection_" + ptString;
             std::string pionGraphName = "graphPionCorrection_" + ptString;
-            std::string combinedGraphName = "graphCombinedCorrection_" + ptString;
+            std::string recoEffGraphName = "graphRecoEffCorrection_" + ptString;
+            std::string acceptanceGraphName = "graphAcceptanceCorrection_" + ptString;
+            std::string combinedPIDGraphName = "graphCombinedPIDCorrection_" + ptString;
+            std::string combinedAllGraphName = "graphCombinedAllCorrection_" + ptString;
             
             gAccCorr0 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(kaonGraphName.c_str()));
             if (!is_valid_graph(gAccCorr0)) {
@@ -320,16 +330,30 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
             }
             std::cout << "Loaded pion correction graph: " << pionGraphName << std::endl;
             
-            gAccCorr2 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(combinedGraphName.c_str()));
+            gAccCorr2 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(combinedPIDGraphName.c_str()));
             if (!is_valid_graph(gAccCorr2)) {
-                std::cout << "Warning: " << combinedGraphName << " is not a valid graph, creating empty graph" << std::endl;
+                std::cout << "Warning: " << combinedPIDGraphName << " is not a valid graph, creating empty graph" << std::endl;
                 gAccCorr2 = create_empty_graph();
             }
-            
+            gAccCorr3 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(recoEffGraphName.c_str()));
+            if (!is_valid_graph(gAccCorr3)) {
+                std::cout << "Warning: " << recoEffGraphName << " is not a valid graph, creating empty graph" << std::endl;
+                gAccCorr3 = create_empty_graph();
+            }
+            gAccCorr4 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(acceptanceGraphName.c_str()));
+            if (!is_valid_graph(gAccCorr4)) {
+                std::cout << "Warning: " << acceptanceGraphName << " is not a valid graph, creating empty graph" << std::endl;
+                gAccCorr4 = create_empty_graph();
+            }
+            gAccCorr5 = dynamic_cast<TGraphErrors*>(fInFileHistoCorrections->Get(combinedAllGraphName.c_str()));
+            if (!is_valid_graph(gAccCorr5)) {
+                std::cout << "Warning: " << combinedAllGraphName << " is not a valid graph, creating empty graph" << std::endl;
+                gAccCorr5 = create_empty_graph();
+            }
             // Create empty graphs for unused correction factors (backward compatibility)
-            gAccCorr3 = create_empty_graph();
-            gAccCorr4 = create_empty_graph();
-            gAccCorr5 = create_empty_graph();
+            // gAccCorr3 = create_empty_graph();
+            // gAccCorr4 = create_empty_graph();
+            // gAccCorr5 = create_empty_graph();
             gAccCorr6 = create_empty_graph();
             
             // Load tagZ-dependent correction factors
@@ -367,25 +391,25 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         
         // For total acceptance correction, use the combined PID correction
         // (since gAccCorr2 is the combined kaon+pion correction)
-        gAccCorrTotal = gAccCorr2;  // Start with combined PID correction
+        gAccCorrTotal = gAccCorr5;  // Start with combined PID correction
         
-        // Multiply with other correction factors if they exist and are not empty
-        if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0) {
-            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr3);
-        }
-        if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0) {
-            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr4);
-        }
+        // // Multiply with other correction factors if they exist and are not empty
+        // if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0) {
+        //     gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr3);
+        // }
+        // if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0) {
+        //     gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr4);
+        // }
         
-        if (gAccCorr5_Ext && is_valid_graph(gAccCorr5_Ext)) {
-            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr5_Ext);
-        } else if (is_valid_graph(gAccCorr5) && gAccCorr5->GetN() > 0) {
-            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr5);
-        }
+        // if (gAccCorr5_Ext && is_valid_graph(gAccCorr5_Ext)) {
+        //     gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr5_Ext);
+        // } else if (is_valid_graph(gAccCorr5) && gAccCorr5->GetN() > 0) {
+        //     gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr5);
+        // }
         
-        if (is_valid_graph(gAccCorr6) && gAccCorr6->GetN() > 0) {
-            gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr6);
-        }
+        // if (is_valid_graph(gAccCorr6) && gAccCorr6->GetN() > 0) {
+        //     gAccCorrTotal = multiplyGraphs(gAccCorrTotal, gAccCorr6);
+        // }
         
         // Create prompt and non-prompt fractions
         createPNPFractions(hMYield, hMYieldSG, hMYieldFix, hIPNonPromptFraction, true);
@@ -501,6 +525,28 @@ PlotGraphsObject::~PlotGraphsObject() {
     }
     hTagZPromptSignal.clear();
     
+    // Clean up weighted tagZ histograms
+    for (auto& pair : hTagZAcceptanceWeighted) {
+        if (pair.second) {
+            delete pair.second;
+        }
+    }
+    hTagZAcceptanceWeighted.clear();
+    
+    for (auto& pair : hTagZRecoWeighted) {
+        if (pair.second) {
+            delete pair.second;
+        }
+    }
+    hTagZRecoWeighted.clear();
+    
+    for (auto& pair : hTagZFullyWeighted) {
+        if (pair.second) {
+            delete pair.second;
+        }
+    }
+    hTagZFullyWeighted.clear();
+    
     // Clean up PID-corrected histograms
     for (auto& pair : hTagZKaonCorrected) {
         if (pair.second) {
@@ -532,6 +578,8 @@ PlotGraphsObject::~PlotGraphsObject() {
 TGraphErrors* PlotGraphsObject::plotPt(bool isCorrected) {
     plotYieldResult(isCorrected);
     plotCorrFacAcceptance();
+    // plotCombinedCorrectionDemo();
+    plotTagZWeightedHistogramsDemo();
     return plotNonPromptFraction(isCorrected);
 }
 
@@ -654,53 +702,24 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     gAccCorrTotal->Draw("same EP");
     
     // Create legend
-    TLegend* myLegend0;
-    if (obsTag.find("Y") != std::string::npos) {
-        myLegend0 = new TLegend(0.14, 0.85, 0.4, 0.97);
-    } else {
-        myLegend0 = new TLegend(0.15, 0.76, 0.4, 0.9);
-    }
-    
+    TLegend* myLegend0 = new TLegend(0.18, 0.35, 0.45, 0.58);
     myLegend0->SetTextFont(42);
     myLegend0->SetBorderSize(0);
     myLegend0->SetFillStyle(0);
     myLegend0->SetFillColor(0);
     myLegend0->SetMargin(0.25);
     myLegend0->SetTextSize(0.04);
-    
-    myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
-    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>1 (GeV/#it{c})", "");
+
+    myLegend0->AddEntry(gAccCorr0, "Kaon PID correction", "lep");
+    myLegend0->AddEntry(gAccCorr1, "Pion PID correction", "lep");
+    myLegend0->AddEntry(gAccCorr2, "Combined PID correction", "lep");
+    if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0)
+        myLegend0->AddEntry(gAccCorr3, "Reco efficiency correction", "lep");
+    if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0)
+        myLegend0->AddEntry(gAccCorr4, "Acceptance correction", "lep");
+    myLegend0->AddEntry(gAccCorrTotal, "Total correction", "lep");
+
     myLegend0->Draw();
-    
-    TLegend* myLegend1 = new TLegend(0.17, 0.2, 0.45, 0.52);
-    myLegend1->SetTextFont(42);
-    myLegend1->SetBorderSize(0);
-    myLegend1->SetFillStyle(0);
-    myLegend1->SetFillColor(0);
-    myLegend1->SetMargin(0.25);
-    myLegend1->SetTextSize(0.04);
-    
-    myLegend1->AddEntry(gAccCorrTotal, "total PID corr factor", "pl");
-    myLegend1->AddEntry(gAccCorr0, "Kaon PID corr", "pl");
-    myLegend1->AddEntry(gAccCorr1, "Pion PID corr", "pl");
-    myLegend1->AddEntry(gAccCorr2, "Combined PID corr", "pl");
-    
-    // Only add legend entries for correction factors that are actually plotted
-    if (is_valid_graph(gAccCorr3) && gAccCorr3->GetN() > 0) {
-        myLegend1->AddEntry(gAccCorr3, "Additional corr 3", "pl");
-    }
-    if (is_valid_graph(gAccCorr4) && gAccCorr4->GetN() > 0) {
-        myLegend1->AddEntry(gAccCorr4, "Additional corr 4", "pl");
-    }
-    if ((gAccCorr5_Ext && is_valid_graph(gAccCorr5_Ext)) || 
-        (is_valid_graph(gAccCorr5) && gAccCorr5->GetN() > 0)) {
-        myLegend1->AddEntry(gAccCorr5, "Additional corr 5", "pl");
-    }
-    if (is_valid_graph(gAccCorr6) && gAccCorr6->GetN() > 0) {
-        myLegend1->AddEntry(gAccCorr6, "Additional corr 6", "pl");
-    }
-    
-    myLegend1->Draw();
     
     c->SaveAs(outputFilename.c_str());
     c->Close();
@@ -1539,7 +1558,7 @@ void PlotGraphsObject::demonstrateTagZCorrections() {
                 TH1D* combinedCorrectedHist = applyPIDCorrectionToHistogram(originalHist, "combined", bin);
                 if (combinedCorrectedHist) {
                     hTagZCombinedCorrected[bin] = combinedCorrectedHist;
-                    createdHistograms++;
+                                       createdHistograms++;
                     std::cout << "    Created combined-corrected histogram for bin " << bin << std::endl;
                 }
             }
@@ -2074,6 +2093,9 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
         myBlankHisto2->SetYTitle("dN/d#it{y}");
         myBlankHisto2->GetYaxis()->SetRangeUser(10, max*4);
         myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
+        // if (normType == 1) {
+        //     myBlankHisto2->GetYaxis()->SetRangeUser(1, 100000);
+        // }
     } else {
         myBlankHisto2->SetYTitle("dN/dz_{T}");
         myBlankHisto2->GetYaxis()->SetRangeUser(0, max*2);
@@ -2121,6 +2143,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     c->SaveAs(outputFilename.c_str());
     c->Close();
 }
+
 
 // Make sure these implementations are in your file and not duplicated
 TGraphErrors* PlotGraphsObject::create_empty_graph() {
@@ -2666,7 +2689,10 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
                     // Check if this key matches our naming pattern for this pT range
                     if (histKeyName.find("tagZHist_" + ptString + "_bin") == 0 ||
                         histKeyName.find("backgroundSubtractedTagZHist_" + ptString + "_bin") == 0 ||
-                        histKeyName.find("promptSignalTagZHist_" + ptString + "_bin") == 0) {
+                        histKeyName.find("promptSignalTagZHist_" + ptString + "_bin") == 0 ||
+                        histKeyName.find("promptSignalTagZHist_AcceptanceWeighted_" + ptString + "_bin") == 0 ||
+                        histKeyName.find("promptSignalTagZHist_RecoWeighted_" + ptString + "_bin") == 0 ||
+                        histKeyName.find("promptSignalTagZHist_FullyWeighted_" + ptString + "_bin") == 0) {
                         
                         // Extract bin number from the key name
                         size_t binPos = histKeyName.find("_bin");
@@ -2693,6 +2719,21 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
                                     hTagZPromptSignal[binNumber]->SetDirectory(nullptr);
                                     std::cout << "  Loaded prompt signal tagZ histogram for bin " << binNumber << std::endl;
                                     loadedHists++;
+                                } else if (histKeyName.find("promptSignalTagZHist_AcceptanceWeighted_" + ptString + "_bin") == 0) {
+                                    hTagZAcceptanceWeighted[binNumber] = (TH1D*)hist->Clone();
+                                    hTagZAcceptanceWeighted[binNumber]->SetDirectory(nullptr);
+                                    std::cout << "  Loaded acceptance-weighted tagZ histogram for bin " << binNumber << std::endl;
+                                    loadedHists++;
+                                } else if (histKeyName.find("promptSignalTagZHist_RecoWeighted_" + ptString + "_bin") == 0) {
+                                    hTagZRecoWeighted[binNumber] = (TH1D*)hist->Clone();
+                                    hTagZRecoWeighted[binNumber]->SetDirectory(nullptr);
+                                    std::cout << "  Loaded reco-weighted tagZ histogram for bin " << binNumber << std::endl;
+                                    loadedHists++;
+                                } else if (histKeyName.find("promptSignalTagZHist_FullyWeighted_" + ptString + "_bin") == 0) {
+                                    hTagZFullyWeighted[binNumber] = (TH1D*)hist->Clone();
+                                    hTagZFullyWeighted[binNumber]->SetDirectory(nullptr);
+                                    std::cout << "  Loaded fully-weighted tagZ histogram for bin " << binNumber << std::endl;
+                                    loadedHists++;
                                 }
                             }
                         }
@@ -2703,6 +2744,9 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
                 std::cout << "  Raw tagZ histograms: " << hTagZRaw.size() << " bins" << std::endl;
                 std::cout << "  Background-subtracted tagZ histograms: " << hTagZBackgroundSubtracted.size() << " bins" << std::endl;
                 std::cout << "  Prompt signal tagZ histograms: " << hTagZPromptSignal.size() << " bins" << std::endl;
+                std::cout << "  Acceptance-weighted tagZ histograms: " << hTagZAcceptanceWeighted.size() << " bins" << std::endl;
+                std::cout << "  Reco-weighted tagZ histograms: " << hTagZRecoWeighted.size() << " bins" << std::endl;
+                std::cout << "  Fully-weighted tagZ histograms: " << hTagZFullyWeighted.size() << " bins" << std::endl;
             }
             
             histFile->Close();
@@ -2816,7 +2860,7 @@ TGraphErrors* PlotGraphsObject::applyTagZCorrectionToGraph(TGraphErrors* inputGr
             }
             
             if (foundCorrection && correctionFactor > 0) {
-                // Apply correction (divide by efficiency)
+                // Apply correction (divide by efficiency to get corrected yield
                 correctedYield = yield / correctionFactor;
                 
                 // Propagate errors
@@ -2932,8 +2976,7 @@ TH1D* PlotGraphsObject::applyPIDCorrectionToHistogram(TH1D* inputHist, const std
     return correctedHist;
 }
 
-
-// Add this implementation before the end of the file
+// Implementation of setOptions method
 void PlotGraphsObject::setOptions() {
     int font = 42;
     
@@ -2971,4 +3014,104 @@ void PlotGraphsObject::setOptions() {
     gStyle->SetOptTitle(0);
     gStyle->SetOptStat(0);
     gStyle->SetOptFit(0);
+}
+
+// Implementation of plotTagZWeightedHistogramsDemo method
+void PlotGraphsObject::plotTagZWeightedHistogramsDemo() {
+    setOptions();
+    std::cout << "Plotting TagZ Weighted Histograms Demo for " << obsTag << " in pT range: " << ptString << std::endl;
+    std::string outputFilename = OutfilePath + "FinFig_TagZWeightedHistogramsDemo_" + obsTag + "_" + ptString + ".png";
+
+    TCanvas* c = new TCanvas("cTagZWeighted", "TagZ Weighted Histograms Demo", 800, 600);
+    c->cd();
+    TGaxis::SetMaxDigits(3);
+
+    TPad* pad = new TPad("padTagZWeighted", "The pad", 0, 0, 1, 1);
+    pad->SetLeftMargin(0.15);
+    pad->SetTopMargin(0.05);
+    pad->SetRightMargin(0.05);
+    pad->SetBottomMargin(0.15);
+    pad->SetTicks();
+    pad->Draw();
+    pad->cd();
+
+    // Plot histograms for bin 0 as demonstration
+    int demoBin = 2;
+    bool plotted = false;
+
+
+    if (hTagZFullyWeighted.find(demoBin) != hTagZFullyWeighted.end() && hTagZFullyWeighted[demoBin]) {
+        hTagZFullyWeighted[demoBin]->SetLineColor(kGreen+2);
+        hTagZFullyWeighted[demoBin]->SetMarkerColor(kGreen+2);
+        hTagZFullyWeighted[demoBin]->SetMarkerStyle(20);
+        hTagZFullyWeighted[demoBin]->SetMarkerSize(1.2);
+        hTagZFullyWeighted[demoBin]->SetLineWidth(2);
+        hTagZFullyWeighted[demoBin]->SetXTitle("tag_{Z}");
+        hTagZFullyWeighted[demoBin]->SetYTitle("Weighted Counts");
+        hTagZFullyWeighted[demoBin]->SetTitle("");
+        hTagZFullyWeighted[demoBin]->Draw("pe");
+        plotted = true;
+    }
+
+    if (hTagZAcceptanceWeighted.find(demoBin) != hTagZAcceptanceWeighted.end() && hTagZAcceptanceWeighted[demoBin]) {
+        hTagZAcceptanceWeighted[demoBin]->SetLineColor(kBlue);
+        hTagZAcceptanceWeighted[demoBin]->SetMarkerColor(kBlue);
+        hTagZAcceptanceWeighted[demoBin]->SetMarkerStyle(20);
+        hTagZAcceptanceWeighted[demoBin]->SetMarkerSize(1.2);
+        hTagZAcceptanceWeighted[demoBin]->SetLineWidth(2);
+        if( plotted) {
+            hTagZAcceptanceWeighted[demoBin]->Draw("pe same");
+        } else {
+            hTagZAcceptanceWeighted[demoBin]->SetXTitle("tag_{Z}");
+            hTagZAcceptanceWeighted[demoBin]->SetYTitle("Weighted Counts");
+            hTagZAcceptanceWeighted[demoBin]->SetTitle("");
+            hTagZAcceptanceWeighted[demoBin]->Draw("pe");
+            plotted = true;
+        }
+    }
+
+    if (hTagZRecoWeighted.find(demoBin) != hTagZRecoWeighted.end() && hTagZRecoWeighted[demoBin]) {
+        hTagZRecoWeighted[demoBin]->SetLineColor(kRed);
+        hTagZRecoWeighted[demoBin]->SetMarkerColor(kRed);
+        hTagZRecoWeighted[demoBin]->SetMarkerStyle(20);
+        hTagZRecoWeighted[demoBin]->SetMarkerSize(1.2);
+        hTagZRecoWeighted[demoBin]->SetLineWidth(2);
+        if (plotted) {
+            hTagZRecoWeighted[demoBin]->Draw("pe same");
+        } else {
+            hTagZRecoWeighted[demoBin]->SetXTitle("tag_{Z}");
+            hTagZRecoWeighted[demoBin]->SetYTitle("Weighted Counts");
+            hTagZRecoWeighted[demoBin]->SetTitle("");
+            hTagZRecoWeighted[demoBin]->Draw("pe");
+            plotted = true;
+        }
+    }
+
+
+    if (plotted) {
+        TLegend* legend = new TLegend(0.55, 0.7, 0.88, 0.88);
+        legend->SetTextFont(42);
+        legend->SetBorderSize(0);
+        legend->SetFillStyle(0);
+        legend->SetFillColor(0);
+        legend->SetMargin(0.25);
+        legend->SetTextSize(0.04);
+
+        if (hTagZAcceptanceWeighted.find(demoBin) != hTagZAcceptanceWeighted.end() && hTagZAcceptanceWeighted[demoBin])
+            legend->AddEntry(hTagZAcceptanceWeighted[demoBin], "Acceptance weighted", "l");
+        if (hTagZRecoWeighted.find(demoBin) != hTagZRecoWeighted.end() && hTagZRecoWeighted[demoBin])
+            legend->AddEntry(hTagZRecoWeighted[demoBin], "Reco efficiency weighted", "l");
+        if (hTagZFullyWeighted.find(demoBin) != hTagZFullyWeighted.end() && hTagZFullyWeighted[demoBin])
+            legend->AddEntry(hTagZFullyWeighted[demoBin], "Fully weighted", "l");
+
+        legend->Draw();
+
+        c->SaveAs(outputFilename.c_str());
+        std::cout << "Saved TagZ weighted histograms demo plot: " << outputFilename << std::endl;
+    } else {
+        std::cout << "Warning: No weighted TagZ histograms found for plotting demo" << std::endl;
+    }
+
+    delete pad;
+    delete c;
 }

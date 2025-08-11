@@ -1,3 +1,4 @@
+
 #ifndef PLOTTER_H
 #define PLOTTER_H
 
@@ -21,6 +22,8 @@
 #include "TEfficiency.h"
 #include "TAxis.h"
 #include "TDirectory.h"
+#include "TTree.h"
+#include "TBranch.h"
 #include "RooRealVar.h"
 #include "RooAbsPdf.h"
 #include "RooAbsData.h"
@@ -46,6 +49,19 @@ private:
                       double border = 0.1, bool logPlot = false);
     std::string getUniqueId();
     void ensureDirectoryExists(const std::string& path);
+    void addParameterToLegend(TLegend* legend, RooArgSet* params, const std::string& paramName, 
+                             const std::string& displayName, const std::string& format, 
+                             bool skipIfMissing = true);
+    // Helper for canvas and pad setup
+    void setupCanvasAndPad(TCanvas* canvas, TPad* pad, double left=0.10, double bottom=0.09, double right=0.01);
+    // Helper for histogram styling
+    void styleHistogram(TH1* hist, Color_t color, int lineWidth=2, int markerStyle=20, Color_t markerColor=1, double markerSize=0.7);
+    // Helper for debug output
+    void debugLog(const std::string& msg);
+    // Helper for TPad margin setup
+    void setupPadMargins(TPad* pad, double left=0.1, double bottom=0.09, double right=0.01, double top=0.07);
+    // Helper for TLegend setup
+    void setupLegend(TLegend* legend, double textSize=0.03, double margin=0.25, int font=42, int border=0, int fillStyle=0, int fillColor=0);
 
 public:
     // Constructor

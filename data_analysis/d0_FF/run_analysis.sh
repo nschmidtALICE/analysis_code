@@ -94,8 +94,9 @@ run_stage1() {
     fi
     # Define input files as an array
     declare -a inputFiles=(
-        "/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus.root"
-        "/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_1127plus.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_1127plus.root"
+        "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_11276a7plus.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root"
@@ -138,9 +139,9 @@ run_stage1() {
 run_stage2() {
     echo "Running Stage 2: Fit data"
     cd "$BASE_DIR/2_fitData"
-    inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_1127plus_filtered.root"
+    # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_1127plus_filtered.root"
     # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_11276a7plus_filtered.root"
-    # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus_filtered.root"
+    inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus_filtered.root"
     # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root"
     isMCswitch="false"
     if [ "$MC_MODE" = "True" ]; then

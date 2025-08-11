@@ -16,7 +16,7 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
     figureTag = "D0_" + promptFlag;
 
     // Set output path
-    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputJuly23_TagpT_" + resonance;
+    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputAug05_TagpT_" + resonance;
     
     // Set prompt/non-prompt flag
     if (promptFlag == "P") {
@@ -30,8 +30,8 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
     // Set file paths
     applyRMCut = true;
     inFileNRM = inPathRM + inFileNameRM + ".root";
-    inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC/RawSignalYields_D0/" + inFileNameData + ".root";
-    // inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/RawSignalYields_D0/" + inFileNameData + ".root";
+    // inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC/RawSignalYields_D0/" + inFileNameData + ".root";
+    inFileNData = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/RawSignalYields_D0/" + inFileNameData + ".root";
 
     // Set binning for input and output spectrum
     // zBinsArrayTruth = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
@@ -4438,7 +4438,8 @@ void unfoldzT(int variation) {
     }
     
     // D0 analysis
-    std::vector<int> pTBinArray = {2, 5, 10, 15, 20, 30};
+    std::vector<int> pTBinArray = {5, 10, 15, 20, 30};
+    // std::vector<int> pTBinArray = {2, 5, 10, 15, 20, 30};
     int regularizationParam = 4;
     // int regularizationParam = 3;
     
