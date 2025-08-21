@@ -1,5 +1,8 @@
 // UnfoldSpectra.cpp
 #include "unfoldzT.h"
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 
 // Constructor implementation
 UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag, 
@@ -15,8 +18,15 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
 
     figureTag = "D0_" + promptFlag;
 
-    // Set output path
-    outpathBase = "/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/OutputAug05_TagpT_" + resonance;
+    // Set output path (use current date so output directory matches run date)
+    {
+        std::time_t t = std::time(nullptr);
+        std::tm tm = *std::localtime(&t);
+        std::ostringstream dateoss;
+        dateoss << std::put_time(&tm, "%Y-%m-%d");
+        std::string dateStr = dateoss.str();
+        outpathBase = std::string("/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/Output") + dateStr + std::string("_TagpT_") + resonance;
+    }
     
     // Set prompt/non-prompt flag
     if (promptFlag == "P") {
@@ -51,10 +61,20 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
         unfoldedArrPerBin.push_back(std::vector<TH1D*>());
     }
     
-    // Open input files
-    fResponse = new TFile(inFileNRM.c_str());
-    fData = new TFile(inFileNData.c_str());
-    
+    // Open input files and verify they are valid (not zombies)
+    fResponse = TFile::Open(inFileNRM.c_str());
+    if (!fResponse || fResponse->IsZombie()) {
+        std::cerr << "FATAL: failed to open response file: " << inFileNRM << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    fData = TFile::Open(inFileNData.c_str());
+    if (!fData || fData->IsZombie()) {
+        std::cerr << "FATAL: failed to open data file: " << inFileNData << std::endl;
+        if (fResponse) { fResponse->Close(); delete fResponse; }
+        std::exit(EXIT_FAILURE);
+    }
+
     std::cout << "o Open input File with Response Matrix: " << fResponse->GetName() << std::endl;
     std::cout << "o Open input File with Data: " << fData->GetName() << std::endl;
     
@@ -70,8 +90,64 @@ UnfoldSpectraClass::UnfoldSpectraClass(const std::string& promptFlag,
     }
 }
 
+// -------------------------- Local helper utilities (performance & DRY) --------------------------
+namespace {
+    struct TimedBlock {
+        std::string name; std::chrono::high_resolution_clock::time_point t0; bool active;
+        explicit TimedBlock(std::string n, bool enable=true): name(std::move(n)), t0(std::chrono::high_resolution_clock::now()), active(enable) {}
+        ~TimedBlock(){ if(active){ auto t1=std::chrono::high_resolution_clock::now(); auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count();
+            std::cout << "[TIMING] " << name << " took " << ms << " ms" << std::endl; } }
+    };
+
+    inline void ConfigurePad(TPad* pad, double l=0.15, double r=0.05, double t=0.05, double b=0.0){
+        if(!pad) return; pad->SetLeftMargin(l); pad->SetRightMargin(r); pad->SetTopMargin(t); pad->SetBottomMargin(b);
+    }
+    // Create a configured TPad and draw it on the current canvas
+    inline TPad* MakePad(const char* name, const char* title, double x1, double y1, double x2, double y2,
+                            double l=0.15, double r=0.05, double t=0.05, double b=0.15) {
+        TPad* pad = new TPad(name, title, x1, y1, x2, y2);
+        ConfigurePad(pad, l, r, t, b);
+        pad->Draw();
+        return pad;
+    }
+
+    // Create a configured TLegend with common defaults
+    inline TLegend* MakeLegend(double x1, double y1, double x2, double y2, const char* header = ""){
+        TLegend* leg = new TLegend(x1, y1, x2, y2, header);
+        leg->SetFillColor(10);
+        leg->SetBorderSize(0);
+        leg->SetFillStyle(0);
+        leg->SetTextSize(0.04);
+        return leg;
+    }
+
+    inline void StyleHist(TH1* h,int color,int width=2,int lstyle=1){ if(!h) return; h->SetLineColor(color); h->SetMarkerColor(color); h->SetLineWidth(width); h->SetLineStyle(lstyle);}    
+    inline void StyleAxisBase(TH1* h){ if(!h) return; h->GetYaxis()->SetLabelFont(43); h->GetYaxis()->SetLabelSize(20); h->GetXaxis()->SetLabelFont(43); h->GetXaxis()->SetLabelSize(20); h->SetNdivisions(505); }
+    inline TH1D* MakeRatioClone(const TH1* num, const TH1* den, const std::string& name, double ymin, double ymax, const std::string& yTitle){
+        if(!num||!den) return nullptr;
+        auto* clone=static_cast<TH1D*>(num->Clone(name.c_str()));
+        clone->Divide(const_cast<TH1*>(den));
+        clone->SetMarkerStyle(21);
+        clone->SetMarkerColor(kRed+1);
+        StyleAxisBase(clone);
+        clone->GetYaxis()->SetRangeUser(ymin,ymax);
+        clone->GetYaxis()->SetTitle(yTitle.c_str());
+        clone->GetYaxis()->SetTitleSize(20);
+        clone->GetYaxis()->SetTitleFont(43);
+        clone->GetYaxis()->SetTitleOffset(2.2);
+        clone->GetXaxis()->SetTitle("z_{T}");
+        clone->GetXaxis()->SetTitleSize(30);
+        clone->GetXaxis()->SetTitleFont(43);
+        clone->GetXaxis()->SetTitleOffset(3.0);
+        return clone;
+    }
+
+
+}
+
 void UnfoldSpectraClass::RefoldingTest(int ptBin, int nIter, TH1D* histo, 
                                       RooUnfoldResponse* RM1, RooUnfoldResponse* RM2) {
+    TimedBlock _tb("RefoldingTest(ptBin="+std::to_string(ptBin)+", nIter="+std::to_string(nIter)+")");
     // Unfold the measured spectrum with half the RM statistic and refold it
     // back with the other half of the RM statistic
     RooUnfoldBayes unfoldBayes1(RM1, histo, nIter);
@@ -96,73 +172,31 @@ void UnfoldSpectraClass::RefoldingTest(int ptBin, int nIter, TH1D* histo,
     c->cd();
     c->SetLeftMargin(0.15);
     
-    TPad* pad1 = new TPad("pad1", "pad1", 0, 0.3, 1, 1.0);
-    pad1->SetBottomMargin(0);
-    pad1->SetLeftMargin(0.15);
-    pad1->SetRightMargin(0.05);
-    pad1->SetTopMargin(0.05);
-    pad1->Draw();
+    TPad* pad1 = MakePad("pad1","pad1",0,0.3,1,1.0,0.15,0.05,0.05,0.0);
     pad1->cd();
     
-    histo->GetYaxis()->SetTitle("counts per bin");
-    histo->GetYaxis()->SetTitleSize(0.06);
-    histo->GetYaxis()->SetLabelFont(43);
-    histo->GetYaxis()->SetLabelSize(20);
-    histo->SetNdivisions(505);
-    histo->SetLineColor(4);
-    histo->SetLineWidth(3);
-    histo->SetLineStyle(1);
+    histo->GetYaxis()->SetTitle("counts per bin"); histo->GetYaxis()->SetTitleSize(0.06); StyleAxisBase(histo); StyleHist(histo, kBlue+1,3,1);
     histo->Draw("hist E");
     
-    refoldedSpectrum->SetLineColor(1);
-    refoldedSpectrum->SetLineWidth(2);
-    refoldedSpectrum->SetLineStyle(1);
+    StyleHist(refoldedSpectrum, kBlack,2,1);
     refoldedSpectrum->DrawCopy("hist E same");
     
-    TLegend* leg2 = new TLegend(0.2, 0.8, 0.5, 0.93, "");
-    leg2->SetFillColor(10);
-    leg2->SetBorderSize(0);
-    leg2->SetFillStyle(0);
-    leg2->SetTextSize(0.04);
+    TLegend* leg2 = MakeLegend(0.2, 0.8, 0.5, 0.93, "");
     leg2->AddEntry(refoldedSpectrum, "measured spectrum unfolded (RM1)+refolded (RM2)", "l");
     leg2->AddEntry(histo, "measured spectrum, detLvlv", "l");
     leg2->Draw("same");
     
     c->cd();
-    TPad* pad2 = new TPad("pad2", "pad2", 0, 0.05, 1, 0.3);
-    pad2->SetTopMargin(0);
-    pad2->SetBottomMargin(0.35);
-    pad2->SetLeftMargin(0.15);
-    pad2->SetRightMargin(0.05);
-    pad2->Draw();
+    TPad* pad2 = MakePad("pad2","pad2",0,0.05,1,0.3,0.15,0.05,0.0,0.35);
     pad2->cd();
     
-    TH1D* refoldedSpectrumC = static_cast<TH1D*>(refoldedSpectrum->Clone(
-        (std::string(refoldedSpectrum->GetName()) + "Clone").c_str()));
-    refoldedSpectrumC->Divide(histo);
-    refoldedSpectrumC->SetMarkerStyle(21);
-    refoldedSpectrumC->SetMarkerColor(2);
-    
-    refoldedSpectrumC->GetXaxis()->SetTitleSize(30);
-    refoldedSpectrumC->GetXaxis()->SetTitleFont(43);
-    refoldedSpectrumC->GetXaxis()->SetTitleOffset(3.0); // was 4
-    refoldedSpectrumC->GetXaxis()->SetLabelFont(43);
-    refoldedSpectrumC->GetXaxis()->SetLabelSize(20);
-    refoldedSpectrumC->GetYaxis()->SetRangeUser(0, 2);
-    refoldedSpectrumC->GetYaxis()->SetTitle(("Ratio to orig, nIter=" + std::to_string(nIter)).c_str());
-    refoldedSpectrumC->GetYaxis()->SetTitleSize(20);
-    refoldedSpectrumC->GetYaxis()->SetTitleFont(43);
-    refoldedSpectrumC->GetYaxis()->SetTitleOffset(2.2);
-    refoldedSpectrumC->GetYaxis()->SetLabelFont(43);
-    refoldedSpectrumC->GetYaxis()->SetLabelSize(20);
-    refoldedSpectrumC->GetYaxis()->SetNdivisions(505);
-    refoldedSpectrumC->GetXaxis()->SetTitle("z_{T}");
+    TH1D* refoldedSpectrumC = MakeRatioClone(refoldedSpectrum, histo,
+        std::string(refoldedSpectrum->GetName())+"Clone",0,2,
+        "Ratio to orig, nIter="+std::to_string(nIter));
     refoldedSpectrumC->DrawCopy("hist E");
     
-    std::vector<TLine*> lines = drawLines();
-    for (auto line : lines) {
-        line->Draw("same");
-    }
+    // Draw cached reference lines (avoid per-call allocation/leak)
+    for (auto* line : drawLines()) line->Draw("same");
     
     c->cd();
     
@@ -452,6 +486,7 @@ TH2D* UnfoldSpectraClass::getRawSpectra2D() {
     return histo2DMeasurement;
 }
 void UnfoldSpectraClass::RefoldingTest2D(int nIter, RooUnfoldResponse* RM1, RooUnfoldResponse* RM2) {
+    TimedBlock _tb("RefoldingTest2D(nIter="+std::to_string(nIter)+")");
     // Unfold the measured spectrum with half the RM statistic and refold it
     // back with the other half of the RM statistic.
     RooUnfoldBayes unfoldBayes1(RM1, measuredSpectra2D, nIter);
@@ -477,11 +512,7 @@ void UnfoldSpectraClass::RefoldingTest2D(int nIter, RooUnfoldResponse* RM1, RooU
     c->Divide(npTBins, 2, 0, 0);
     
     // Create legend
-    TLegend* leg2 = new TLegend(0.2, 0.8, 0.5, 0.93, "");
-    leg2->SetFillColor(10);
-    leg2->SetBorderSize(0);
-    leg2->SetFillStyle(0);
-    leg2->SetTextSize(0.04);
+    TLegend* leg2 = MakeLegend(0.2, 0.8, 0.5, 0.93, "");
     
     for (int ptBin = 1; ptBin <= npTBins; ptBin++) {
         // Upper pads for histograms
@@ -498,19 +529,10 @@ void UnfoldSpectraClass::RefoldingTest2D(int nIter, RooUnfoldResponse* RM1, RooU
         TH1D* refoldedPtBinProj = refoldedSpectrum->ProjectionY(
             ("_pyRefolded_" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
         
-        origPtBinProj->GetYaxis()->SetTitle("counts per bin");
-        origPtBinProj->GetYaxis()->SetTitleSize(0.06);
-        origPtBinProj->GetYaxis()->SetLabelFont(43);
-        origPtBinProj->GetYaxis()->SetLabelSize(20);
-        origPtBinProj->SetNdivisions(505);
-        origPtBinProj->SetLineColor(4);
-        origPtBinProj->SetLineWidth(3);
-        origPtBinProj->SetLineStyle(1);
+    origPtBinProj->GetYaxis()->SetTitle("counts per bin"); origPtBinProj->GetYaxis()->SetTitleSize(0.06); StyleAxisBase(origPtBinProj); StyleHist(origPtBinProj,kBlue+1,3,1);
         origPtBinProj->Draw("hist E");
         
-        refoldedPtBinProj->SetLineColor(1);
-        refoldedPtBinProj->SetLineWidth(2);
-        refoldedPtBinProj->SetLineStyle(1);
+    StyleHist(refoldedPtBinProj,kBlack,2,1);
         refoldedPtBinProj->Draw("hist E same");
         
         if (ptBin == 1) {
@@ -528,35 +550,13 @@ void UnfoldSpectraClass::RefoldingTest2D(int nIter, RooUnfoldResponse* RM1, RooU
         pad->SetBottomMargin(0.35);
         
         // Create ratio histogram
-        TH1D* refoldedPtBinProjClone = static_cast<TH1D*>(refoldedPtBinProj->Clone(
-            (std::string(refoldedPtBinProj->GetName()) + "Clone").c_str()));
-        refoldedPtBinProjClone->Divide(origPtBinProj);
-        refoldedPtBinProjClone->SetMarkerStyle(21);
-        refoldedPtBinProjClone->SetMarkerColor(2);
-        
-        refoldedPtBinProjClone->GetXaxis()->SetTitleSize(30);
-        refoldedPtBinProjClone->GetXaxis()->SetTitleFont(43);
-        refoldedPtBinProjClone->GetXaxis()->SetTitleOffset(3.0);
-        refoldedPtBinProjClone->GetXaxis()->SetLabelFont(43);
-        refoldedPtBinProjClone->GetXaxis()->SetLabelSize(20);
-        refoldedPtBinProjClone->GetYaxis()->SetRangeUser(0, 2);
-        refoldedPtBinProjClone->GetYaxis()->SetTitle(("Ratio to orig, nIter=" + std::to_string(nIter)).c_str());
-        refoldedPtBinProjClone->GetYaxis()->SetTitleSize(20);
-        refoldedPtBinProjClone->GetYaxis()->SetTitleFont(43);
-        refoldedPtBinProjClone->GetYaxis()->SetTitleOffset(2.2);
-        refoldedPtBinProjClone->GetYaxis()->SetLabelFont(43);
-        refoldedPtBinProjClone->GetYaxis()->SetLabelSize(20);
-        refoldedPtBinProjClone->GetYaxis()->SetNdivisions(505);
-        refoldedPtBinProjClone->GetXaxis()->SetTitle("z_{T}");
+        TH1D* refoldedPtBinProjClone = MakeRatioClone(refoldedPtBinProj, origPtBinProj,
+            std::string(refoldedPtBinProj->GetName())+"Clone",0,2,
+            "Ratio to orig, nIter="+std::to_string(nIter));
         refoldedPtBinProjClone->Draw("hist E");
         
-        // Draw reference lines
-        std::vector<TLine*> lines = drawLines();
-        for (TLine* line : lines) {
-            TLine* cLine = static_cast<TLine*>(line->Clone("c"));
-            cLine->Draw("same");
-            delete cLine;
-        }
+    // Draw reference lines (cached static objects)
+    for (auto* line : drawLines()) line->Draw("same");
         
         // Clean up projections
         delete refoldedPtBinProjClone;
@@ -573,6 +573,7 @@ void UnfoldSpectraClass::RefoldingTest2D(int nIter, RooUnfoldResponse* RM1, RooU
 }
 
 void UnfoldSpectraClass::UnfoldingTest2D(RooUnfoldResponse* response, int nIter) {
+    TimedBlock _tb("UnfoldingTest2D(nIter="+std::to_string(nIter)+")");
     // Get the response matrix histograms - use dynamic_cast for proper type conversion
     TH2D* TH2DRM = dynamic_cast<TH2D*>(response->Hresponse());
     TH2D* hSpectrumTruePerBin = dynamic_cast<TH2D*>(response->Htruth());
@@ -600,11 +601,7 @@ void UnfoldSpectraClass::UnfoldingTest2D(RooUnfoldResponse* response, int nIter)
     c->Divide(npTBins, 2, 0, 0);
     
     // Create legend
-    TLegend* leg2 = new TLegend(0.2, 0.8, 0.5, 0.93, "");
-    leg2->SetFillColor(10);
-    leg2->SetBorderSize(0);
-    leg2->SetFillStyle(0);
-    leg2->SetTextSize(0.04);
+    TLegend* leg2 = MakeLegend(0.2, 0.8, 0.5, 0.93, "");
     
     for (int ptBin = 1; ptBin <= npTBins; ptBin++) {
         // Upper pads for histograms
@@ -621,19 +618,10 @@ void UnfoldSpectraClass::UnfoldingTest2D(RooUnfoldResponse* response, int nIter)
         TH1D* MCMeasuredUnfoldedPtBinProj = hSpectrumMCDetPerBinUnfolded->ProjectionY(
             ("_pyRefolded_" + std::to_string(ptBin)).c_str(), ptBin, ptBin);
         
-        MCMeasuredUnfoldedPtBinProj->GetYaxis()->SetTitle("counts per bin");
-        MCMeasuredUnfoldedPtBinProj->GetYaxis()->SetTitleSize(0.06);
-        MCMeasuredUnfoldedPtBinProj->GetYaxis()->SetLabelFont(43);
-        MCMeasuredUnfoldedPtBinProj->GetYaxis()->SetLabelSize(20);
-        MCMeasuredUnfoldedPtBinProj->SetNdivisions(505);
-        MCMeasuredUnfoldedPtBinProj->SetLineColor(4);
-        MCMeasuredUnfoldedPtBinProj->SetLineWidth(3);
-        MCMeasuredUnfoldedPtBinProj->SetLineStyle(1);
+    MCMeasuredUnfoldedPtBinProj->GetYaxis()->SetTitle("counts per bin"); MCMeasuredUnfoldedPtBinProj->GetYaxis()->SetTitleSize(0.06); StyleAxisBase(MCMeasuredUnfoldedPtBinProj); StyleHist(MCMeasuredUnfoldedPtBinProj,kBlue+1,3,1);
         MCMeasuredUnfoldedPtBinProj->Draw("hist E");
         
-        MCTruthPtBinProj->SetLineColor(1);
-        MCTruthPtBinProj->SetLineWidth(2);
-        MCTruthPtBinProj->SetLineStyle(1);
+    StyleHist(MCTruthPtBinProj,kBlack,2,1);
         MCTruthPtBinProj->Draw("hist E same");
         
         if (ptBin == 1) {
@@ -651,36 +639,12 @@ void UnfoldSpectraClass::UnfoldingTest2D(RooUnfoldResponse* response, int nIter)
         pad->SetBottomMargin(0.35);
         
         // Create ratio histogram
-        TH1D* MCMeasuredUnfoldedPtBinProjClone = static_cast<TH1D*>(MCMeasuredUnfoldedPtBinProj->Clone(
-            (std::string(MCMeasuredUnfoldedPtBinProj->GetName()) + "Clone").c_str()));
-        MCMeasuredUnfoldedPtBinProjClone->Divide(MCTruthPtBinProj);
-        MCMeasuredUnfoldedPtBinProjClone->SetMarkerStyle(21);
-        MCMeasuredUnfoldedPtBinProjClone->SetMarkerColor(2);
-        
-        MCMeasuredUnfoldedPtBinProjClone->GetXaxis()->SetTitleSize(30);
-        MCMeasuredUnfoldedPtBinProjClone->GetXaxis()->SetTitleFont(43);
-        MCMeasuredUnfoldedPtBinProjClone->GetXaxis()->SetTitleOffset(3.0);
-        MCMeasuredUnfoldedPtBinProjClone->GetXaxis()->SetLabelFont(43);
-        MCMeasuredUnfoldedPtBinProjClone->GetXaxis()->SetLabelSize(20);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetRangeUser(0.5, 1.5);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetTitle(
-            ("Ratio Unfolded to MC Gen lvl, nIter=" + std::to_string(nIter)).c_str());
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetTitleSize(20);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetTitleFont(43);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetTitleOffset(2.2);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetLabelFont(43);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetLabelSize(20);
-        MCMeasuredUnfoldedPtBinProjClone->GetYaxis()->SetNdivisions(505);
-        MCMeasuredUnfoldedPtBinProjClone->GetXaxis()->SetTitle("z_{T}");
+        TH1D* MCMeasuredUnfoldedPtBinProjClone = MakeRatioClone(MCMeasuredUnfoldedPtBinProj, MCTruthPtBinProj,
+            std::string(MCMeasuredUnfoldedPtBinProj->GetName())+"Clone",0.5,1.5,
+            "Ratio Unfolded to MC Gen lvl, nIter="+std::to_string(nIter));
         MCMeasuredUnfoldedPtBinProjClone->Draw("hist E");
         
-        // Draw reference lines
-        std::vector<TLine*> lines = drawLines();
-        for (TLine* line : lines) {
-            TLine* cLine = static_cast<TLine*>(line->Clone("c"));
-            cLine->Draw("same");
-            delete cLine;
-        }
+    for (auto* line : drawLines()) line->Draw("same");
     }
     
     // Save the canvas
@@ -693,6 +657,7 @@ void UnfoldSpectraClass::UnfoldingTest2D(RooUnfoldResponse* response, int nIter)
 }
 
 void UnfoldSpectraClass::UnfoldingTest(RooUnfoldResponse* response, int nIter) {
+    TimedBlock _tb("UnfoldingTest(nIter="+std::to_string(nIter)+")");
     // Get the response matrix - use dynamic_cast for proper type conversion
     TH2D* TH2DRM = dynamic_cast<TH2D*>(response->Hresponse());
     
@@ -726,78 +691,31 @@ void UnfoldSpectraClass::UnfoldingTest(RooUnfoldResponse* response, int nIter) {
     c->cd();
     c->SetLeftMargin(0.15);
     
-    TPad* pad1 = new TPad("pad1", "pad1", 0, 0.3, 1, 1.0);
-    pad1->SetBottomMargin(0);
-    pad1->SetLeftMargin(0.15);
-    pad1->SetRightMargin(0.05);
-    pad1->SetTopMargin(0.05);
-    pad1->Draw();
+    TPad* pad1 = MakePad("pad1","pad1",0,0.3,1,1.0,0.15,0.05,0.05,0.0);
     pad1->cd();
     
-    hSpectrumMCDetPerBinUnfolded->GetYaxis()->SetTitle("counts per bin");
-    hSpectrumMCDetPerBinUnfolded->GetYaxis()->SetTitleSize(0.06);
-    hSpectrumMCDetPerBinUnfolded->GetYaxis()->SetLabelFont(43);
-    hSpectrumMCDetPerBinUnfolded->GetYaxis()->SetLabelSize(20);
-    hSpectrumMCDetPerBinUnfolded->SetNdivisions(505);
-    hSpectrumMCDetPerBinUnfolded->SetLineColor(4);
-    hSpectrumMCDetPerBinUnfolded->SetLineWidth(3);
-    hSpectrumMCDetPerBinUnfolded->SetLineStyle(1);
+    hSpectrumMCDetPerBinUnfolded->GetYaxis()->SetTitle("counts per bin"); hSpectrumMCDetPerBinUnfolded->GetYaxis()->SetTitleSize(0.06); StyleAxisBase(hSpectrumMCDetPerBinUnfolded); StyleHist(hSpectrumMCDetPerBinUnfolded,kBlue+1,3,1);
     hSpectrumMCDetPerBinUnfolded->Draw("hist E");
     
-    hSpectrumTruePerBin->SetLineColor(1);
-    hSpectrumTruePerBin->SetLineWidth(2);
-    hSpectrumTruePerBin->SetLineStyle(1);
+    StyleHist(hSpectrumTruePerBin,kBlack,2,1);
     hSpectrumTruePerBin->Draw("hist E same");
     
-    TLegend* leg2 = new TLegend(0.2, 0.8, 0.5, 0.93, "");
-    leg2->SetFillColor(10);
-    leg2->SetBorderSize(0);
-    leg2->SetFillStyle(0);
-    leg2->SetTextSize(0.04);
+    TLegend* leg2 = MakeLegend(0.2, 0.8, 0.5, 0.93, "");
     leg2->AddEntry(hSpectrumTruePerBin, "MC Gen. lvl spectrum", "l");
     leg2->AddEntry(hSpectrumMCDetPerBinUnfolded, "MC Det. lvl spectrum unfolded", "l");
     leg2->Draw("same");
     
     c->cd();
     
-    TPad* pad2 = new TPad("pad2", "pad2", 0, 0.05, 1, 0.3);
-    pad2->SetTopMargin(0);
-    pad2->SetBottomMargin(0.35);
-    pad2->SetLeftMargin(0.15);
-    pad2->SetRightMargin(0.05);
-    pad2->Draw();
+    TPad* pad2 = MakePad("pad2","pad2",0,0.05,1,0.3,0.15,0.05,0.0,0.35);
     pad2->cd();
     
-    TH1D* hSpectrumMCDetPerBinUnfoldedClone = static_cast<TH1D*>(hSpectrumMCDetPerBinUnfolded->Clone(
-        (std::string(hSpectrumMCDetPerBinUnfolded->GetName()) + "Clone").c_str()));
-    hSpectrumMCDetPerBinUnfoldedClone->Divide(hSpectrumTruePerBin);
-    hSpectrumMCDetPerBinUnfoldedClone->SetMarkerStyle(21);
-    hSpectrumMCDetPerBinUnfoldedClone->SetMarkerColor(2);
-    
-    hSpectrumMCDetPerBinUnfoldedClone->GetXaxis()->SetTitleSize(30);
-    hSpectrumMCDetPerBinUnfoldedClone->GetXaxis()->SetTitleFont(43);
-    hSpectrumMCDetPerBinUnfoldedClone->GetXaxis()->SetTitleOffset(3.0);
-    hSpectrumMCDetPerBinUnfoldedClone->GetXaxis()->SetLabelFont(43);
-    hSpectrumMCDetPerBinUnfoldedClone->GetXaxis()->SetLabelSize(20);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetRangeUser(0, 2);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetTitle(
-        ("Ratio Unfolded to MC Gen lvl, nIter=" + std::to_string(nIter)).c_str());
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetTitleSize(20);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetTitleFont(43);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetTitleOffset(2.2);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetLabelFont(43);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetLabelSize(20);
-    hSpectrumMCDetPerBinUnfoldedClone->GetYaxis()->SetNdivisions(505);
-    hSpectrumMCDetPerBinUnfoldedClone->GetXaxis()->SetTitle("z_{T}");
+    TH1D* hSpectrumMCDetPerBinUnfoldedClone = MakeRatioClone(hSpectrumMCDetPerBinUnfolded, hSpectrumTruePerBin,
+        std::string(hSpectrumMCDetPerBinUnfolded->GetName())+"Clone",0,2,
+        "Ratio Unfolded to MC Gen lvl, nIter="+std::to_string(nIter));
     hSpectrumMCDetPerBinUnfoldedClone->Draw("hist E");
     
-    // Draw reference lines
-    std::vector<TLine*> lines = drawLines();
-    for (TLine* line : lines) {
-        TLine* cLine = static_cast<TLine*>(line->Clone("c"));
-        cLine->Draw("same");
-        delete cLine;
-    }
+    for (auto* line : drawLines()) line->Draw("same");
     
     c->cd();
     
@@ -812,25 +730,24 @@ void UnfoldSpectraClass::UnfoldingTest(RooUnfoldResponse* response, int nIter) {
     delete hSpectrumMCDetPerBinUnfolded;
 }
 
+// Optimized: cache and reuse reference lines instead of allocating anew each call.
+// These lines deliberately leak at program end (static lifetime) which is fine for ROOT macros.
 std::vector<TLine*> UnfoldSpectraClass::drawLines() {
-    std::vector<TLine*> lineList;
-    
-    TLine* line = new TLine(0, 1, 1, 1);
-    line->SetLineColor(1);
-    line->SetLineStyle(1);
-    lineList.push_back(line);
-    
-    TLine* line2 = new TLine(0, 1.2, 1, 1.2);
-    line2->SetLineColor(1);
-    line2->SetLineStyle(2);
-    lineList.push_back(line2);
-    
-    TLine* line3 = new TLine(0, 0.8, 1, 0.8);
-    line3->SetLineColor(1);
-    line3->SetLineStyle(2);
-    lineList.push_back(line3);
-    
-    return lineList;
+    static std::vector<TLine*> lineList; // created once
+    if (lineList.empty()) {
+        lineList.reserve(3);
+        auto makeLine = [](double y, int style){
+            TLine* l = new TLine(0.0, y, 1.0, y);
+            l->SetLineColor(kBlack);
+            l->SetLineStyle(style);
+            l->SetLineWidth(1);
+            return l;
+        };
+        lineList.push_back(makeLine(1.0, 1));   // unity line
+        lineList.push_back(makeLine(1.2, 2));   // +20%
+        lineList.push_back(makeLine(0.8, 2));   // -20%
+    }
+    return lineList; // callers must NOT delete
 }
 
 TH1D* UnfoldSpectraClass::scaleHistogram(TH1D* histo) {
@@ -1248,13 +1165,7 @@ void UnfoldSpectraClass::StatTestRM2D(RooUnfoldResponse* response) {
         hvariationError[ptBin-1]->SetMarkerStyle(21);
         hvariationError[ptBin-1]->Draw("hist E");
         
-        // Draw reference lines
-        std::vector<TLine*> lines = drawLines();
-        for (auto line : lines) {
-            TLine* cLine = static_cast<TLine*>(line->Clone("c"));
-            cLine->Draw("same");
-            delete cLine;
-        }
+    for (auto* line : drawLines()) line->Draw("same");
     }
     
     // Save canvas
@@ -1312,10 +1223,7 @@ void UnfoldSpectraClass::plotPrior2D(int nIter, RooUnfoldResponse* RooUnfoldRM) 
     std::vector<TH1D*> hArrayUnfold;
     
     // Create legend
-    TLegend* leg1 = new TLegend(0.2, 0.65, 0.5, 0.85, "");
-    leg1->SetFillColor(10);
-    leg1->SetBorderSize(0);
-    leg1->SetFillStyle(0);
+    TLegend* leg1 = MakeLegend(0.2, 0.65, 0.5, 0.85, "");
     leg1->SetTextSize(0.06);
     
     // Create canvas based on particle type
@@ -1424,10 +1332,7 @@ void UnfoldSpectraClass::plotPrior2D(int nIter, RooUnfoldResponse* RooUnfoldRM) 
     c1->SaveAs(fileName.c_str());
     
     // Create a second legend for the zT projections
-    TLegend* leg2 = new TLegend(0.5, 0.7, 0.8, 0.93, "");
-    leg2->SetFillColor(10);
-    leg2->SetBorderSize(0);
-    leg2->SetFillStyle(0);
+    TLegend* leg2 = MakeLegend(0.5, 0.7, 0.8, 0.93, "");
     leg2->SetTextSize(0.06);
     
     // Get number of zT bins
@@ -1539,13 +1444,8 @@ void UnfoldSpectraClass::plotPrior2D(int nIter, RooUnfoldResponse* RooUnfoldRM) 
     TGaxis::SetMaxDigits(3);
     
     // Set pad and histogram arrangement
-    TPad* myPad3 = new TPad("myPad3", "The pad", 0, 0, 1, 1);
-    myPad3->SetLeftMargin(0.15);
-    myPad3->SetTopMargin(0.06);
-    myPad3->SetRightMargin(0.04);
-    myPad3->SetBottomMargin(0.15);
+    TPad* myPad3 = MakePad("myPad3","The pad",0,0,1,1,0.15,0.04,0.06,0.15);
     myPad3->SetTicks();
-    myPad3->Draw();
     myPad3->cd();
     
     // Find maximum value
@@ -1577,11 +1477,11 @@ void UnfoldSpectraClass::plotPrior2D(int nIter, RooUnfoldResponse* RooUnfoldRM) 
     // Create legend
     TLegend* myLegend3 = nullptr;
     if (hArrayUnfold.size() == 4) {
-        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    myLegend3 = MakeLegend(0.2, 0.7, 0.4, 0.9);
     } else if (hArrayUnfold.size() == 6) {
-        myLegend3 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    myLegend3 = MakeLegend(0.2, 0.6, 0.4, 0.9);
     } else {
-        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    myLegend3 = MakeLegend(0.2, 0.7, 0.4, 0.9);
     }
     
     myLegend3->SetTextFont(42);
@@ -1666,10 +1566,7 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
     std::vector<TH1D*> hArrayUnfold;
     
     // Create legend
-    TLegend* leg1 = new TLegend(0.2, 0.7, 0.5, 0.85, "");
-    leg1->SetFillColor(10);
-    leg1->SetBorderSize(0);
-    leg1->SetFillStyle(0);
+    TLegend* leg1 = MakeLegend(0.2, 0.7, 0.5, 0.85, "");
     leg1->SetTextSize(0.06);
     
     // Create canvas based on particle type
@@ -1758,13 +1655,8 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
     TGaxis::SetMaxDigits(3);
     
     // Set pad and histogram arrangement
-    TPad* myPad2 = new TPad("myPad2", "The pad", 0, 0, 1, 1);
-    myPad2->SetLeftMargin(0.15);
-    myPad2->SetTopMargin(0.06);
-    myPad2->SetRightMargin(0.04);
-    myPad2->SetBottomMargin(0.15);
+    TPad* myPad2 = MakePad("myPad2","The pad",0,0,1,1,0.15,0.04,0.06,0.15);
     myPad2->SetTicks();
-    myPad2->Draw();
     myPad2->cd();
     
     // Create blank histogram for styling
@@ -1786,11 +1678,11 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
     // Create legend for measured spectra
     TLegend* myLegend2 = nullptr;
     if (hArrayOrig.size() == 4) {
-        myLegend2 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    myLegend2 = MakeLegend(0.2, 0.7, 0.4, 0.9);
     } else if (hArrayOrig.size() == 6) {
-        myLegend2 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    myLegend2 = MakeLegend(0.2, 0.6, 0.4, 0.9);
     } else {
-        myLegend2 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    myLegend2 = MakeLegend(0.2, 0.7, 0.4, 0.9);
     }
     
     myLegend2->SetTextFont(42);
@@ -1828,13 +1720,8 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
     TGaxis::SetMaxDigits(3);
     
     // Set pad and histogram arrangement
-    TPad* myPad3 = new TPad("myPad3", "The pad", 0, 0, 1, 1);
-    myPad3->SetLeftMargin(0.15);
-    myPad3->SetTopMargin(0.06);
-    myPad3->SetRightMargin(0.04);
-    myPad3->SetBottomMargin(0.15);
+    TPad* myPad3 = MakePad("myPad3","The pad",0,0,1,1,0.15,0.04,0.06,0.15);
     myPad3->SetTicks();
-    myPad3->Draw();
     myPad3->cd();
     
     // Create blank histogram for styling
@@ -1860,11 +1747,11 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
     // Create legend for unfolded spectra
     TLegend* myLegend3 = nullptr;
     if (hArrayUnfold.size() == 4) {
-        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    myLegend3 = MakeLegend(0.2, 0.7, 0.4, 0.9);
     } else if (hArrayUnfold.size() == 6) {
-        myLegend3 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    myLegend3 = MakeLegend(0.2, 0.6, 0.4, 0.9);
     } else {
-        myLegend3 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    myLegend3 = MakeLegend(0.2, 0.7, 0.4, 0.9);
     }
     
     myLegend3->SetTextFont(42);
@@ -1917,14 +1804,9 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
         TGaxis::SetMaxDigits(3);
         
         // Set pad and histogram arrangement
-        TPad* myPad4 = new TPad("myPad4", "The pad", 0, 0, 1, 1);
-        myPad4->SetLeftMargin(0.15);
-        myPad4->SetTopMargin(0.06);
-        myPad4->SetRightMargin(0.04);
-        myPad4->SetBottomMargin(0.15);
-        myPad4->SetTicks();
-        myPad4->Draw();
-        myPad4->cd();
+    TPad* myPad4 = MakePad("myPad4","The pad",0,0,1,1,0.15,0.04,0.06,0.15);
+    myPad4->SetTicks();
+    myPad4->cd();
         
         // Create blank histogram for styling
         TH1F* myBlankHisto4 = new TH1F("myBlankHisto4", "Blank Histogram", 20, 0, 1);
@@ -1943,7 +1825,7 @@ void UnfoldSpectraClass::plotUnfoldingEffect2D(int nIter) {
         myBlankHisto4->Draw("E");
         
         // Create legend
-        TLegend* myLegend4 = new TLegend(0.2, 0.7, 0.4, 0.9);
+    TLegend* myLegend4 = MakeLegend(0.2, 0.7, 0.4, 0.9);
         myLegend4->SetTextFont(42);
         myLegend4->SetBorderSize(0);
         myLegend4->SetFillStyle(0);
@@ -2583,7 +2465,7 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
     std::cout << "Canvas divided into " << totalPads << " pads (" << npTBins << " columns x 2 rows)" << std::endl;
     
     // Create legend - will be used in first pad
-    TLegend* legend = new TLegend(0.55, 0.6, 0.9, 0.85);
+    TLegend* legend = MakeLegend(0.55, 0.6, 0.9, 0.85);
     legend->SetBorderSize(0);
     legend->SetFillStyle(0);
     legend->SetTextSize(0.04);
@@ -2895,7 +2777,7 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
     
     // Plot mean values
     c2->cd(1);
-    TLegend* leg2 = new TLegend(0.55, 0.6, 0.9, 0.85);
+    TLegend* leg2 = MakeLegend(0.55, 0.6, 0.9, 0.85);
     leg2->SetBorderSize(0);
     leg2->SetFillStyle(0);
     leg2->SetTextSize(0.04);
@@ -2943,7 +2825,7 @@ void UnfoldSpectraClass::StabilityTest2D(int nIter, bool plotAll) {
     
     // Plot standard deviation values
     c2->cd(2);
-    TLegend* leg3 = new TLegend(0.55, 0.6, 0.9, 0.85);
+    TLegend* leg3 = MakeLegend(0.55, 0.6, 0.9, 0.85);
     leg3->SetBorderSize(0);
     leg3->SetFillStyle(0);
     leg3->SetTextSize(0.04);
@@ -3046,7 +2928,7 @@ void UnfoldSpectraClass::StabilityTest(int ptBin, int nIter, bool useRatioNorm) 
     unfoldedResult->Draw("E");
     
     // Create legend
-    TLegend* legend = new TLegend(0.55, 0.6, 0.9, 0.85);
+    TLegend* legend = MakeLegend(0.55, 0.6, 0.9, 0.85);
     legend->SetBorderSize(0);
     legend->SetFillStyle(0);
     legend->SetTextSize(0.04);
@@ -3303,13 +3185,8 @@ void UnfoldSpectraClass::getKinEfficiency(int bin) {
     TGaxis::SetMaxDigits(3);
     
     // Set pad and histogram arrangement
-    TPad* myPad3 = new TPad("myPad", "The pad", 0, 0, 1, 1);
-    myPad3->SetLeftMargin(0.15);
-    myPad3->SetTopMargin(0.06);
-    myPad3->SetRightMargin(0.04);
-    myPad3->SetBottomMargin(0.15);
+    TPad* myPad3 = MakePad("myPad","The pad",0,0,1,1,0.15,0.04,0.06,0.15);
     myPad3->SetTicks();
-    myPad3->Draw();
     myPad3->cd();
     
     // Create blank histogram for styling
@@ -3327,7 +3204,7 @@ void UnfoldSpectraClass::getKinEfficiency(int bin) {
     myBlankHisto3->Draw("P");
     
     // Create legend
-    TLegend* myLegend3 = new TLegend(0.2, 0.6, 0.4, 0.9);
+    TLegend* myLegend3 = MakeLegend(0.2, 0.6, 0.4, 0.9);
     myLegend3->SetTextFont(42);
     myLegend3->SetBorderSize(0);
     myLegend3->SetFillStyle(0);
@@ -4425,21 +4302,10 @@ void unfoldzT(int variation) {
             priorType = "Flat";
             maxIter = 1;
             break;
-        case 3:
-            tag = "moreHyperons";
-            FileRM_NP = "16_17_18AllBdecay_Scaled_p20pc_V2";
-            maxIter = 1;
-            break;
-        case 4:
-            tag = "lessHyperons";
-            FileRM_NP = "16_17_18AllBdecay_Scaled_m20pc_V2";
-            maxIter = 1;
-            break;
     }
     
     // D0 analysis
     std::vector<int> pTBinArray = {5, 10, 15, 20, 30};
-    // std::vector<int> pTBinArray = {2, 5, 10, 15, 20, 30};
     int regularizationParam = 4;
     // int regularizationParam = 3;
     
@@ -4456,14 +4322,14 @@ void unfoldzT(int variation) {
     std::cout << "==== Unfolding for non-prompt D0 started ====\n" << std::endl;
     
     // Create and run unfolding for non-prompt
-    UnfoldSpectraClass unfoldObjectNonPrompt("NP", FileRM_NP, "CorrectedFinalHistograms_D0", "D0", pTBinArray);
-    unfoldObjectNonPrompt.provideExtPrior(tag, extFilename_NP, priorType);
+    // UnfoldSpectraClass unfoldObjectNonPrompt("NP", FileRM_NP, "CorrectedFinalHistograms_D0", "D0", pTBinArray);
+    // unfoldObjectNonPrompt.provideExtPrior(tag, extFilename_NP, priorType);
     
-    for (int iter = 0; iter < maxIter; iter++) {
-        std::cout << "Running unfold2D for non-prompt D0, iteration " << iter << std::endl;
-        unfoldObjectNonPrompt.unfold2D(regularizationParam, iter, tag);
-        std::cout << "Completed unfold2D for non-prompt D0, iteration " << iter << std::endl;
-    }
-    std::cout << "==== Unfolding for non-prompt D0 completed ====\n" << std::endl;
-    std::cout << "==== Unfolding for D0 analysis completed ====\n" << std::endl;
+    // for (int iter = 0; iter < maxIter; iter++) {
+    //     std::cout << "Running unfold2D for non-prompt D0, iteration " << iter << std::endl;
+    //     unfoldObjectNonPrompt.unfold2D(regularizationParam, iter, tag);
+    //     std::cout << "Completed unfold2D for non-prompt D0, iteration " << iter << std::endl;
+    // }
+    // std::cout << "==== Unfolding for non-prompt D0 completed ====\n" << std::endl;
+    // std::cout << "==== Unfolding for D0 analysis completed ====\n" << std::endl;
 }

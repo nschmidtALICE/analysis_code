@@ -1,3 +1,4 @@
+#include "PlotHelpers.h"
 // Fitter.cpp
 #include "Fitter.h"
 #include "Plotter.h"
@@ -751,7 +752,7 @@ Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooD
         }
 
         // Create RooFit variable for log(IP Chi2)
-        RooRealVar *log_ipchi2 = new RooRealVar("log_tag_ipchi2", "log(tag_ip_chi2)",
+        RooRealVar *log_ipchi2 = new RooRealVar("log_tag_ipchi2", "log(tag_ipchi2)",
                                                 ipchi2_params.logIpchi2Range.first,
                                                 ipchi2_params.logIpchi2Range.second);
 

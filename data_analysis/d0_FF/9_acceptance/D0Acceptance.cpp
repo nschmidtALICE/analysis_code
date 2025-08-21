@@ -6,11 +6,12 @@
 #include "TMath.h"
 #include "TH2D.h"
 #include "TString.h"
+#include "TCanvas.h"
 
-void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", TString outputFile = "D0AcceptanceMap.root") {
+void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", TString outputFile = "D0AcceptanceMap_pPb.root") {
 
     // Kinematic selection
-    double minPt = 1.0, maxPt = 200.0;
+    double minPt = 0.0, maxPt = 60.0;
     double minEta = 2.0, maxEta = 4.5;
     std::cout << "Calculating D0 acceptance map..." << std::endl;
     // Daughter acceptance
@@ -68,8 +69,8 @@ void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/202
     std::cout << "Branches set up successfully." << std::endl;
 
     // Define binning for pt and eta
-    const int nPtBins = 800;
-    const int nEtaBins = 35;
+    const int nPtBins = 300;
+    const int nEtaBins = 25;
     double ptBins[nPtBins+1];
     double etaBins[nEtaBins+1];
     double ptMin = minPt, ptMax = maxPt;
@@ -130,12 +131,27 @@ void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/202
     hAcc->SetTitle("D0 acceptance map;pt [GeV];eta");
     hAcc->Divide(hDen);
 
+
+
     // Write to output file
     TFile* fout = TFile::Open(outputFile, "RECREATE");
     hDen->Write();
     hNum->Write();
     hAcc->Write();
     fout->Close();
+
+    // Plot the acceptance map
+    TCanvas* cAcc = new TCanvas("cAcc", "D0 Acceptance Map", 800, 600);
+    hAcc->SetStats(0);
+    hAcc->GetZaxis()->SetTitle("Acceptance");
+    hAcc->Draw("COLZ");
+    cAcc->SetRightMargin(0.15);
+    TString pngName = "D0AcceptanceMap.png";
+    TString pdfName = "D0AcceptanceMap.pdf";
+    cAcc->SaveAs(pngName);
+    cAcc->SaveAs(pdfName);
+    std::cout << "Saved acceptance map plot: " << pngName << std::endl;
+    delete cAcc;
 
     f->Close();
     return;

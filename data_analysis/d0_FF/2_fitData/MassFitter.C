@@ -1,38 +1,5 @@
 // MassFitterScript.cpp - OPTIMIZED VERSION
 // D0 Meson Analysis Framework for mass and lifetime fits
-//
-// OPTIMIZATION SUMMARY:
-// - Original file: 3258 lines → Optimized: 3016 lines (7.4% reduction)
-// - Eliminated ~600+ lines of duplicated code through consolidation:
-//   * createCorrectionFactorGraphs: 400+ lines → 120 lines (70% reduction)
-//   * Graph creation functions: Replaced with template calls (95% reduction)
-//   * Parameter processing: Map-driven approach (90% reduction)  
-//   * File I/O operations: Consolidated helper functions (85% reduction)
-//   * Canvas/histogram styling: Reusable helper functions
-//
-// Key optimizations implemented:
-// 1. Template functions for graph creation (eliminates duplication patterns)
-// 2. Data-driven parameter processing with maps (eliminates repetitive calls)
-// 3. Consolidated file I/O helpers (single functions vs many individual writes)
-// 4. Standardized canvas/histogram styling helpers (consistent appearance)
-// 5. Structured correction factor processing (cleaner, more maintainable)
-// 6. Debug output helpers with conditional compilation
-// 7. Validation helpers for array size checking
-//
-// Benefits achieved:
-// - Single point of control for common operations
-// - Much easier to maintain and extend
-// - Consistent styling and error handling
-// - Reduced compilation time and memory usage
-// - Type-safe template implementations
-// - All original functionality preserved 100%
-//
-// sPlot Integration:
-// - sPlots provide a statistical method to separate signal and background contributions
-// - Enable sPlot by calling massFit with splot=true and providing a TFile*
-// - sPlot weights are saved to the file and can be used for subsequent analysis
-// - Use createSPlotDatasets() to create signal/background enhanced datasets
-// - sPlot is particularly useful for studying kinematic distributions of signal vs background
 
 #include <iostream>
 #include <vector>
@@ -72,6 +39,7 @@
 #include "RooPlot.h"
 
 // Include external fitter and plotter headers
+#include "PlotHelpers.h"
 #include "Fitter.C"
 #include "Plotter.C"
 
@@ -1506,6 +1474,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             } else {
                 std::cout << "  Using traditional signal region selection..." << std::endl;
                 signalEnhancedData = static_cast<RooDataSet*>(dataBin->reduce(
+
                     ("tagMass > " + std::to_string(sigRegion.first) + 
                     " && tagMass < " + std::to_string(sigRegion.second)).c_str()
                 ));
@@ -2026,7 +1995,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             // Set axis labels and ranges
                             tagZKaonCorrGraph->GetXaxis()->SetTitle("z_{T}");
                             tagZKaonCorrGraph->GetYaxis()->SetTitle("PID Efficiency");
-                            tagZKaonCorrGraph->GetYaxis()->SetRangeUser(0.5, 1.1);
+                            tagZKaonCorrGraph->GetYaxis()->SetTitleOffset(1.2);
                             
                             tagZKaonCorrGraph->Draw("APE");
                             tagZPionCorrGraph->Draw("PE same");
@@ -2623,7 +2592,6 @@ void FitSpectraObject::saveResultsToFile(const std::vector<double>& binCenters,
         promptFragFunc->Write();
         nonpromptFragFunc->Write();
         
-        // Use optimized writing functions
         std::cout << "DEBUG: Writing all parameter graphs..." << std::endl;
         writeGraphsToFile(fOutData, massGraphs);
         writeGraphsToFile(fOutData, ipchi2Graphs);
@@ -2925,14 +2893,7 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
 
     std::string mcTag = isMC ? "MC" : "";
     std::string obsTag = isZtObservable ? "zT" : "Y";
-
-    // TString inputFile = "";
-    // if( isMC) {
-    //     inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1_bunew.root";
-    // } else {
-    //     inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root";
-    // }
-
+    
     // Open the input ROOT file
     TFile *file = TFile::Open(inputFile);
     if (!file || file->IsZombie()) {

@@ -1,3 +1,4 @@
+#include "PlotHelpers.h"
 #include "Plotter.h"
 #include <sys/stat.h>
 #include <ctime>
@@ -31,6 +32,59 @@ Plotter::Plotter(const std::string& resonanceType, const std::string& basepath,
     ensureDirectoryExists(this->basepath);
     ensureDirectoryExists(this->basepath + "MassFits_" + obsSelection + "/");
 }
+
+// // Helper for TLegend setup
+// void setupLegend(TLegend* legend, double textSize, double margin, int font, int border, int fillStyle, int fillColor) {
+//     if (!legend) return;
+//     legend->SetTextFont(font);
+//     legend->SetBorderSize(border);
+//     legend->SetFillStyle(fillStyle);
+//     legend->SetFillColor(fillColor);
+//     legend->SetMargin(margin);
+//     legend->SetTextSize(textSize);
+// }
+
+// // Helper for canvas and pad setup
+// void setupCanvasAndPad(TCanvas* canvas, TPad* pad, double left, double bottom, double right) {
+//     if (pad) {
+//         pad->SetLeftMargin(left);
+//         pad->SetBottomMargin(bottom);
+//         pad->SetRightMargin(right);
+//         pad->Draw();
+//         pad->cd();
+//     } else if (canvas) {
+//         canvas->SetLeftMargin(left);
+//         canvas->SetBottomMargin(bottom);
+//         canvas->SetRightMargin(right);
+//         canvas->Draw();
+//         canvas->cd();
+//     }
+// }
+
+// // Helper for histogram styling
+// void styleHistogram(TH1* hist, int color, int lineWidth, int markerStyle, int markerColor, double markerSize) {
+//     if (!hist) return;
+//     hist->SetLineColor(color);
+//     hist->SetLineWidth(lineWidth);
+//     hist->SetMarkerStyle(markerStyle);
+//     hist->SetMarkerColor(markerColor);
+//     hist->SetMarkerSize(markerSize);
+// }
+
+// // Helper for debug output
+// void debugLog(const std::string& msg) {
+//     std::cout << "[Plotter] " << msg << std::endl;
+// }
+
+// // Helper for TPad margin setup
+// void setupPadMargins(TPad* pad, double left, double bottom, double right, double top) {
+//     if (!pad) return;
+//     pad->SetLeftMargin(left);
+//     pad->SetBottomMargin(bottom);
+//     pad->SetRightMargin(right);
+//     pad->SetTopMargin(top);
+//     pad->Draw();
+// }
 
 // Helper method to ensure a directory exists
 void Plotter::ensureDirectoryExists(const std::string& path) {
@@ -102,42 +156,19 @@ void Plotter::setGraphHisto(TH1* histo, const std::string& xTitle, const std::st
     }
 }
 
-// Helper method to add parameter to legend if it exists
-void Plotter::addParameterToLegend(TLegend* legend, RooArgSet* params, const std::string& paramName, 
-                                   const std::string& displayName, const std::string& format, bool skipIfMissing) {
-    if (!legend || !params) return;
-    
-    RooRealVar* param = dynamic_cast<RooRealVar*>(params->find(paramName.c_str()));
-    if (param || !skipIfMissing) {
-        if (param) {
-            legend->AddEntry((TObject*)nullptr, Form((displayName + ": " + format).c_str(), 
-                           param->getVal(), param->getError()), "");
-        } else if (!skipIfMissing) {
-            legend->AddEntry((TObject*)nullptr, (displayName + ":").c_str(), "");
-        }
-    }
-}
-
 // Implementation of individualMassFitPlot method
 TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extendedPdf, 
                                    RooRealVar* massVar, RooDataSet* data, 
                                    const std::string& fitTypeName, bool isZtObservable) {
-    debugLog("==== Creating mass fit plot for bin " + std::to_string(fitBin) + " with model " + fitTypeName + " ====");
-    
     // Generate unique identifier
     std::string uniqueId = getUniqueId();
     
     // Set output directory
     std::string outputDir = basepath + "MassFits_" + obsSelection + "/";
-    debugLog("Output directory: " + outputDir);
-    
-    // Check data
-    debugLog("Data entries: " + std::to_string(data->numEntries()));
     
     // Extract all the parameters from binning Range
     RooAbsBinning& binFull = massVar->getBinning("fullRange");
     RooAbsBinning& binSig = massVar->getBinning("signalRange");
-    debugLog("Mass range: " + std::to_string(binFull.lowBound()) + "-" + std::to_string(binFull.highBound()));
     
     massVar->setRange(binFull.lowBound(), binFull.highBound());
     RooPlot* frame = massVar->frame(RooFit::Bins(40));
@@ -147,18 +178,16 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         frame->SetTitle(("Mass fit for " + range + " in rapidity (#it{y})").c_str());
     }
     
-    debugLog("Plotting data...");
+    // Plot data
     data->plotOn(frame, RooFit::Name("datahistogram"), 
                 RooFit::LineWidth(1), RooFit::MarkerSize(0.5), 
                 RooFit::MarkerStyle(20));
     
     // Create histogram from data
-    debugLog("Creating histogram from data...");
     std::string histName = "h_MassSignal" + std::to_string(fitBin) + "_" + 
                           fitTypeName + "_" + uniqueId + "_data";
     TH1* h_data = data->createHistogram(histName.c_str(), *massVar);
     
-    debugLog("Plotting fit models...");
     try {
         // Plot total fit
         extendedPdf->plotOn(frame, 
@@ -229,10 +258,8 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
     // Save output file path
     std::string output_file = outputDir + "Bin" + std::to_string(fitBin) + "_" + 
                              fitTypeName + (isBinned ? "Binned" : "Unbinned") + "." + format;
-    debugLog("Will save plot to: " + output_file);
     
     // Create pull distribution
-    debugLog("Creating pull distribution...");
     RooHist* dataHist = frame->getHist("datahistogram");
     RooCurve* totalFitCurve = frame->getCurve("TotalFit");
     RooHist* hpull = nullptr;
@@ -249,7 +276,6 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
     
     try {
         // Draw and save main plot
-    debugLog("Creating canvas...");
         TCanvas* canvas = new TCanvas(("canvas_" + uniqueId).c_str(), 
                                     ("canvas_" + uniqueId).c_str(), 800*2, 600*2);
         
@@ -261,12 +287,9 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         frame->Draw();
         paramLegend->Draw();
         
-    debugLog("Saving canvas to " + output_file);
     canvas->SaveAs(output_file.c_str());
-    debugLog("Plot saved successfully!");
         
         // Create and save pull plot
-    debugLog("Creating pull canvas...");
         std::string pull_output_file = outputDir + "Bin" + std::to_string(fitBin) + "_" + 
                                       fitTypeName + (isBinned ? "Binned" : "Unbinned") + "_Pull." + format;
         
@@ -277,12 +300,9 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         pullFrame->GetYaxis()->SetTitleOffset(1.6);
         pullFrame->Draw();
         
-    debugLog("Saving pull canvas to " + pull_output_file);
     pullCanvas->SaveAs(pull_output_file.c_str());
-    debugLog("Pull plot saved successfully!");
         
         // Clean up to prevent memory leaks
-    debugLog("Cleaning up...");
         delete canvas;
         delete pullCanvas;
         delete paramLegend;
@@ -926,56 +946,4 @@ std::tuple<double, double, double> Plotter::splotVals(const std::string& resonan
     }
     
     return std::make_tuple(scale1, scale2, ratio);
-}
-
-// Helper for canvas and pad setup
-void Plotter::setupCanvasAndPad(TCanvas* canvas, TPad* pad, double left, double bottom, double right) {
-    if (pad) {
-        pad->SetLeftMargin(left);
-        pad->SetBottomMargin(bottom);
-        pad->SetRightMargin(right);
-        pad->Draw();
-        pad->cd();
-    } else if (canvas) {
-        canvas->SetLeftMargin(left);
-        canvas->SetBottomMargin(bottom);
-        canvas->SetRightMargin(right);
-        canvas->Draw();
-        canvas->cd();
-    }
-}
-
-// Helper for histogram styling
-void Plotter::styleHistogram(TH1* hist, Color_t color, int lineWidth, int markerStyle, Color_t markerColor, double markerSize) {
-    if (!hist) return;
-    hist->SetLineColor(color);
-    hist->SetLineWidth(lineWidth);
-    hist->SetMarkerStyle(markerStyle);
-    hist->SetMarkerColor(markerColor);
-    hist->SetMarkerSize(markerSize);
-}
-
-// Helper for debug output
-void Plotter::debugLog(const std::string& msg) {
-    std::cout << "[Plotter] " << msg << std::endl;
-}
-
-// Helper for TPad margin setup
-void Plotter::setupPadMargins(TPad* pad, double left, double bottom, double right, double top) {
-    if (!pad) return;
-    pad->SetLeftMargin(left);
-    pad->SetBottomMargin(bottom);
-    pad->SetRightMargin(right);
-    pad->SetTopMargin(top);
-    pad->Draw();
-}
-// Helper for TLegend setup
-void Plotter::setupLegend(TLegend* legend, double textSize, double margin, int font, int border, int fillStyle, int fillColor) {
-    if (!legend) return;
-    legend->SetTextFont(font);
-    legend->SetBorderSize(border);
-    legend->SetFillStyle(fillStyle);
-    legend->SetFillColor(fillColor);
-    legend->SetMargin(margin);
-    legend->SetTextSize(textSize);
 }

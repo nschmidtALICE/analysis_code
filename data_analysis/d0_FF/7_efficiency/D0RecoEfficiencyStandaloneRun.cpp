@@ -443,18 +443,36 @@ void D0RecoEfficiencyStandalone::CalculateRecoEfficiency() {
             // Check if MC D0 is in acceptance
             double mc_pt = mc_d0_pt->at(mc_idx);
             if (mc_pt < m_minPt) continue;
-            
             double mc_eta = mc_d0_eta->at(mc_idx);
             if (mc_eta > m_maxEta || mc_eta < m_minEta) continue;
-            
+
+            // Require both MC daughters in acceptance
+            bool kaonInAcc = false, pionInAcc = false;
+            if (mc_dau_pid && mc_dau_matched) {
+                for (size_t dau_idx = 0; dau_idx < mc_dau_pid->size(); ++dau_idx) {
+                    // Check if this daughter belongs to this MC D0
+                    // If you have a mc_dau_d0_idx branch, use it for association
+                    int pid = mc_dau_pid->at(dau_idx);
+                    // For eta, if you have mc_dau_eta branch, use it; else calculate from px,py,pz
+                    double dau_eta = 0.0;
+                    if (dau_eta < m_minEta || dau_eta > m_maxEta) continue;
+                    if (abs(pid) == 321) kaonInAcc = true;
+                    if (abs(pid) == 211) pionInAcc = true;
+                }
+            } else {
+                // If no MC daughter info, skip this check
+                kaonInAcc = pionInAcc = true;
+            }
+            if (!(kaonInAcc && pionInAcc)) continue;
+
             // Calculate momentum only once if needed
             double mc_p = (h_den_p) ? CalculateMCMomentum(mc_idx) : 0.0;
-            
-            // Fill denominator (all MC D0s in acceptance)
+
+            // Fill denominator (MC D0s in acceptance with both daughters in acceptance)
             h_den->Fill(mc_pt, mc_eta);
             if (h_den_p)
                 h_den_p->Fill(mc_p, mc_eta);
-            
+
             totalMCInAcceptance++;
         }
         
