@@ -639,8 +639,9 @@ void D0RecoEfficiencyStandalone::PlotEfficiency(const std::string &histName) {
 }
 
 // Main function for the standalone reconstruction-based efficiency calculation
-int D0RecoEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", 
-                                 TString outputFile = "output_reco_standalone.root",
+int D0RecoEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_pPb_Pbp/fullMCs.root", 
+// int D0RecoEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", 
+                                 TString outputFile = "output_reco_standalone_full.root",
                                  double massWindow = 50.0, double minPt = 1.0,
                                  double minEta = 2.0, double maxEta = 4.5,
                                  double kaonPIDCut = 0.5, double pionPIDCut = 0.5,

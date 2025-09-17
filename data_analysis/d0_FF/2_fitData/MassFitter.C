@@ -2152,6 +2152,31 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             // Save comprehensive efficiency plot
                             std::string tagZEffCorrOutputFile = outfilePath + "tagZAllEfficiencyCorrections_bin" + std::to_string(iBin) + ".png";
                             tagZEffCorrCanvas->SaveAs(tagZEffCorrOutputFile.c_str());
+
+                            // Also save all inputs used to make this canvas into a ROOT file so they can be re-plotted later
+                            std::string tagZEffInputsRoot = outfilePath + "tagZAllEfficiencyCorrections_bin" + std::to_string(iBin) + ".root";
+                            TFile* tagZInputsFile = TFile::Open(tagZEffInputsRoot.c_str(), "RECREATE");
+                            if (tagZInputsFile && tagZInputsFile->IsOpen()) {
+                                // Write graphs (if they contain points)
+                                if (tagZKaonCorrGraph && tagZKaonCorrGraph->GetN() > 0) tagZKaonCorrGraph->Write("tagZKaonCorrGraph");
+                                if (tagZPionCorrGraph && tagZPionCorrGraph->GetN() > 0) tagZPionCorrGraph->Write("tagZPionCorrGraph");
+                                if (tagZRecoEffCorrGraph && tagZRecoEffCorrGraph->GetN() > 0) tagZRecoEffCorrGraph->Write("tagZRecoEffCorrGraph");
+                                if (tagZAcceptanceCorrGraph && tagZAcceptanceCorrGraph->GetN() > 0) tagZAcceptanceCorrGraph->Write("tagZAcceptanceCorrGraph");
+                                if (tagZCombinedCorrGraph && tagZCombinedCorrGraph->GetN() > 0) tagZCombinedCorrGraph->Write("tagZCombinedCorrGraph");
+
+                                // Also write the underlying binned histograms used to build the graphs (if present)
+                                if (tagZKaonCorrHist) tagZKaonCorrHist->Write("tagZKaonCorrHist");
+                                if (tagZPionCorrHist) tagZPionCorrHist->Write("tagZPionCorrHist");
+                                if (tagZRecoEffCorrHist) tagZRecoEffCorrHist->Write("tagZRecoEffCorrHist");
+                                if (tagZAcceptanceCorrHist) tagZAcceptanceCorrHist->Write("tagZAcceptanceCorrHist");
+                                if (tagZCombinedCorrHist) tagZCombinedCorrHist->Write("tagZCombinedCorrHist");
+
+                                tagZInputsFile->Close();
+                                std::cout << "  Saved tagZ inputs to ROOT file: " << tagZEffInputsRoot << std::endl;
+                            } else {
+                                std::cerr << "  Error: could not create tagZ inputs ROOT file: " << tagZEffInputsRoot << std::endl;
+                            }
+                            if (tagZInputsFile) { delete tagZInputsFile; tagZInputsFile = nullptr; }
                             
                             // Create efficiency-weighted prompt signal comparison plot
                             TCanvas* promptSignalWeightedCanvas = new TCanvas(("promptSignalWeightedCanvas_bin" + std::to_string(iBin)).c_str(),
@@ -2240,6 +2265,30 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             promptSignalWeightedCanvas->SaveAs(promptWeightedOutputFile.c_str());
                             
                             std::cout << "  Efficiency-weighted distributions created and saved" << std::endl;
+
+                            // Also save the inputs used to make the efficiency-weighted plot into a ROOT file for later re-plotting
+                            std::string promptInputsRoot = outfilePath + "promptSignalEfficiencyWeighted_bin" + std::to_string(iBin) + ".root";
+                            TFile* promptInputsFile = TFile::Open(promptInputsRoot.c_str(), "RECREATE");
+                            if (promptInputsFile && promptInputsFile->IsOpen()) {
+                                // Write safe original and weighted histograms
+                                if (promptSignalTagZHistSafe) promptSignalTagZHistSafe->Write("promptSignalTagZHistSafe");
+                                if (backgroundSubtractedTagZHistSafe) backgroundSubtractedTagZHistSafe->Write("backgroundSubtractedTagZHistSafe");
+                                if (promptSignalTagZHist_PIDWeighted) promptSignalTagZHist_PIDWeighted->Write("promptSignalTagZHist_PIDWeighted");
+                                if (promptSignalTagZHist_RecoWeighted) promptSignalTagZHist_RecoWeighted->Write("promptSignalTagZHist_RecoWeighted");
+                                if (promptSignalTagZHist_AcceptanceWeighted) promptSignalTagZHist_AcceptanceWeighted->Write("promptSignalTagZHist_AcceptanceWeighted");
+                                if (promptSignalTagZHist_FullyWeighted) promptSignalTagZHist_FullyWeighted->Write("promptSignalTagZHist_FullyWeighted");
+
+                                // Also save the normalized clones used for the comparison plot
+                                if (promptOrigNorm) promptOrigNorm->Write("promptOrigNorm");
+                                if (promptPIDNorm) promptPIDNorm->Write("promptPIDNorm");
+                                if (promptFullyNorm) promptFullyNorm->Write("promptFullyNorm");
+
+                                promptInputsFile->Close();
+                                std::cout << "  Saved prompt-signal weighted inputs to ROOT file: " << promptInputsRoot << std::endl;
+                            } else {
+                                std::cerr << "  Error: could not create prompt inputs ROOT file: " << promptInputsRoot << std::endl;
+                            }
+                            if (promptInputsFile) { delete promptInputsFile; promptInputsFile = nullptr; }
                             
                             // Clean up efficiency correction objects
                             delete tagZEffCorrCanvas;

@@ -10,7 +10,7 @@
 
 void createResponseMatrix(const char *inputFile, const char *outputFile);
 
-void nTupleMaker(const char *inputFile = "", int inputMC = 1)
+void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true)
 {
     std::cout << "Starting D0 FF Analysis with minimal ntuple maker" << std::endl;
 
@@ -37,6 +37,19 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
 
     std::cout << "Input file: " << fInputFileName << std::endl;
     std::cout << "Output file: " << fOutputFileName << std::endl;
+
+    // Fast path: only build response matrix (skip filtering & FragmenNtuple production)
+    if (responseOnly) {
+        if (!inputMC) {
+            std::cerr << "ERROR: responseOnly requested but inputMC=0 (need MC for response). Aborting." << std::endl;
+            return;
+        }
+        TString respOut = fInputFileName; respOut.ReplaceAll(".root", "_response.root");
+        std::cout << "[responseOnly] Generating response matrix from original file -> " << respOut << std::endl;
+        createResponseMatrix(fInputFileName, respOut);
+        std::cout << "[responseOnly] Done." << std::endl;
+        return;
+    }
 
     // Open input file
     TFile *inputRoot = TFile::Open(fInputFileName, "READ");
@@ -507,11 +520,13 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1)
 
     std::cout << "Output saved to: " << fOutputFileName << std::endl;
 
-    // Create response matrix tree if processing MC
-    if (inputMC)
+    // Create response matrix tree if requested and processing MC
+    if (inputMC && buildResponse)
     {
         std::cout << "Creating response matrix tree..." << std::endl;
         createResponseMatrix(fInputFileName, fOutputFileName.ReplaceAll("_filtered.root", "_response.root"));
+    } else if (inputMC && !buildResponse) {
+        std::cout << "[INFO] Skipping response matrix creation (buildResponse=false)." << std::endl;
     }
 }
 
@@ -636,6 +651,10 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     std::vector<float> *mc_jet_py = nullptr;
     std::vector<float> *mc_jet_pz = nullptr;
     std::vector<float> *mc_jet_e = nullptr;
+    // New: direct kinematic branches (preferred)
+    std::vector<float> *mc_jet_pt = nullptr;
+    std::vector<float> *mc_jet_eta = nullptr;
+    std::vector<float> *mc_jet_phi = nullptr;
     std::vector<int> *mc_jet_n_const = nullptr;
     std::vector<int> *mc_jet_n_chr = nullptr;
     std::vector<int> *mc_jet_n_neu = nullptr;
@@ -681,6 +700,10 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     inputTree->SetBranchAddress("mc_jet_py", &mc_jet_py);
     inputTree->SetBranchAddress("mc_jet_pz", &mc_jet_pz);
     inputTree->SetBranchAddress("mc_jet_e", &mc_jet_e);
+    // Set branch addresses for direct jet kinematics if available
+    if (inputTree->GetBranch("mc_jet_pt")) inputTree->SetBranchAddress("mc_jet_pt", &mc_jet_pt);
+    if (inputTree->GetBranch("mc_jet_eta")) inputTree->SetBranchAddress("mc_jet_eta", &mc_jet_eta);
+    if (inputTree->GetBranch("mc_jet_phi")) inputTree->SetBranchAddress("mc_jet_phi", &mc_jet_phi);
     inputTree->SetBranchAddress("mc_jet_n_const", &mc_jet_n_const);
     inputTree->SetBranchAddress("mc_jet_n_charged", &mc_jet_n_chr);
     inputTree->SetBranchAddress("mc_jet_n_neutral", &mc_jet_n_neu);
@@ -765,43 +788,50 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             r_d0_z_mc = (*mc_d0_z)[iMC];
             r_d0_is_primary = (iMC < mc_d0_origin->size()) ? ((*mc_d0_origin)[iMC] == 1) : 0;
 
-            // Get MC jet vectors
-            TLorentzVector mc_jet;
-            if (mc_jet_idx >= 0 && mc_jet_idx < static_cast<int>(mc_jet_px->size()))
+            // Get MC jet kinematics: prefer direct branches if present; fallback to 4-vector reconstruction
+            bool haveDirect = (mc_jet_pt && mc_jet_eta && mc_jet_phi &&
+                               mc_jet_idx >= 0 && mc_jet_idx < static_cast<int>(mc_jet_pt->size()) &&
+                               mc_jet_idx < static_cast<int>(mc_jet_eta->size()) &&
+                               mc_jet_idx < static_cast<int>(mc_jet_phi->size()));
+            if (haveDirect)
             {
-                mc_jet.SetPxPyPzE(
+                r_jet_pt_mc = (*mc_jet_pt)[mc_jet_idx];
+                r_jet_eta_mc = (*mc_jet_eta)[mc_jet_idx];
+                r_jet_phi_mc = (*mc_jet_phi)[mc_jet_idx];
+            }
+            else if (mc_jet_idx >= 0 && mc_jet_px && mc_jet_idx < static_cast<int>(mc_jet_px->size()))
+            {
+                TLorentzVector mc_jet_tmp;
+                mc_jet_tmp.SetPxPyPzE(
                     (*mc_jet_px)[mc_jet_idx],
                     (*mc_jet_py)[mc_jet_idx],
                     (*mc_jet_pz)[mc_jet_idx],
                     (*mc_jet_e)[mc_jet_idx]);
-
-                // Use actual MC jet properties
-                r_jet_pt_mc = mc_jet.Pt();
-                r_jet_eta_mc = mc_jet.Eta();
-                r_jet_phi_mc = mc_jet.Phi();
-
-                // Use actual constituent counts if available
-                if (mc_jet_n_const && mc_jet_idx < static_cast<int>(mc_jet_n_const->size()))
-                {
-                    r_jet_nconst_mc = (*mc_jet_n_const)[mc_jet_idx];
-                }
-                else if (mc_jet_n_chr && mc_jet_n_neu &&
-                         mc_jet_idx < static_cast<int>(mc_jet_n_chr->size()) &&
-                         mc_jet_idx < static_cast<int>(mc_jet_n_neu->size()))
-                {
-                    r_jet_nconst_mc = (*mc_jet_n_chr)[mc_jet_idx] + (*mc_jet_n_neu)[mc_jet_idx];
-                }
-                else
-                {
-                    r_jet_nconst_mc = 0;
-                }
+                r_jet_pt_mc = mc_jet_tmp.Pt();
+                r_jet_eta_mc = mc_jet_tmp.Eta();
+                r_jet_phi_mc = mc_jet_tmp.Phi();
             }
             else
             {
-                // Fallback if index is invalid
-                r_jet_pt_mc = r_d0_pt_mc / r_d0_z_mc;
+                // Final fallback if index invalid
+                r_jet_pt_mc = (r_d0_z_mc != 0 ? r_d0_pt_mc / r_d0_z_mc : 0);
                 r_jet_eta_mc = r_d0_eta_mc;
                 r_jet_phi_mc = r_d0_phi_mc;
+            }
+
+            // Constituent counts
+            if (mc_jet_n_const && mc_jet_idx >= 0 && mc_jet_idx < static_cast<int>(mc_jet_n_const->size()))
+            {
+                r_jet_nconst_mc = (*mc_jet_n_const)[mc_jet_idx];
+            }
+            else if (mc_jet_n_chr && mc_jet_n_neu && mc_jet_idx >= 0 &&
+                     mc_jet_idx < static_cast<int>(mc_jet_n_chr->size()) &&
+                     mc_jet_idx < static_cast<int>(mc_jet_n_neu->size()))
+            {
+                r_jet_nconst_mc = (*mc_jet_n_chr)[mc_jet_idx] + (*mc_jet_n_neu)[mc_jet_idx];
+            }
+            else
+            {
                 r_jet_nconst_mc = 0;
             }
 

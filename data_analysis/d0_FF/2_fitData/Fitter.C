@@ -531,7 +531,7 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
 
         // Create plot of the fit using the Plotter class
         Plotter plotter(resonance, outfilePath, bin, false, zRange);
-        histogram = plotter.individualMassFitPlot(sig_yield, extended_pdf, mass_tag_measured, data, fitTypeName, isZtObservable);
+        histogram = plotter.individualMassFitPlotMulti(sig_yield, extended_pdf, mass_tag_measured, data, fitTypeName, isZtObservable);
 
         // Perform sPlot analysis if requested
         RooDataSet *splotData = nullptr;

@@ -23,6 +23,7 @@
 #include "TAxis.h"
 #include "TDirectory.h"
 #include "TTree.h"
+#include "TLatex.h"
 #include "TBranch.h"
 #include "RooRealVar.h"
 #include "RooAbsPdf.h"
@@ -63,6 +64,10 @@ public:
     TH1* individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extendedPdf, 
                               RooRealVar* massVar, RooDataSet* data, 
                               const std::string& fitTypeName, bool isZtObservable);
+    // New: draw mass fit and pull distribution side-by-side in a single canvas
+    TH1* individualMassFitPlotMulti(RooRealVar* sigYieldParam, RooAbsPdf* extendedPdf, 
+                                    RooRealVar* massVar, RooDataSet* data, 
+                                    const std::string& fitTypeName, bool isZtObservable);
     
     TH1* ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2, 
                       RooDataSet* data, RooAbsPdf* totalPdf, 

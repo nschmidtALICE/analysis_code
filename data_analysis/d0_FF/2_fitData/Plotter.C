@@ -267,7 +267,10 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         hpull = dataHist->makePullHist(*totalFitCurve, true);
     }
     
-    RooPlot* pullFrame = massVar->frame(RooFit::Title("Pull Distribution"), RooFit::Bins(40));
+    RooPlot* pullFrame = massVar->frame(RooFit::Bins(40));
+    // Remove automatic frame title so margins can be reduced and set explicit y-axis label
+    pullFrame->SetTitle("");
+    pullFrame->GetYaxis()->SetTitle("pull");
     if (hpull) {
         pullFrame->addPlotable(hpull, "P");
         pullFrame->getAttMarker()->SetMarkerSize(0.5);
@@ -312,6 +315,138 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         delete params;
     }
     
+    return h_data;
+}
+
+// New: multi-panel version that draws mass fit (left) and pull distribution (right)
+TH1* Plotter::individualMassFitPlotMulti(RooRealVar* sigYieldParam, RooAbsPdf* extendedPdf, 
+                                        RooRealVar* massVar, RooDataSet* data, 
+                                        const std::string& fitTypeName, bool isZtObservable) {
+    // Reuse logic from individualMassFitPlot to produce frame and pull
+    std::string uniqueId = getUniqueId();
+    std::string outputDir = basepath + "MassFits_" + obsSelection + "/";
+
+    RooAbsBinning& binFull = massVar->getBinning("fullRange");
+    massVar->setRange(binFull.lowBound(), binFull.highBound());
+    RooPlot* frame = massVar->frame(RooFit::Bins(100));
+    frame->SetTitle("");
+    frame->GetXaxis()->SetTitle("K#pi inv. mass [GeV/c^{2}]");
+
+    // if(isZtObservable) {
+    //     frame->SetTitle(("Mass fit for " + range + " in #it{z}_{T}").c_str());
+    // } else {
+    //     frame->SetTitle(("Mass fit for " + range + " in rapidity (#it{y})").c_str());
+    // }
+
+    data->plotOn(frame, RooFit::Name("datahistogram"), RooFit::LineWidth(1), RooFit::MarkerSize(0.5), RooFit::MarkerStyle(20));
+
+    // draw fits (try/catch to be safe)
+    try {
+        extendedPdf->plotOn(frame, RooFit::LineWidth(2), RooFit::LineColor(kBlack), RooFit::Name("TotalFit"));
+        extendedPdf->plotOn(frame, RooFit::Components("bkg_pdf_ext"), RooFit::Name("BackgroundFit"), RooFit::LineStyle(kDashed), RooFit::LineWidth(2));
+        extendedPdf->plotOn(frame, RooFit::Components("sig_pdf_ext"), RooFit::Name("SignalFit"), RooFit::LineColor(kRed), RooFit::LineStyle(kDashed), RooFit::LineWidth(2));
+    } catch (...) { }
+
+    RooHist* dataHist = frame->getHist("datahistogram");
+    RooCurve* totalFitCurve = frame->getCurve("TotalFit");
+    RooHist* hpull = nullptr;
+    if (dataHist && totalFitCurve) {
+        hpull = dataHist->makePullHist(*totalFitCurve, true);
+    }
+
+    RooPlot* pullFrame = massVar->frame(RooFit::Title("Pull Distribution"), RooFit::Bins(100));
+    if (hpull) {
+        pullFrame->addPlotable(hpull, "P");
+        pullFrame->getAttMarker()->SetMarkerSize(0.5);
+        pullFrame->getAttLine()->SetLineWidth(1);
+    }
+    pullFrame->SetTitle("");
+    pullFrame->GetYaxis()->SetTitle("pull");
+    pullFrame->GetXaxis()->SetTitle("K#pi inv. mass [GeV/c^{2}]");
+
+    // Create canvas with two pads side-by-side
+    TCanvas* cMulti = new TCanvas(("cMassPull_" + uniqueId).c_str(), ("Mass and Pull " + uniqueId).c_str(), 1600, 700);
+    cMulti->Divide(2,1, 0.001, 0.001);
+
+    // Left: mass fit
+    cMulti->cd(1);
+    gPad->SetLeftMargin(0.12);
+    gPad->SetRightMargin(0.01);
+    gPad->SetBottomMargin(0.08);
+    gPad->SetTopMargin(0.01);
+    frame->Draw();
+
+    TLatex tl;
+
+    // Build a compact parameter legend on the left pad
+    RooArgSet* params = extendedPdf->getParameters(*data);
+    TLegend* leg = new TLegend(0.60, 0.60, 0.92, 0.88);
+    setupLegend(leg, 0.03, 0.25, 42, 0, 0, 0);
+    leg->AddEntry((TObject*)nullptr, "Fit Parameters:", "");
+    if (fitTypeName != "noSig") {
+        addParameterToLegend(leg, params, "sig_yield", "Sig yield", "%.1f #pm %.1f");
+        addParameterToLegend(leg, params, "mean", "Mean", "%.3f #pm %.3f");
+        addParameterToLegend(leg, params, "sigma1", "Width", "%.3f #pm %.3f");
+    }
+    addParameterToLegend(leg, params, "bkg_yield", "Bkg yield", "%.1f #pm %.1f");
+    double chi2 = frame->chiSquare("TotalFit", "datahistogram", params->getSize());
+    leg->AddEntry((TObject*)nullptr, Form("#chi^{2}/ndof: %.2f", chi2), "");
+    leg->Draw();
+
+    // Draw TLatex labels on the left pad: LHCb in-progress tag and rapidity/zT range
+    tl.SetNDC();
+    tl.SetTextFont(42);
+    tl.SetTextSize(0.04);
+    tl.SetTextAlign(11);
+    // LHCb in-progress label (uses ROOT TLatex font markup)
+    tl.DrawLatexNDC(0.15, 0.92, "#font[12]{LHCb} in-progress");
+
+    // Rapidty or zT range label below it
+    std::string rangeLabel = (isZtObservable ? (std::string("z_{T} range: ") + range) : (std::string("y-range: ") + range));
+    //remove all zeros in the range label for better aesthetics
+    rangeLabel.erase(std::remove(rangeLabel.begin(), rangeLabel.end(), '0'), rangeLabel.end());
+    rangeLabel = "" + rangeLabel + "";
+    tl.SetTextSize(0.035);
+    tl.DrawLatexNDC(0.15, 0.87, rangeLabel.c_str());
+    //add label for d0 mass
+    tl.DrawLatexNDC(0.15, 0.82, "#it{D}^{0} mass fit");
+
+    // Add a fit-component legend (Total / Signal / Background) on the left pad
+    RooCurve* totalCurve = frame->getCurve("TotalFit");
+    RooCurve* bkgCurve = frame->getCurve("BackgroundFit");
+    RooCurve* sigCurve = frame->getCurve("SignalFit");
+    TLegend* fitLeg = new TLegend(0.15, 0.60, 0.45, 0.78);
+    setupLegend(fitLeg, 0.03, 0.25, 42, 0, 0, 0);
+    if (totalCurve) fitLeg->AddEntry(totalCurve, "Total fit", "l");
+    if (sigCurve)   fitLeg->AddEntry(sigCurve,   "Signal",    "l");
+    if (bkgCurve)   fitLeg->AddEntry(bkgCurve,   "Background","l");
+    fitLeg->Draw();
+
+    // Right: pull distribution
+    cMulti->cd(2);
+    gPad->SetLeftMargin(0.08);
+    gPad->SetRightMargin(0.01);
+    gPad->SetBottomMargin(0.08);
+    gPad->SetTopMargin(0.01);
+    pullFrame->GetYaxis()->SetTitleOffset(1.0);
+    pullFrame->Draw();
+
+    // Save outputs
+    ensureDirectoryExists(outputDir);
+    std::string outName = outputDir + "Bin" + std::to_string(fitBin) + "_" + fitTypeName + (isBinned ? "Binned" : "Unbinned");
+    cMulti->SaveAs((outName + ".png").c_str());
+    cMulti->SaveAs((outName + ".pdf").c_str());
+
+    // Also return histogram produced from data for possible further use
+    std::string histName = "h_MassSignal" + std::to_string(fitBin) + "_" + fitTypeName + "_" + uniqueId + "_data";
+    TH1* h_data = data->createHistogram(histName.c_str(), *massVar);
+
+    // Cleanup
+    delete cMulti;
+    delete leg;
+    delete fitLeg;
+    delete params;
+
     return h_data;
 }
 
@@ -389,7 +524,7 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
     }
     
     // Create frame for plotting
-    RooPlot* frame1 = logIpchi2->frame(RooFit::Bins(50));
+    RooPlot* frame1 = logIpchi2->frame(RooFit::Bins(100));
     frame1->SetTitle(("log(IP Chi2) Distribution for " + range).c_str());
     
     // Plot data
@@ -455,7 +590,9 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
         hpull = dataHist->makePullHist(*curve1, true);
     }
     
-    RooPlot* frame2 = logIpchi2->frame(RooFit::Title("Pull Distribution"), RooFit::Bins(50));
+    RooPlot* frame2 = logIpchi2->frame(RooFit::Bins(100));
+    frame2->SetTitle("");
+    frame2->GetYaxis()->SetTitle("pull");
     if (hpull) {
         frame2->addPlotable(hpull, "P");
         frame2->getAttMarker()->SetMarkerSize(0.5);
@@ -481,7 +618,7 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
     // Second pad for zoomed region to see asymmetry better
     canvasFit->cd(2);
     // Clone frame for zoomed view
-    RooPlot* frame_zoom = logIpchi2->frame(RooFit::Title("Zoomed View"), RooFit::Bins(50));
+    RooPlot* frame_zoom = logIpchi2->frame(RooFit::Title("Zoomed View"), RooFit::Bins(100));
     data->plotOn(frame_zoom, RooFit::Name("datahistogram_zoom"), 
                RooFit::LineColor(kGray+2), RooFit::LineWidth(1), 
                RooFit::MarkerSize(0.5), RooFit::MarkerStyle(20));
