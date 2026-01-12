@@ -94,7 +94,9 @@ public:
     TLatex* collsys;
     
     // Constructor - fix signature to match usage
-    PlotGraphsObject(const std::string& ptRng, bool isZt, bool isMC);
+    // optional fourth argument 'basepath_override' lets the caller specify the exact input directory
+    // to use instead of letting the code auto-detect dated output folders.
+    PlotGraphsObject(const std::string& ptRng, bool isZt, bool isMC, const std::string& basepath_override = "");
     
     // Destructor
     ~PlotGraphsObject();
@@ -153,7 +155,7 @@ public:
 };
 
 // Constructor implementation
-PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isMC) : 
+PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isMC, const std::string& basepath_override) : 
     ptString(ptRng), minPlotRange(0), minFitRange(0), maxFitRange(1) {
     
     
@@ -213,36 +215,42 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     }
     
     // Prepare input file path
-    // Try to locate the latest dated output directory created by MassFitter (e.g. D0_FF_DATA_YYYY-MM-DD[_beamTag])
-    std::string parentDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData";
-    std::string baseName = isMC ? "D0_FF_MC" : "D0_FF_DATA";
-    std::string selectedDirName = "";
+    // If the caller provided a basepath_override, use it directly (allows explicit input directory)
+    std::string basepath;
+    if (!basepath_override.empty()) {
+        basepath = basepath_override;
+        std::cout << "Using user-provided input directory: " << basepath << std::endl;
+    } else {
+        // Try to locate the latest dated output directory created by MassFitter (e.g. D0_FF_DATA_YYYY-MM-DD[_beamTag])
+        std::string parentDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData";
+        std::string baseName = isMC ? "D0_FF_MC" : "D0_FF_DATA";
+        std::string selectedDirName = "";
 
-    try {
-        for (const auto& entry : std::filesystem::directory_iterator(parentDir)) {
-            if (!entry.is_directory()) continue;
-            std::string name = entry.path().filename().string();
-            // Match directories that start with baseName + "_" (dated directories)
-            std::string prefix = baseName + "_";
-            if (name.rfind(prefix, 0) == 0) {
-                // choose lexicographically largest (YYYY-MM-DD sorts correctly)
-                if (selectedDirName.empty() || name > selectedDirName) {
-                    selectedDirName = name;
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator(parentDir)) {
+                if (!entry.is_directory()) continue;
+                std::string name = entry.path().filename().string();
+                // Match directories that start with baseName + "_" (dated directories)
+                std::string prefix = baseName + "_";
+                if (name.rfind(prefix, 0) == 0) {
+                    // choose lexicographically largest (YYYY-MM-DD sorts correctly)
+                    if (selectedDirName.empty() || name > selectedDirName) {
+                        selectedDirName = name;
+                    }
                 }
             }
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: failed to scan parent directory for dated outputs: " << e.what() << std::endl;
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Warning: failed to scan parent directory for dated outputs: " << e.what() << std::endl;
-    }
 
-    std::string basepath;
-    if (!selectedDirName.empty()) {
-        basepath = parentDir + "/" + selectedDirName;
-        std::cout << "Using dated MassFitter output directory: " << basepath << std::endl;
-    } else {
-        // Fallback to legacy non-dated path
-        basepath = parentDir + "/" + baseName;
-        std::cout << "No dated MassFitter output found, falling back to: " << basepath << std::endl;
+        if (!selectedDirName.empty()) {
+            basepath = parentDir + "/" + selectedDirName;
+            std::cout << "Using dated MassFitter output directory: " << basepath << std::endl;
+        } else {
+            // Fallback to legacy non-dated path
+            basepath = parentDir + "/" + baseName;
+            std::cout << "No dated MassFitter output found, falling back to: " << basepath << std::endl;
+        }
     }
     std::string rootFileName = basepath + "/FitParametersUnBinnedD0" + obsTag + "_" + ptString + ".root";
     TFile* fInFileHisto = nullptr;
@@ -2236,7 +2244,8 @@ TGraphErrors* PlotGraphsObject::create_constant_graph(double value, const std::s
 }
 
 // Implementation of plotRawYields function
-void plotRawYields(const std::string& ptRange = "", bool isZt = true, bool isMC = false) {
+// New optional parameter 'inputBasepath' allows overriding the auto-detected input directory.
+void plotRawYields2(const std::string& ptRange = "", bool isZt = true, bool isMC = false, const std::string& inputBasepath = "") {
     std::cout << "is binned var" << std::endl;
     
     // std::vector<std::string> pTRangeArray = {"7_50"};
@@ -2260,7 +2269,7 @@ void plotRawYields(const std::string& ptRange = "", bool isZt = true, bool isMC 
         bool plotAccCorr = false;
         
         for (size_t i = 0; i < pTRangeArray.size(); i++) {
-            gObj[i] = new PlotGraphsObject(pTRangeArray[i], isZt, isMC);
+            gObj[i] = new PlotGraphsObject(pTRangeArray[i], isZt, isMC, inputBasepath);
             gObj[i]->plotPt(plotAccCorr);
             yieldArray.push_back(gObj[i]->graphInclRaw);
             yieldArrayP.push_back(gObj[i]->graphPRaw);
@@ -2384,7 +2393,7 @@ void plotRawYields(const std::string& ptRange = "", bool isZt = true, bool isMC 
     }
     else {
         // Plot just one single pT bin
-        PlotGraphsObject* graphs = new PlotGraphsObject(ptRange, isZt, isMC);
+    PlotGraphsObject* graphs = new PlotGraphsObject(ptRange, isZt, isMC, inputBasepath);
         graphs->plotPt();
         delete graphs;
     }

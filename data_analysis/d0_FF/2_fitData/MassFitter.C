@@ -55,7 +55,9 @@ private:
     std::vector<double> zBins;
     bool zTObservable;
     TTree* inputTree;
+    std::string inputFileName; // store input file name for output tagging (e.g., pPb/Pbp)
     std::pair<double, double> sideBandLimits = std::make_pair(1.840, 1.890);
+    std::string outfilePathGlobal;
     std::string outfilePath;
     std::string fOutDataName;
     std::string fOutDataNameB;
@@ -292,7 +294,7 @@ private:
     std::vector<std::vector<float>> FitMRes_pol2;
     std::vector<std::vector<float>> FitMRes_SYieldLim;
     std::vector<std::vector<float>> FitMRes_BYieldLim;
-    std::vector<std::vector<float>> FitMRes_SYieldSG;
+    // std::vector<std::vector<float>> FitMRes_SYieldSG;
     std::vector<std::vector<float>> FitMRes_SYieldDCB;
     std::vector<std::vector<float>> Bin_TagZMean;
     std::vector<std::vector<float>> Bin_TagZMean_weighted;
@@ -321,7 +323,8 @@ public:
                     const std::vector<double>& zBins, 
                     bool isZtObservable,
                     TTree* tree,
-                    bool enableSPlotAnalysis = true);  
+                    bool enableSPlotAnalysis = true,
+                    const std::string& inputFile = "");  
     
     // Destructor
     ~FitSpectraObject();
@@ -409,14 +412,15 @@ public:
 
 // Implementation of the FitSpectraObject constructor
 FitSpectraObject::FitSpectraObject(
-    const std::pair<double, double>& ptRange, 
-    bool isMc, 
-    const std::vector<double>& zBins, 
-    bool isZtObservable,
-    TTree* tree,
-    bool enableSPlotAnalysis)
-    : isMC(isMc), jetPt(ptRange), zBins(zBins), zTObservable(isZtObservable), 
-      inputTree(tree), nzTBins(zBins.size() - 1), enableSPlot(enableSPlotAnalysis)  // Initialize enableSPlot
+        const std::pair<double, double>& ptRange, 
+        bool isMc, 
+        const std::vector<double>& zBins, 
+        bool isZtObservable,
+        TTree* tree,
+        bool enableSPlotAnalysis,
+        const std::string& inputFile /* = "" */)
+        : isMC(isMc), jetPt(ptRange), zBins(zBins), zTObservable(isZtObservable), 
+            inputTree(tree), nzTBins(zBins.size() - 1), enableSPlot(enableSPlotAnalysis), inputFileName(inputFile)
 {
     std::cout << "Initializing FitSpectraObject with pT range: " 
               << ptRange.first << " - " << ptRange.second << " GeV/c" << std::endl;
@@ -540,25 +544,44 @@ void FitSpectraObject::configureFilePaths() {
     std::string mcTag = isMC ? "MC" : "";
     std::string obsTag = zTObservable ? "zT" : "Y";
     
-    // Set up output directories
-    std::string outputDir;
+    // Set up output directories (base)
+    std::string baseOutputDir;
     if (isMC) {
-        outputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC";
+        baseOutputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC";
     } else {
-        outputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA";
+        baseOutputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA";
     }
-    //create output directory if it doesn't exist
-    std::filesystem::create_directories(outputDir);
 
     // Create path strings with proper formatting
     std::stringstream ptRangeStr;
     ptRangeStr << jetPt.first << "_" << jetPt.second;
     
+    // append current date (YYYY-MM-DD) to keep outputs organized by run date
+    time_t t = time(nullptr);
+    struct tm *lt = localtime(&t);
+    char dateBuf[32] = {0};
+    if (lt) strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", lt);
+    else snprintf(dateBuf, sizeof(dateBuf), "unknown-date");
+
+    // Determine optional beam tag from input filename (if provided)
+    std::string beamTag = "";
+    if (!inputFileName.empty()) {
+        if (inputFileName.find("merged_pPb") != std::string::npos) beamTag = "_pPb";
+        else if (inputFileName.find("merged_Pbp") != std::string::npos) beamTag = "_Pbp";
+    }
+
+    // Build final outputDir by adding date and optional beam tag to the base directory
+    std::string outputDir = baseOutputDir + std::string("_") + std::string(dateBuf) + beamTag;
+    // create the dated output directory if it doesn't exist
+    std::filesystem::create_directories(outputDir);
+
+    // outfilePath is a per-pt subdirectory under the dated outputDir
+    outfilePathGlobal = outputDir;
     outfilePath = outputDir + "/" + ptRangeStr.str() + "/";
     fOutDataName = outputDir + "/FitParametersUnBinnedD0" + obsTag + "_" + ptRangeStr.str();
     fOutDataNameB = outputDir + "/BinnedSpectraD0" + obsTag + "_" + ptRangeStr.str();
-    
-    // Create output directory if it doesn't exist
+
+    // Create per-pt output directory if it doesn't exist
     std::filesystem::path dirPath(outfilePath);
     if (!std::filesystem::exists(dirPath)) {
         std::filesystem::create_directories(dirPath);
@@ -588,7 +611,7 @@ void FitSpectraObject::initializeResultArrays() {
     FitMRes_pol2.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_SYieldLim.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_BYieldLim.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
-    FitMRes_SYieldSG.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
+    // FitMRes_SYieldSG.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
     FitMRes_SYieldDCB.resize(nzTBins, std::vector<float>(numFitItems, 0.0));
 
     Bin_TagZMean.resize(nzTBins, std::vector<float>(1, 0.0));
@@ -1287,8 +1310,8 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             }
         }
         
-                            TH1D* tagZHistSafe = (TH1D*)tagZHist->Clone(("tagZHistSafe_bin" + std::to_string(iBin)).c_str());
-                            tagZHistSafe->SetDirectory(nullptr);  // Prevent ROOT from deleting it
+        TH1D* tagZHistSafe = (TH1D*)tagZHist->Clone(("tagZHistSafe_bin" + std::to_string(iBin)).c_str());
+        tagZHistSafe->SetDirectory(nullptr);  // Prevent ROOT from deleting it
                             
         // Calculate mean and standard deviation
         double meanTagZ = tagZHist->GetMean();
@@ -1318,8 +1341,8 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         std::cout << "Performing mass fit..." << std::endl;
         
         TH1* massFitHisto = nullptr;
-        std::vector<double> fitParams;
-        std::vector<double> fitErrors;
+        // std::vector<double> fitParams;
+        // std::vector<double> fitErrors;
         
         // Declare all variables that will be used in debug output outside try block
         RooDataSet* signalEnhancedData = nullptr;
@@ -1335,12 +1358,12 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         try {
             // Perform Single Gaussian fit
             std::cout << "  Performing Single Gaussian fit..." << std::endl;
-            std::tie(massFitHisto, fitParams, fitErrors) = 
-                fitter->massFit("D0", dataBin, "SGauss", iBin, zRangeStr);
+            // std::tie(massFitHisto, fitParams, fitErrors) = 
+            //     fitter->massFit("D0", dataBin, "SGauss", iBin, zRangeStr);
             
-            // Store SG yield for comparison
-            FitMRes_SYieldSG[iBin][0] = fitParams[0];
-            FitMRes_SYieldSG[iBin][1] = fitErrors[0];
+            // // Store SG yield for comparison
+            // FitMRes_SYieldSG[iBin][0] = fitParams[0];
+            // FitMRes_SYieldSG[iBin][1] = fitErrors[0];
             
             // Perform Double Gaussian fit - THIS IS NOW OUR PRIMARY FIT
             std::cout << "  Performing Double Gaussian fit..." << std::endl;
@@ -1941,21 +1964,13 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             tagZCombinedCorrGraph->SetMarkerStyle(22);
                             tagZCombinedCorrGraph->SetMarkerColor(kGreen + 2);
                             tagZCombinedCorrGraph->SetLineColor(kGreen + 2);
-                            
-                            // Save correction factor graphs to ROOT file in main directory
-                            std::string mainDir;
-                            if (isMC) {
-                                mainDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC";
-                            } else {
-                                mainDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA";
-                            }
-                            
+
                             // Create pT range string for graph names
                             std::stringstream ptRangeStr;
                             ptRangeStr << jetPt.first << "_" << jetPt.second;
                             std::string ptString = ptRangeStr.str();
                             
-                            std::string rootFileName = mainDir + "/TagZCorrectionFactors.root";
+                            std::string rootFileName = outfilePathGlobal + "/TagZCorrectionFactors.root";
                             TFile* tagZCorrFile = new TFile(rootFileName.c_str(), "UPDATE");
                             if (tagZCorrFile && tagZCorrFile->IsOpen()) {
                                 // Include pT range and bin in graph names
@@ -2048,6 +2063,11 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             TH1D* promptSignalTagZHist_FullyWeighted = new TH1D(("promptSignalTagZHist_FullyWeighted_bin" + std::to_string(iBin)).c_str(),
                                                                                ("Prompt Signal TagZ (Fully Weighted) - Bin " + std::to_string(iBin)).c_str(),
                                                                                20, 0, 1);
+                            // enable sumw2 to allow storing propagated errors
+                            promptSignalTagZHist_PIDWeighted->Sumw2();
+                            promptSignalTagZHist_RecoWeighted->Sumw2();
+                            promptSignalTagZHist_AcceptanceWeighted->Sumw2();
+                            promptSignalTagZHist_FullyWeighted->Sumw2();
                             
                             // Fill efficiency-weighted histograms from the original prompt signal histogram
                             for (int bin = 1; bin <= promptSignalTagZHistSafe->GetNbinsX(); ++bin) {
@@ -2073,22 +2093,76 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                     if (recoEff > 0) fullyWeightedVal /= recoEff;
                                     if (acceptance > 0) fullyWeightedVal /= acceptance;
                                     
-                                    // Set bin contents and errors
+                                    // Set bin contents
                                     promptSignalTagZHist_PIDWeighted->SetBinContent(bin, pidWeightedVal);
-                                    promptSignalTagZHist_PIDWeighted->SetBinError(bin, originalError);
-                                    
                                     promptSignalTagZHist_RecoWeighted->SetBinContent(bin, recoWeightedVal);
-                                    promptSignalTagZHist_RecoWeighted->SetBinError(bin, originalError);
-                                    
                                     promptSignalTagZHist_AcceptanceWeighted->SetBinContent(bin, acceptanceWeightedVal);
-                                    promptSignalTagZHist_AcceptanceWeighted->SetBinError(bin, originalError);
-                                    
                                     promptSignalTagZHist_FullyWeighted->SetBinContent(bin, fullyWeightedVal);
-                                    promptSignalTagZHist_FullyWeighted->SetBinError(bin, originalError);
+
+                                    // Propagate errors: include original histogram uncertainty and efficiency uncertainties
+                                    double dw = originalError;
+                                    // retrieve efficiency uncertainties (may be zero if not filled)
+                                    double dCombined = (tagZCombinedCorrHist) ? tagZCombinedCorrHist->GetBinError(corrBin) : 0.0;
+                                    double dReco = (tagZRecoEffCorrHist) ? tagZRecoEffCorrHist->GetBinError(corrBin) : 0.0;
+                                    double dAcceptance = (tagZAcceptanceCorrHist) ? tagZAcceptanceCorrHist->GetBinError(corrBin) : 0.0;
+
+                                    // PID-weighted (divide by combinedPIDEff)
+                                    double pidErr = dw;
+                                    if (combinedPIDEff > 0) {
+                                        double term1 = (dw / combinedPIDEff);
+                                        double term2 = (originalWeight * dCombined) / (combinedPIDEff * combinedPIDEff);
+                                        pidErr = std::sqrt(term1 * term1 + term2 * term2);
+                                    }
+                                    promptSignalTagZHist_PIDWeighted->SetBinError(bin, pidErr);
+
+                                    // Reco-weighted (divide by recoEff)
+                                    double recoErr = dw;
+                                    if (recoEff > 0) {
+                                        double term1 = (dw / recoEff);
+                                        double term2 = (originalWeight * dReco) / (recoEff * recoEff);
+                                        recoErr = std::sqrt(term1 * term1 + term2 * term2);
+                                    }
+                                    promptSignalTagZHist_RecoWeighted->SetBinError(bin, recoErr);
+
+                                    // Acceptance-weighted (divide by acceptance)
+                                    double accErr = dw;
+                                    if (acceptance > 0) {
+                                        double term1 = (dw / acceptance);
+                                        double term2 = (originalWeight * dAcceptance) / (acceptance * acceptance);
+                                        accErr = std::sqrt(term1 * term1 + term2 * term2);
+                                    }
+                                    promptSignalTagZHist_AcceptanceWeighted->SetBinError(bin, accErr);
+
+                                    // Fully-weighted: divide by product of efficiencies; propagate relative errors from each efficiency
+                                    double fullErr = dw;
+                                    double prod = 1.0;
+                                    double relVar = 0.0; // sum of (dE/E)^2
+                                    int nEf = 0;
+                                    if (combinedPIDEff > 0) { prod *= combinedPIDEff; relVar += (dCombined / combinedPIDEff) * (dCombined / combinedPIDEff); ++nEf; }
+                                    else prod *= 1.0;
+                                    if (recoEff > 0) { prod *= recoEff; relVar += (dReco / recoEff) * (dReco / recoEff); ++nEf; }
+                                    else prod *= 1.0;
+                                    if (acceptance > 0) { prod *= acceptance; relVar += (dAcceptance / acceptance) * (dAcceptance / acceptance); ++nEf; }
+                                    else prod *= 1.0;
+                                    if (prod > 0) {
+                                        double term1 = (dw / prod);
+                                        double term2 = (originalWeight / prod) * std::sqrt(relVar);
+                                        fullErr = std::sqrt(term1 * term1 + term2 * term2);
+                                    } else {
+                                        // fallback: scale original error by ratio of weights if possible
+                                        fullErr = dw;
+                                    }
+                                    promptSignalTagZHist_FullyWeighted->SetBinError(bin, fullErr);
                                 }
                             }
+                            // Ensure Entries reflect weighted integrals
+                            promptSignalTagZHist_PIDWeighted->SetEntries((Long64_t)std::round(promptSignalTagZHist_PIDWeighted->Integral()));
+                            promptSignalTagZHist_RecoWeighted->SetEntries((Long64_t)std::round(promptSignalTagZHist_RecoWeighted->Integral()));
+                            promptSignalTagZHist_AcceptanceWeighted->SetEntries((Long64_t)std::round(promptSignalTagZHist_AcceptanceWeighted->Integral()));
+                            promptSignalTagZHist_FullyWeighted->SetEntries((Long64_t)std::round(promptSignalTagZHist_FullyWeighted->Integral()));
+
                             // Save tagZ histograms to ROOT file
-                            std::string tagZHistRootFileName = mainDir + "/TagZHistograms_" + ptString + ".root";
+                            std::string tagZHistRootFileName = outfilePathGlobal + "/TagZHistograms_" + ptString + ".root";
                             TFile* tagZHistFile = new TFile(tagZHistRootFileName.c_str(), "UPDATE");
                             if (tagZHistFile && tagZHistFile->IsOpen()) {
                                 // Save the safe copies of tagZ histograms with descriptive names
@@ -2565,7 +2639,7 @@ void FitSpectraObject::saveResultsToFile(const std::vector<double>& binCenters,
             {"pol2", {"FitMPol2", &FitMRes_pol2}},
             {"SYieldLim", {"FitMSYieldLim", &FitMRes_SYieldLim}},
             {"BYieldLim", {"FitMBYieldLim", &FitMRes_BYieldLim}},
-            {"SYieldSG", {"FitMSYieldSG", &FitMRes_SYieldSG}},
+            // {"SYieldSG", {"FitMSYieldSG", &FitMRes_SYieldSG}},
             {"SYieldDCB", {"FitMSYieldDCB", &FitMRes_SYieldDCB}},
             {"TagZMean", {"BinTagZMean", &Bin_TagZMean}},
             {"TagZMean_weighted", {"BinTagZMean_weighted", &Bin_TagZMean_weighted}}
@@ -2916,9 +2990,8 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     }
     
     // Save to ROOT file
-    std::string rootFileName = std::string(isMC ? "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC" :
-                                                "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA") + 
-                              "/CorrectionFactors.root";
+    std::string rootFileName = outfilePathGlobal + "/CorrectionFactors.root";
+    std::cout << "Saving correction factor graphs to ROOT file: " << rootFileName << std::endl;
     TFile* rootFile = new TFile(rootFileName.c_str(), "UPDATE");
     if (rootFile && rootFile->IsOpen()) {
         std::string ptString = std::to_string(static_cast<int>(jetPt.first)) + "_" + std::to_string(static_cast<int>(jetPt.second));
@@ -2969,7 +3042,8 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
             jetPt, isMC, zBins, 
             isZtObservable,
             tree,  // Pass the tree
-            enableSPlot  // Pass the sPlot flag
+            enableSPlot,  // Pass the sPlot flag
+            std::string(inputFile.Data())
         );
         fitter.startFitting();
     } 
@@ -2985,11 +3059,16 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
         // there are 
         //LHCb y bins (rapidity)
         // std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
-        std::vector<double> yBins = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
+        std::vector<double> yBins = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0}; //default
+        // std::vector<double> yBins = {2.5, 3.0, 3.5, 4.0};
         
         // pT binning for jets
+        // std::vector<double> startPt = {7};
+        // std::vector<double> endPt = {50};
         std::vector<double> startPt = {5, 10, 15, 20, 30};
         std::vector<double> endPt = {10, 15, 20, 30, 50};
+        // std::vector<double> startPt = {5, 8, 11, 15, 20, 25, 30, 40};
+        // std::vector<double> endPt = {8, 11, 15, 20, 25, 30, 40, 60};
 
         //print jet pt bins 
         std::cout << "Fitting the following jet pT bins:" << std::endl;
@@ -3010,7 +3089,8 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
                 jetPt, isMC, binArray,
                 isZtObservable,
                 tree,  // Pass the tree
-                enableSPlot  // Pass the sPlot flag
+                enableSPlot,  // Pass the sPlot flag
+                std::string(inputFile.Data())
             );
             fitter.startFitting();
         }

@@ -93,6 +93,125 @@ static std::vector<int> MakePalette(int N, double sat = 0.75, double val = 0.85)
 }
 
 // -----------------------------------------------------------------------------
+// Histogram styling helper: apply only the attributes explicitly provided
+// -----------------------------------------------------------------------------
+static inline void ApplyHistStyle(TH1 *h,
+                                  int lineColor = -1,
+                                  int lineStyle = -1,
+                                  int lineWidth = -1,
+                                  int markerStyle = -1,
+                                  int markerColor = -1,
+                                  double markerSize = -1.0)
+{
+    if (!h)
+        return;
+    if (lineColor >= 0)
+        h->SetLineColor(lineColor);
+    if (lineStyle >= 0)
+        h->SetLineStyle(lineStyle);
+    if (lineWidth >= 0)
+        h->SetLineWidth(lineWidth);
+    if (markerStyle >= 0)
+        h->SetMarkerStyle(markerStyle);
+    if (markerColor >= 0)
+        h->SetMarkerColor(markerColor);
+    if (markerSize > 0)
+        h->SetMarkerSize(markerSize);
+}
+
+// -----------------------------------------------------------------------------
+// TLine styling helper
+// -----------------------------------------------------------------------------
+static inline void ApplyLineStyle(TLine &ln, int lineStyle = -1, int lineColor = -1, int lineWidth = -1)
+{
+    if (lineStyle >= 0)
+        ln.SetLineStyle(lineStyle);
+    if (lineColor >= 0)
+        ln.SetLineColor(lineColor);
+    if (lineWidth >= 0)
+        ln.SetLineWidth(lineWidth);
+}
+
+// -----------------------------------------------------------------------------
+// TLegend styling helper
+// -----------------------------------------------------------------------------
+static inline void ApplyLegendStyle(TLegend &leg,
+                                    double textSize = -1.0,
+                                    int borderSize = -1,
+                                    int fillStyle = -1,
+                                    int fillColor = -1,
+                                    double margin = -1.0)
+{
+    if (textSize > 0)
+        leg.SetTextSize(textSize);
+    if (borderSize >= 0)
+        leg.SetBorderSize(borderSize);
+    if (fillStyle >= 0)
+        leg.SetFillStyle(fillStyle);
+    if (fillColor >= 0)
+        leg.SetFillColor(fillColor);
+    if (margin > 0)
+        leg.SetMargin(margin);
+}
+
+// -----------------------------------------------------------------------------
+// TLatex styling helper
+// -----------------------------------------------------------------------------
+static inline void ApplyLatexStyle(TLatex &tx,
+                                   int ndc = -1,
+                                   double textSize = -1.0,
+                                   int align = -1,
+                                   int color = -1,
+                                   int font = -1)
+{
+    if (ndc >= 0)
+        tx.SetNDC(ndc > 0);
+    if (textSize > 0)
+        tx.SetTextSize(textSize);
+    if (align >= 0)
+        tx.SetTextAlign(align);
+    if (color >= 0)
+        tx.SetTextColor(color);
+    if (font >= 0)
+        tx.SetTextFont(font);
+}
+
+// -----------------------------------------------------------------------------
+// TF1 styling helper (for lines/fit functions)
+// -----------------------------------------------------------------------------
+static inline void ApplyFuncStyle(TF1 &f, int lineStyle = -1, int lineColor = -1, int lineWidth = -1)
+{
+    if (lineStyle >= 0)
+        f.SetLineStyle(lineStyle);
+    if (lineColor >= 0)
+        f.SetLineColor(lineColor);
+    if (lineWidth >= 0)
+        f.SetLineWidth(lineWidth);
+}
+
+// -----------------------------------------------------------------------------
+// Pad styling helper (applies to the current gPad)
+// -----------------------------------------------------------------------------
+static inline void ApplyPadStyle(double left = 0.12,
+                                 double right = 0.02,
+                                 double top = 0.02,
+                                 double bottom = 0.14,
+                                 bool tickx = true,
+                                 bool ticky = true)
+{
+    if (!gPad)
+        return;
+    if (tickx)
+        gPad->SetTickx();
+    if (ticky)
+        gPad->SetTicky();
+    gPad->SetLeftMargin(left);
+    gPad->SetRightMargin(right);
+    gPad->SetTopMargin(top);
+    gPad->SetBottomMargin(bottom);
+}
+
+// -----------------------------------------------------------------------------
 // Chi2 helper
 // -----------------------------------------------------------------------------
 struct Chi2Result
@@ -207,24 +326,34 @@ static void MapUnderOverflowToEdges(TH2 *h)
 // are now fixed to their previous default = true behavior to reduce complexity.
 void unfold_new(
     const std::string &outfile = "unfolded_output.root",
-    int nIter = 4,
+    int nIter = 6,
+    // const std::vector<std::string> &jetPtBins = {"7_50"},
     const std::vector<std::string> &jetPtBins = {"5_10", "10_15", "15_20", "20_30"},
+    // std::vector<std::string> jetPtBins = {"5_8", "8_11", "11_15", "15_20", "20_25", "25_30", "30_40", "40_60"},
+
     const std::vector<int> &yBins = {0, 1, 2, 3, 4, 5, 6, 7},
+    // const std::vector<int> &yBins = {0, 1, 2},
     bool isClosure = false,
     bool verbose = false)
 {
     // select input file depending on closure flag
     const std::string &infileResponse = isClosure
                                             ? "/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_pPb_Pbp/20250728_pPb_MC_output_response.root"
-                                            // : "/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_pPb_Pbp/response_merged.root";
-                                            : "/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_MBonly/MBresponse.root";
+                                            // : "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53to56_response.root";
+                                            : "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS_response.root";
     // (Color palette helpers moved to file scope.)
     // Naming scheme
-    std::string unfoldedName = "unfolded_zT";
     std::vector<double> yBinBorders = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
+    // std::vector<double> yBinBorders = {2.5, 3.0, 3.5, 4.0};
 
     // Pattern for per-jet measured input files; %s will be replaced with jetPt string
-    std::string infilePattern = isClosure ? "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC/TagZHistograms_%s.root" : "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/TagZHistograms_%s.root";
+    // std::string infilePattern = isClosure ? "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC/TagZHistograms_%s.root" : "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/TagZHistograms_%s.root";
+    // if infileResponse contains Pbp, then this should also contain Pbp
+    std::string infilePattern = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2025-11-19_pPb/TagZHistograms_%s.root";
+    // std::string infilePattern = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2025-10-14_Pbp/TagZHistograms_%s.root";
+
+    std::string unfoldedName = "unfolded_zT";
+    //if infilePattern contains pPb, then change unfoldedName to unfolded_zT_pPb
 
     TFile *finResponse = TFile::Open(infileResponse.c_str());
     if (!finResponse || finResponse->IsZombie())
@@ -252,6 +381,17 @@ void unfold_new(
     }
 
     std::string outDir = isClosure ? Form("unfolded_zT_closure_%s", dateBuf) : Form("unfolded_zT_%s", dateBuf);
+    if (infilePattern.find("pPb") != std::string::npos)
+    {
+        outDir = Form("unfolded_zT_pPb_%s", dateBuf);
+        unfoldedName = "unfolded_zT_pPb";
+    }
+    else if (infilePattern.find("Pbp") != std::string::npos)
+    {
+        outDir = Form("unfolded_zT_Pbp_%s", dateBuf);
+        unfoldedName = "unfolded_zT_Pbp";
+    }
+
     // create directory (recursively) if needed
     std::string mkdirCmd = std::string("mkdir -p ") + outDir;
     int mkret = system(mkdirCmd.c_str());
@@ -320,20 +460,20 @@ void unfold_new(
             continue;
         }
 
-    // Create per-jetPt output directories (one place only) so multiDir is
-    // available after the rapidity loop for multi-panel summaries.
-    std::string jetOutDir = outDir + "/" + jetPt;
-    std::string mkdirJetCmd = std::string("mkdir -p ") + jetOutDir;
-    int mkjet = system(mkdirJetCmd.c_str());
-    (void)mkjet;
-    std::string diagDir = jetOutDir + "/diagnostics";
-    std::string mkdirDiagCmd = std::string("mkdir -p ") + diagDir;
-    int mkdiag = system(mkdirDiagCmd.c_str());
-    (void)mkdiag;
-    std::string multiDir = jetOutDir + "/multi";
-    std::string mkdirMultiCmd = std::string("mkdir -p ") + multiDir;
-    int mkmulti = system(mkdirMultiCmd.c_str());
-    (void)mkmulti;
+        // Create per-jetPt output directories (one place only) so multiDir is
+        // available after the rapidity loop for multi-panel summaries.
+        std::string jetOutDir = outDir + "/" + jetPt;
+        std::string mkdirJetCmd = std::string("mkdir -p ") + jetOutDir;
+        int mkjet = system(mkdirJetCmd.c_str());
+        (void)mkjet;
+        std::string diagDir = jetOutDir + "/diagnostics";
+        std::string mkdirDiagCmd = std::string("mkdir -p ") + diagDir;
+        int mkdiag = system(mkdirDiagCmd.c_str());
+        (void)mkdiag;
+        std::string multiDir = jetOutDir + "/multi";
+        std::string mkdirMultiCmd = std::string("mkdir -p ") + multiDir;
+        int mkmulti = system(mkdirMultiCmd.c_str());
+        (void)mkmulti;
 
         for (const auto &yBin : yBins)
         {
@@ -359,12 +499,19 @@ void unfold_new(
 
             // Variables for tree branches
             float d0_z_det, d0_z_mc;
+            float d0_mass_det = 0.0f, d0_mass_mc = 0.0f;
             float jet_pt_det, jet_pt_mc;
             float d0_eta_det, d0_eta_mc;
             float jet_nconst_det, jet_nconst_mc;
             float jet_dr;
+            int d0_is_primary;
             tree->SetBranchAddress("d0_z_det", &d0_z_det);
             tree->SetBranchAddress("d0_z_mc", &d0_z_mc);
+            // Optional mass branches - only used to tighten response filling
+            if (tree->GetBranch("d0_mass_det"))
+                tree->SetBranchAddress("d0_mass_det", &d0_mass_det);
+            if (tree->GetBranch("d0_mass_mc"))
+                tree->SetBranchAddress("d0_mass_mc", &d0_mass_mc);
             tree->SetBranchAddress("jet_pt_det", &jet_pt_det);
             tree->SetBranchAddress("jet_pt_mc", &jet_pt_mc);
             tree->SetBranchAddress("d0_eta_det", &d0_eta_det);
@@ -372,6 +519,7 @@ void unfold_new(
             tree->SetBranchAddress("jet_nconst_det", &jet_nconst_det);
             tree->SetBranchAddress("jet_nconst_mc", &jet_nconst_mc);
             tree->SetBranchAddress("jet_dr", &jet_dr);
+            tree->SetBranchAddress("d0_is_primary", &d0_is_primary);
 
             // Determine eta bin borders from yBin index
             int yBinIdx = yBin;
@@ -478,6 +626,29 @@ void unfold_new(
                                 jet_pt_det >= jetpt_min && jet_pt_det < jetpt_max &&
                                 jet_nconst_det > 1);
 
+                // Mass-window requirement (optional): only apply if mass branches exist
+                // Use a reasonable default window (in GeV) - keep consistent with other tools if available.
+                const double massWindow = 0.05; // 50 MeV default
+                bool haveMassDet = (tree->GetBranch("d0_mass_det") != nullptr);
+                bool haveMassMc = (tree->GetBranch("d0_mass_mc") != nullptr);
+                if (haveMassMc)
+                {
+                    // require MC mass to be within window around PDG mass (1.86484 GeV)
+                    const double d0_pdg_mass = 1.86484;
+                    if (std::abs((double)d0_mass_mc - d0_pdg_mass) > massWindow)
+                        passMC = false;
+                } else {
+                    std::cerr << "Warning: d0_mass_mc branch not found in tree. Mass cut at MC level skipped." << std::endl;
+                }
+                if (haveMassDet)
+                {
+                    const double d0_pdg_mass = 1.86484;
+                    if (std::abs((double)d0_mass_det - d0_pdg_mass) > massWindow)
+                        passDet = false;
+                } else {
+                    std::cerr << "Warning: d0_mass_det branch not found in tree. Mass cut at detector level skipped." << std::endl;
+                }
+
                 // check distance between jets
                 if (jet_dr > 0.15)
                 {
@@ -506,7 +677,7 @@ void unfold_new(
                 else if (!passMC && passDet)
                 {
                     // Detector level passes but MC fails - fake events ignored in response
-                    hFakeReco->Fill(d0_z_det, evtWeight);
+                    // hFakeReco->Fill(d0_z_det, evtWeight);
                 }
                 // If neither passes, skip the event
 
@@ -523,12 +694,12 @@ void unfold_new(
             }
 
             // Validate response matrix has sufficient statistics
-            if (nFilled < 50)
-            {
-                std::cerr << "ERROR: Insufficient statistics in response matrix ("
-                          << nFilled << " entries). Skipping this bin." << std::endl;
-                continue;
-            }
+            // if (nFilled < 50)
+            // {
+            //     std::cerr << "ERROR: Insufficient statistics in response matrix ("
+            //               << nFilled << " entries). Skipping this bin." << std::endl;
+            //     continue;
+            // }
 
             double priorEntries = hPrior->GetEntries();
             double priorIntegral = hPrior->Integral();
@@ -629,9 +800,8 @@ void unfold_new(
                         TCanvas *cMeasResp = new TCanvas(Form("c_measRespRatio_%s_%s", jetPt.c_str(), yBinStr.Data()),
                                                          "Measured / Response", 800, 600);
                         cMeasResp->cd();
-                        hMeasRespRatio->SetLineColor(kGreen + 2);
-                        hMeasRespRatio->SetMarkerStyle(20);
-                        hMeasRespRatio->SetMarkerColor(kGreen + 2);
+                        ApplyHistStyle(hMeasRespRatio, /*lineColor=*/kGreen + 2, /*lineStyle=*/-1, /*lineWidth=*/-1,
+                                       /*markerStyle=*/20, /*markerColor=*/kGreen + 2);
                         hMeasRespRatio->GetXaxis()->SetTitle("z_{T}");
                         hMeasRespRatio->GetYaxis()->SetTitle("Measured / Hmeasured");
                         // Auto y-range (clip extremes but focus around 1)
@@ -655,8 +825,7 @@ void unfold_new(
                         }
                         hMeasRespRatio->Draw("EP");
                         TLine l1b(hMeasRespRatio->GetXaxis()->GetXmin(), 1.0, hMeasRespRatio->GetXaxis()->GetXmax(), 1.0);
-                        l1b.SetLineStyle(2);
-                        l1b.SetLineColor(kGray + 2);
+                        ApplyLineStyle(l1b, 2, kGray + 2);
                         l1b.Draw();
                         // Save ratio plot into diagnostics directory
                         TString pngMeasResp = Form("%s/measured_responseRatio_%s_%s.png", diagDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -814,7 +983,7 @@ void unfold_new(
                 // Optional: Set regularization parameter (smoothing) - this is by default set to iter
                 // unfold.SetRegParm(2);
 
-                TH1D *hUnfolded = (TH1D *)unfold.Hreco();
+                TH1D *hUnfolded = (TH1D *)unfold.Hreco(RooUnfold::kCovToy);
                 if (!hUnfolded)
                 {
                     std::cerr << "ERROR: Unfolding failed for " << iter << " iterations" << std::endl;
@@ -921,8 +1090,8 @@ void unfold_new(
                                 hResidual->SetBinError(b, err);
                             }
                             // Set basic styling so when loaded later for overlay they have markers
-                            hResidual->SetLineColor(kAzure + 1);
-                            hResidual->SetMarkerStyle(20);
+                            ApplyHistStyle(hResidual, /*lineColor=*/kAzure + 1, /*lineStyle=*/-1, /*lineWidth=*/-1,
+                                           /*markerStyle=*/20);
                             hResidual->Write();
                             // Quick summary of largest absolute residual (first iteration and final)
                             if ((iter == 1 || iter == nIter) && verbose)
@@ -1031,24 +1200,19 @@ void unfold_new(
                                 double xmin = hPullVsZ->GetXaxis()->GetXmin();
                                 double xmax = hPullVsZ->GetXaxis()->GetXmax();
                                 TLine l0(xmin, 0, xmax, 0);
-                                l0.SetLineStyle(2);
-                                l0.SetLineColor(kGray + 2);
+                                ApplyLineStyle(l0, 2, kGray + 2);
                                 l0.Draw();
                                 TLine l1p(xmin, 1, xmax, 1);
-                                l1p.SetLineStyle(3);
-                                l1p.SetLineColor(kGray + 1);
+                                ApplyLineStyle(l1p, 3, kGray + 1);
                                 l1p.Draw();
                                 TLine l1m(xmin, -1, xmax, -1);
-                                l1m.SetLineStyle(3);
-                                l1m.SetLineColor(kGray + 1);
+                                ApplyLineStyle(l1m, 3, kGray + 1);
                                 l1m.Draw();
                                 TLine l2p(xmin, 2, xmax, 2);
-                                l2p.SetLineStyle(3);
-                                l2p.SetLineColor(kGray + 1);
+                                ApplyLineStyle(l2p, 3, kGray + 1);
                                 l2p.Draw();
                                 TLine l2m(xmin, -2, xmax, -2);
-                                l2m.SetLineStyle(3);
-                                l2m.SetLineColor(kGray + 1);
+                                ApplyLineStyle(l2m, 3, kGray + 1);
                                 l2m.Draw();
                             }
                             TString pngPullVsZ = Form("%s/pullVsZ_%s_%s_iter%d.png", diagDir.c_str(), jetPt.c_str(), yBinStr.Data(), iter);
@@ -1064,7 +1228,7 @@ void unfold_new(
                             {
                                 TF1 *fG = new TF1(Form("fPullG_%s_%s_iter%d", jetPt.c_str(), yBinStr.Data(), iter), "gaus", -3, 3);
                                 hPullDist->Fit(fG, "QNR"); // quiet, no draw, store
-                                fG->SetLineColor(kRed);
+                                ApplyFuncStyle(*fG, -1, kRed);
                                 fG->Draw("SAME");
                                 if (verbose)
                                     std::cout << "    Pull fit iter " << iter << ": mean=" << fG->GetParameter(1) << " sigma=" << fG->GetParameter(2) << std::endl;
@@ -1180,9 +1344,7 @@ void unfold_new(
                     cResAll->cd();
                     std::vector<int> rcols = MakePalette(nIter, 0.7, 0.85);
                     TLegend legRes(0.15, 0.65, 0.5, 0.88);
-                    legRes.SetBorderSize(0);
-                    legRes.SetFillStyle(0);
-                    legRes.SetTextSize(0.03);
+                    ApplyLegendStyle(legRes, 0.03, 0, 0);
                     bool firstDraw = true;
                     double xmin = 0, xmax = 0;
                     bool rangeSet = false;
@@ -1193,9 +1355,7 @@ void unfold_new(
                             continue;
                         if (firstDraw)
                         {
-                            hRes->SetLineColor(rcols[(iter - 1) % rcols.size()]);
-                            hRes->SetMarkerColor(rcols[(iter - 1) % rcols.size()]);
-                            hRes->SetMarkerStyle(20);
+                            ApplyHistStyle(hRes, rcols[(iter - 1) % rcols.size()], -1, -1, 20, rcols[(iter - 1) % rcols.size()]);
                             hRes->GetXaxis()->SetTitle("z_{T}");
                             hRes->GetYaxis()->SetTitle("(Measured - Refold)/Measured");
                             hRes->GetYaxis()->SetRangeUser(-1.0, 1.0);
@@ -1207,9 +1367,7 @@ void unfold_new(
                         }
                         else
                         {
-                            hRes->SetLineColor(rcols[(iter - 1) % rcols.size()]);
-                            hRes->SetMarkerColor(rcols[(iter - 1) % rcols.size()]);
-                            hRes->SetMarkerStyle(20);
+                            ApplyHistStyle(hRes, rcols[(iter - 1) % rcols.size()], -1, -1, 20, rcols[(iter - 1) % rcols.size()]);
                             hRes->Draw("EPSAME");
                         }
                         legRes.AddEntry(hRes, Form("Iter %d", iter), "lep");
@@ -1217,23 +1375,18 @@ void unfold_new(
                     if (!firstDraw && rangeSet)
                     {
                         TLine l0(xmin, 0, xmax, 0);
-                        l0.SetLineStyle(2);
-                        l0.SetLineColor(kGray + 2);
+                        ApplyLineStyle(l0, 2, kGray + 2);
                         l0.Draw();
                         TLine lPlus(xmin, 0.2, xmax, 0.2);
-                        lPlus.SetLineStyle(3);
-                        lPlus.SetLineColor(kGray + 1);
+                        ApplyLineStyle(lPlus, 3, kGray + 1);
                         lPlus.Draw();
                         TLine lMinus(xmin, -0.2, xmax, -0.2);
-                        lMinus.SetLineStyle(3);
-                        lMinus.SetLineColor(kGray + 1);
+                        ApplyLineStyle(lMinus, 3, kGray + 1);
                         lMinus.Draw();
                     }
                     legRes.Draw();
                     TLatex tex;
-                    tex.SetNDC();
-                    tex.SetTextSize(0.03);
-                    tex.SetTextAlign(31);
+                    ApplyLatexStyle(tex, 1, 0.03, 31);
                     tex.DrawLatex(0.95, 0.87, Form("Jet p_{T}: %s", jetPt.c_str()));
                     tex.DrawLatex(0.95, 0.83, Form("y-bin: %s", yBinStr.Data()));
                     TString pngResAll = Form("%s/closureResidual_all_%s_%s.png", jetOutDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -1345,13 +1498,9 @@ void unfold_new(
                 TCanvas *cComp = new TCanvas(Form("c_comp_%s_%s", jetPt.c_str(), yBinStr.Data()), "zT comparison", 900, 700);
                 cComp->SetRightMargin(0.02);
                 // Style measured and truth (use plotting clones)
-                hMeasuredPlot->SetLineColor(kBlack);
-                hMeasuredPlot->SetLineWidth(2);
-                hMeasuredPlot->SetMarkerStyle(20);
+                ApplyHistStyle(hMeasuredPlot, kBlack, -1, 2, 20);
 
-                hPriorPlot->SetLineColor(kRed);
-                hPriorPlot->SetLineStyle(2);
-                hPriorPlot->SetLineWidth(2);
+                ApplyHistStyle(hPriorPlot, kRed, 2, 2);
 
                 // Find maximum for axis scaling among normalized plots
                 double maxVal = hMeasuredPlot->GetMaximum();
@@ -1375,20 +1524,15 @@ void unfold_new(
                 for (size_t ii = 0; ii < unfoldedVec.size(); ++ii)
                 {
                     int col = ucols[ii % ucols.size()];
-                    unfoldedVec[ii]->SetLineColor(col);
-                    unfoldedVec[ii]->SetLineStyle(1);
-                    unfoldedVec[ii]->SetLineWidth(2);
-                    unfoldedVec[ii]->Draw("HISTSAME");
+                    ApplyHistStyle(unfoldedVec[ii], col, 1, 2);
+                    // unfoldedVec[ii]->Draw("pesame");
+                    // unfoldedVec[ii]->Draw("HISTSAME");
+                    unfoldedVec[ii]->Draw("HISTESAME");
                 }
 
-                // Legend
-                // Move legend to top-left
+                // Legend (top-left)
                 TLegend leg(0.14, 0.65, 0.45, 0.88);
-                leg.SetBorderSize(0);
-                leg.SetTextSize(0.03);
-                leg.SetMargin(0.12);
-                leg.SetFillStyle(0);
-                leg.SetFillColor(0);
+                ApplyLegendStyle(leg, 0.03, 0, 0, 0, 0.12);
                 leg.AddEntry(hMeasuredPlot, "Measured", "lep");
                 leg.AddEntry(hPriorPlot, "MC truth", "l");
                 for (size_t ii = 0; ii < unfoldedVec.size(); ++ii)
@@ -1399,9 +1543,7 @@ void unfold_new(
                 leg.Draw();
 
                 TLatex texRef2;
-                texRef2.SetNDC();
-                texRef2.SetTextSize(0.03);
-                texRef2.SetTextAlign(31);
+                ApplyLatexStyle(texRef2, 1, 0.03, 31);
                 texRef2.DrawLatex(0.95, 0.85, Form("#font[12]{LHCb} work-in-progress"));
                 texRef2.DrawLatex(0.95, 0.81, Form("Jet p_{T}: %s", jetPt.c_str()));
                 texRef2.DrawLatex(0.95, 0.77, Form("y-bin: %s", yBinStr.Data()));
@@ -1434,19 +1576,10 @@ void unfold_new(
                                                "Measured / Truth / Missed / Fake", 900, 700);
                     cMF->SetRightMargin(0.02);
                     // Style
-                    hMeasuredClone->SetLineColor(kBlack);
-                    hMeasuredClone->SetMarkerStyle(20);
-                    hMeasuredClone->SetMarkerColor(kBlack);
-                    hMeasuredClone->SetLineWidth(2);
-                    hPrior->SetLineColor(kRed);
-                    hPrior->SetLineStyle(2);
-                    hPrior->SetLineWidth(2);
-                    hMissedPlot->SetLineColor(kBlue + 1);
-                    hMissedPlot->SetLineStyle(3);
-                    hMissedPlot->SetLineWidth(2);
-                    hFakePlot->SetLineColor(kMagenta + 2);
-                    hFakePlot->SetLineStyle(4);
-                    hFakePlot->SetLineWidth(2);
+                    ApplyHistStyle(hMeasuredClone, kBlack, -1, 2, 20, kBlack);
+                    ApplyHistStyle(hPrior, kRed, 2, 2);
+                    ApplyHistStyle(hMissedPlot, kBlue + 1, 3, 2);
+                    ApplyHistStyle(hFakePlot, kMagenta + 2, 4, 2);
                     // Determine max among normalized shapes (reuse normalized clones except measuredClone/truth need normalized versions)
                     TH1D *hMeasNormTmp = (TH1D *)hMeasuredClone->Clone("_tmp_measNorm");
                     double imn = hMeasNormTmp->Integral();
@@ -1467,18 +1600,14 @@ void unfold_new(
                     if (hFakePlot->Integral() > 0)
                         hFakePlot->Draw("HISTSAME");
                     TLegend legMF(0.14, 0.62, 0.48, 0.88);
-                    legMF.SetBorderSize(0);
-                    legMF.SetFillStyle(0);
-                    legMF.SetTextSize(0.03);
+                    ApplyLegendStyle(legMF, 0.03, 0, 0);
                     legMF.AddEntry(hMeasNormTmp, "Measured", "l");
                     legMF.AddEntry(hTruthNormTmp, "MC truth", "l");
                     legMF.AddEntry(hMissedPlot, "Missed (truth only)", "l");
                     legMF.AddEntry(hFakePlot, "Fake (reco only)", "l");
                     legMF.Draw();
                     TLatex texMF;
-                    texMF.SetNDC();
-                    texMF.SetTextSize(0.03);
-                    texMF.SetTextAlign(31);
+                    ApplyLatexStyle(texMF, 1, 0.03, 31);
                     texMF.DrawLatex(0.95, 0.85, Form("Jet p_{T}: %s", jetPt.c_str()));
                     texMF.DrawLatex(0.95, 0.81, Form("y-bin: %s", yBinStr.Data()));
                     TString pngMF = Form("%s/meas_truth_miss_fake_%s_%s.png", jetOutDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -1519,8 +1648,7 @@ void unfold_new(
                 double mi2 = hMeasuredNorm2->Integral();
                 if (mi2 > 0)
                     hMeasuredNorm2->Scale(1.0 / mi2);
-                hMeasuredNorm2->SetLineColor(kBlack);
-                hMeasuredNorm2->SetMarkerStyle(20);
+                ApplyHistStyle(hMeasuredNorm2, kBlack, -1, -1, 20);
                 double maxVal2 = hMeasuredNorm2->GetMaximum();
                 hMeasuredNorm2->GetXaxis()->SetTitle("z_{T}");
                 hMeasuredNorm2->GetYaxis()->SetTitle("dN/dz_{T} (norm)");
@@ -1531,9 +1659,7 @@ void unfold_new(
                 {
                     TH1D *hr = refoldedPlotVec[ii];
                     int col = rcols[ii % rcols.size()];
-                    hr->SetLineColor(col);
-                    hr->SetLineWidth(2);
-                    hr->SetLineStyle(1);
+                    ApplyHistStyle(hr, col, 1, 2);
                     if (hr->GetMaximum() > maxVal2)
                         maxVal2 = hr->GetMaximum();
                     hr->Draw("HISTSAME");
@@ -1542,11 +1668,7 @@ void unfold_new(
 
                 // Legend
                 TLegend legRef(0.15, 0.65, 0.6, 0.88);
-                legRef.SetBorderSize(0);
-                legRef.SetTextSize(0.030);
-                legRef.SetMargin(0.12);
-                legRef.SetFillStyle(0);
-                legRef.SetFillColor(0);
+                ApplyLegendStyle(legRef, 0.030, 0, 0, 0, 0.12);
                 legRef.AddEntry(hMeasuredNorm2, "Measured", "lep");
                 for (size_t ii = 0; ii < refoldedPlotVec.size(); ++ii)
                 {
@@ -1556,9 +1678,7 @@ void unfold_new(
                 legRef.Draw();
 
                 TLatex texRef;
-                texRef.SetNDC();
-                texRef.SetTextSize(0.03);
-                texRef.SetTextAlign(31);
+                ApplyLatexStyle(texRef, 1, 0.03, 31);
                 texRef.DrawLatex(0.95, 0.85, Form("#font[12]{LHCb} work-in-progress"));
                 texRef.DrawLatex(0.95, 0.81, Form("Jet p_{T}: %s", jetPt.c_str()));
                 texRef.DrawLatex(0.95, 0.77, Form("y-bin: %s", yBinStr.Data()));
@@ -1624,8 +1744,7 @@ void unfold_new(
                     covMats[i]->GetZaxis()->SetRangeUser(cmin, cmax);
                     covMats[i]->Draw("COLZ");
                     TLatex tl;
-                    tl.SetNDC();
-                    tl.SetTextSize(0.04);
+                    ApplyLatexStyle(tl, 1, 0.04);
                     tl.DrawLatex(0.02, 0.94, Form("Iter %d", i + 1));
                 }
                 TString pngCovAll = Form("%s/covariance_all_%s_%s.png", diagDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -1657,8 +1776,7 @@ void unfold_new(
                     corrMats[i]->GetZaxis()->SetRangeUser(-1, 1);
                     corrMats[i]->Draw("COLZ");
                     TLatex tl;
-                    tl.SetNDC();
-                    tl.SetTextSize(0.04);
+                    ApplyLatexStyle(tl, 1, 0.04);
                     tl.DrawLatex(0.02, 0.94, Form("Iter %d", i + 1));
                 }
                 TString pngCorrAll = Form("%s/correlation_all_%s_%s.png", diagDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -1681,18 +1799,14 @@ void unfold_new(
                 double xmin = 0, xmax = 0;
                 double ymin = 0.0, ymax = 10.5; // fixed range
                 TLegend legR(0.15, 0.65, 0.5, 0.88);
-                legR.SetBorderSize(0);
-                legR.SetFillStyle(0);
-                legR.SetTextSize(0.03);
+                ApplyLegendStyle(legR, 0.03, 0, 0);
                 for (size_t i = 0; i < unfoldTruthRatioVec.size(); ++i)
                 {
                     TH1D *h = unfoldTruthRatioVec[i];
                     if (!h)
                         continue;
                     int col = cols[i % cols.size()];
-                    h->SetLineColor(col);
-                    h->SetMarkerColor(col);
-                    h->SetMarkerStyle(20);
+                    ApplyHistStyle(h, col, -1, -1, 20, col);
                     if (first)
                     {
                         h->GetXaxis()->SetTitle("z_{T}");
@@ -1712,23 +1826,18 @@ void unfold_new(
                 if (!first)
                 {
                     TLine l1(xmin, 1.0, xmax, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineColor(kGray + 2);
+                    ApplyLineStyle(l1, 2, kGray + 2);
                     l1.Draw();
                     TLine lUp(xmin, 1.2, xmax, 1.2);
-                    lUp.SetLineStyle(3);
-                    lUp.SetLineColor(kGray + 1);
+                    ApplyLineStyle(lUp, 3, kGray + 1);
                     lUp.Draw();
                     TLine lDn(xmin, 0.8, xmax, 0.8);
-                    lDn.SetLineStyle(3);
-                    lDn.SetLineColor(kGray + 1);
+                    ApplyLineStyle(lDn, 3, kGray + 1);
                     lDn.Draw();
                 }
                 legR.Draw();
                 TLatex tex;
-                tex.SetNDC();
-                tex.SetTextSize(0.03);
-                tex.SetTextAlign(31);
+                ApplyLatexStyle(tex, 1, 0.03, 31);
                 tex.DrawLatex(0.95, 0.87, Form("Jet p_{T}: %s", jetPt.c_str()));
                 tex.DrawLatex(0.95, 0.83, Form("y-bin: %s", yBinStr.Data()));
                 TString pngRatioAll = Form("%s/unfoldTruthRatio_all_%s_%s.png", jetOutDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -1749,18 +1858,14 @@ void unfold_new(
                 double xmin = 0, xmax = 0;
                 double ymin = -10.0, ymax = 2.0;
                 TLegend legT(0.15, 0.65, 0.5, 0.88);
-                legT.SetBorderSize(0);
-                legT.SetFillStyle(0);
-                legT.SetTextSize(0.03);
+                ApplyLegendStyle(legT, 0.03, 0, 0);
                 for (size_t i = 0; i < unfoldTruthResidualVec.size(); ++i)
                 {
                     TH1D *h = unfoldTruthResidualVec[i];
                     if (!h)
                         continue;
                     int col = cols[i % cols.size()];
-                    h->SetLineColor(col);
-                    h->SetMarkerColor(col);
-                    h->SetMarkerStyle(20);
+                    ApplyHistStyle(h, col, -1, -1, 20, col);
                     if (first)
                     {
                         h->GetXaxis()->SetTitle("z_{T}");
@@ -1780,23 +1885,18 @@ void unfold_new(
                 if (!first)
                 {
                     TLine l0(xmin, 0.0, xmax, 0.0);
-                    l0.SetLineStyle(2);
-                    l0.SetLineColor(kGray + 2);
+                    ApplyLineStyle(l0, 2, kGray + 2);
                     l0.Draw();
                     TLine lUp(xmin, 0.2, xmax, 0.2);
-                    lUp.SetLineStyle(3);
-                    lUp.SetLineColor(kGray + 1);
+                    ApplyLineStyle(lUp, 3, kGray + 1);
                     lUp.Draw();
                     TLine lDn(xmin, -0.2, xmax, -0.2);
-                    lDn.SetLineStyle(3);
-                    lDn.SetLineColor(kGray + 1);
+                    ApplyLineStyle(lDn, 3, kGray + 1);
                     lDn.Draw();
                 }
                 legT.Draw();
                 TLatex tex;
-                tex.SetNDC();
-                tex.SetTextSize(0.03);
-                tex.SetTextAlign(31);
+                ApplyLatexStyle(tex, 1, 0.03, 31);
                 tex.DrawLatex(0.95, 0.87, Form("Jet p_{T}: %s", jetPt.c_str()));
                 tex.DrawLatex(0.95, 0.83, Form("y-bin: %s", yBinStr.Data()));
                 TString pngResAll = Form("%s/unfoldTruthResidual_all_%s_%s.png", jetOutDir.c_str(), jetPt.c_str(), yBinStr.Data());
@@ -1842,18 +1942,11 @@ void unfold_new(
             for (int i = 0; i < nPanels; ++i)
             {
                 cResYMulti->cd(i + 1);
-                gPad->SetTickx();
-                gPad->SetTicky();
-                gPad->SetRightMargin(0.02);
-                gPad->SetLeftMargin(0.12);
-                gPad->SetTopMargin(0.02);
-                gPad->SetBottomMargin(0.14);
+                ApplyPadStyle(/*left=*/0.12, /*right=*/0.02, /*top=*/0.02, /*bottom=*/0.14);
                 TString yStr = residualPerYBin[i].yBinStr;
                 std::vector<int> cols = MakePalette(nIter, 0.70, 0.85);
                 TLegend legPad(0.12, 0.68, 0.55, 0.90);
-                legPad.SetBorderSize(0);
-                legPad.SetFillStyle(0);
-                legPad.SetTextSize(0.035);
+                ApplyLegendStyle(legPad, 0.035, 0, 0);
                 bool first = true;
                 double xmin = 0, xmax = 0;
                 bool haveRange = false;
@@ -1862,9 +1955,7 @@ void unfold_new(
                     TH1D *hRes = (TH1D *)fout->Get(Form("closureResidual_zT_%s_%s_iter%d", jetPt.c_str(), yStr.Data(), iter));
                     if (!hRes)
                         continue;
-                    hRes->SetLineColor(cols[(iter - 1) % cols.size()]);
-                    hRes->SetMarkerColor(cols[(iter - 1) % cols.size()]);
-                    hRes->SetMarkerStyle(20);
+                    ApplyHistStyle(hRes, cols[(iter - 1) % cols.size()], -1, -1, 20, cols[(iter - 1) % cols.size()]);
                     if (first)
                     {
                         hRes->GetYaxis()->SetRangeUser(-1.0, 1.0);
@@ -1876,6 +1967,12 @@ void unfold_new(
                         xmax = hRes->GetXaxis()->GetXmax();
                         haveRange = true;
                         first = false;
+                        {
+                            TString fname = Form("f0_%s_%s_%d", jetPt.c_str(), yStr.Data(), i);
+                            TF1 *f0 = new TF1(fname, "0", xmin, xmax);
+                            ApplyFuncStyle(*f0, 2, kGray + 2, 2);
+                            f0->Draw("SAME");
+                        }
                     }
                     else
                     {
@@ -1885,26 +1982,19 @@ void unfold_new(
                 }
                 // Draw darker, thicker guide lines so they remain visible over markers/lines
                 TLine l0(0, 0.0, 1, 0.0);
-                l0.SetLineStyle(2);
-                l0.SetLineColor(kBlack);
-                l0.SetLineWidth(2);
+                ApplyLineStyle(l0, 2, kBlack, 2);
                 l0.Draw();
                 TLine lUp(0, 0.2, 1, 0.2);
-                lUp.SetLineStyle(3);
-                lUp.SetLineColor(kBlack);
-                lUp.SetLineWidth(1);
+                ApplyLineStyle(lUp, 3, kBlack, 1);
                 lUp.Draw();
                 TLine lDn(0, -0.2, 1, -0.2);
-                lDn.SetLineStyle(3);
-                lDn.SetLineColor(kBlack);
-                lDn.SetLineWidth(1);
+                ApplyLineStyle(lDn, 3, kBlack, 1);
                 lDn.Draw();
                 gPad->Modified();
                 gPad->Update();
                 legPad.Draw();
                 TLatex tl;
-                tl.SetNDC();
-                tl.SetTextSize(0.045);
+                ApplyLatexStyle(tl, 1, 0.045);
                 if (i == 0)
                     tl.DrawLatex(0.20, 0.90, "#font[12]{LHCb} in-progress");
                 if (i == 0)
@@ -1937,31 +2027,26 @@ void unfold_new(
             for (int i = 0; i < nPanels; ++i)
             {
                 cRefYMulti->cd(i + 1);
-                gPad->SetTickx();
-                gPad->SetTicky();
-                gPad->SetRightMargin(0.02);
-                gPad->SetLeftMargin(0.12);
-                gPad->SetTopMargin(0.02);
-                gPad->SetBottomMargin(0.14);
+                ApplyPadStyle(/*left=*/0.12, /*right=*/0.02, /*top=*/0.02, /*bottom=*/0.14);
                 TH1D *hM = refoldPerYBin[i].meas;
                 TH1D *hR = refoldPerYBin[i].refold;
                 if (!hM || !hR)
                     continue;
                 // Determine max for consistent pad scaling
                 double maxv = std::max(hM->GetMaximum(), hR->GetMaximum());
-                hM->SetMaximum(maxv * 1.25);
-                hM->SetLineColor(kBlack);
-                hM->SetMarkerStyle(20);
+                // hM->SetMaximum(maxv * 1.25);
+                hM->GetYaxis()->SetRangeUser(0, maxv * 1.25);
+
+                ApplyHistStyle(hM, kBlack, -1, -1, 20);
                 hM->GetXaxis()->SetTitle("z_{T}");
                 hM->GetYaxis()->SetTitle("dN/dz_{T} (norm)");
                 hM->SetTitle("");
                 hM->Draw("E");
-                hR->SetLineColor(kRed + 1);
-                hR->SetLineWidth(2);
-                hR->Draw("HISTSAME");
+                ApplyHistStyle(hR, kRed + 1, -1, 2);
+                hR->Draw("HISTESAME");
+                // hR->Draw("HISTSAME");
                 TLatex tl;
-                tl.SetNDC();
-                tl.SetTextSize(0.045);
+                ApplyLatexStyle(tl, 1, 0.045);
                 if (i == 0)
                     tl.DrawLatex(0.20, 0.90, "#font[12]{LHCb} in-progress");
                 if (i == 0)
@@ -1970,9 +2055,7 @@ void unfold_new(
                 if (i == 0)
                 {
                     TLegend *leg = new TLegend(0.55, 0.70, 0.90, 0.88);
-                    leg->SetBorderSize(0);
-                    leg->SetFillStyle(0);
-                    leg->SetTextSize(0.04);
+                    ApplyLegendStyle(*leg, 0.04, 0, 0);
                     leg->AddEntry(hM, "Measured", "lep");
                     leg->AddEntry(hR, "Refold (best)", "l");
                     leg->Draw();
@@ -2007,31 +2090,28 @@ void unfold_new(
             for (int i = 0; i < nPanels; ++i)
             {
                 cCompYMulti->cd(i + 1);
-                gPad->SetTickx();
-                gPad->SetTicky();
-                gPad->SetRightMargin(0.02);
-                gPad->SetLeftMargin(0.12);
-                gPad->SetTopMargin(0.02);
-                gPad->SetBottomMargin(0.14);
+                ApplyPadStyle(/*left=*/0.12, /*right=*/0.02, /*top=*/0.02, /*bottom=*/0.14);
                 TH1D *hM = comparePerYBin[i].meas;
                 TH1D *hT = comparePerYBin[i].truth;
                 TH1D *hU = comparePerYBin[i].unfolded;
                 if (!hM || !hT || !hU)
                     continue;
                 double maxv = std::max({hM->GetMaximum(), hT->GetMaximum(), hU->GetMaximum()});
-                hM->SetMaximum(maxv * 1.25);
+                // hM->SetMinimum(0);
+                // hM->SetMaximum(maxv * 1.25);
+                hM->GetYaxis()->SetRangeUser(0, maxv * 1.25);
                 hM->GetXaxis()->SetTitle("z_{T}");
                 hM->GetYaxis()->SetTitle("dN/dz_{T} (norm)");
                 hM->SetTitle("");
                 hM->Draw("E");
-                hT->SetLineStyle(2);
+                ApplyHistStyle(hT, -1, 2, -1);
                 hT->Draw("HISTSAME");
-                hU->SetLineColor(kBlue + 1);
-                hU->SetLineWidth(2);
-                hU->Draw("HISTSAME");
+                ApplyHistStyle(hU, kBlue + 1, -1, 2);
+                // hU->Draw("pesame");
+                hU->Draw("HISTESAME");
+                // hU->Draw("HISTSAME");
                 TLatex tl;
-                tl.SetNDC();
-                tl.SetTextSize(0.045);
+                ApplyLatexStyle(tl, 1, 0.045);
                 if (i == 0)
                     tl.DrawLatex(0.2, 0.9, "#font[12]{LHCb} in-progress");
                 if (i == 0)
@@ -2040,9 +2120,7 @@ void unfold_new(
                 if (i == 0)
                 {
                     TLegend *leg = new TLegend(0.6, 0.75, 0.92, 0.95);
-                    leg->SetBorderSize(0);
-                    leg->SetFillStyle(0);
-                    leg->SetTextSize(0.04);
+                    ApplyLegendStyle(*leg, 0.04, 0, 0);
                     leg->AddEntry(hM, "Measured", "lep");
                     leg->AddEntry(hU, Form("Unfolded (iter %d)", comparePerYBin[i].iter), "l");
                     leg->AddEntry(hT, "MC truth", "l");
@@ -2079,12 +2157,7 @@ void unfold_new(
             for (int i = 0; i < nPanels; ++i)
             {
                 cMFMF->cd(i + 1);
-                gPad->SetTickx();
-                gPad->SetTicky();
-                gPad->SetRightMargin(0.02);
-                gPad->SetLeftMargin(0.12);
-                gPad->SetTopMargin(0.02);
-                gPad->SetBottomMargin(0.14);
+                ApplyPadStyle(/*left=*/0.12, /*right=*/0.02, /*top=*/0.02, /*bottom=*/0.14);
                 TH1D *hM = mfmfPerYBin[i].meas;
                 TH1D *hT = mfmfPerYBin[i].truth;
                 TH1D *hMiss = mfmfPerYBin[i].missed;
@@ -2092,19 +2165,10 @@ void unfold_new(
                 if (!hM || !hT || !hMiss || !hFake)
                     continue;
                 double ymax = std::max({hM->GetMaximum(), hT->GetMaximum(), hMiss->GetMaximum(), hFake->GetMaximum()});
-                hM->SetLineColor(kBlack);
-                hM->SetMarkerStyle(20);
-                hM->SetMarkerColor(kBlack);
-                hM->SetLineWidth(2);
-                hT->SetLineColor(kRed);
-                hT->SetLineStyle(2);
-                hT->SetLineWidth(2);
-                hMiss->SetLineColor(kBlue + 1);
-                hMiss->SetLineStyle(3);
-                hMiss->SetLineWidth(2);
-                hFake->SetLineColor(kMagenta + 2);
-                hFake->SetLineStyle(4);
-                hFake->SetLineWidth(2);
+                ApplyHistStyle(hM, kBlack, -1, 2, 20, kBlack);
+                ApplyHistStyle(hT, kRed, 2, 2);
+                ApplyHistStyle(hMiss, kBlue + 1, 3, 2);
+                ApplyHistStyle(hFake, kMagenta + 2, 4, 2);
                 hM->SetMaximum(ymax * 1.25);
                 hM->GetXaxis()->SetTitle("z_{T}");
                 hM->GetYaxis()->SetTitle("dN/dz_{T} (norm)");
@@ -2116,8 +2180,7 @@ void unfold_new(
                 if (hFake->Integral() > 0)
                     hFake->Draw("HISTSAME");
                 TLatex tl;
-                tl.SetNDC();
-                tl.SetTextSize(0.045);
+                ApplyLatexStyle(tl, 1, 0.045);
                 if (i == 0)
                     tl.DrawLatex(0.20, 0.90, "#font[12]{LHCb} in-progress");
                 if (i == 0)
@@ -2126,9 +2189,7 @@ void unfold_new(
                 if (i == 0)
                 {
                     TLegend *leg = new TLegend(0.50, 0.62, 0.90, 0.88);
-                    leg->SetBorderSize(0);
-                    leg->SetFillStyle(0);
-                    leg->SetTextSize(0.035);
+                    ApplyLegendStyle(*leg, 0.035, 0, 0);
                     leg->AddEntry(hM, "Measured", "l");
                     leg->AddEntry(hT, "MC truth", "l");
                     leg->AddEntry(hMiss, "Missed", "l");
@@ -2190,12 +2251,7 @@ void unfold_new(
             for (int i = 0; i < nPanels; ++i)
             {
                 cRespMulti->cd(i + 1);
-                gPad->SetTickx();
-                gPad->SetTicky();
-                gPad->SetRightMargin(0.12); // leave room for z axis
-                gPad->SetLeftMargin(0.10);
-                gPad->SetTopMargin(0.02);
-                gPad->SetBottomMargin(0.14);
+                ApplyPadStyle(/*left=*/0.10, /*right=*/0.12, /*top=*/0.02, /*bottom=*/0.14);
                 TString yStr = responsePerYBin[i];
                 TH2 *hR = (TH2 *)fout->Get(Form("hResponse_%s_%s", jetPt.c_str(), yStr.Data()));
                 if (!hR)
@@ -2208,8 +2264,7 @@ void unfold_new(
                 hR->SetTitle("");
                 hR->Draw("COLZ");
                 TLatex tl;
-                tl.SetNDC();
-                tl.SetTextSize(0.045);
+                ApplyLatexStyle(tl, 1, 0.045);
                 if (i == 0)
                     tl.DrawLatex(0.18, 0.92, "#font[12]{LHCb} in-progress");
                 if (i == 0)

@@ -18,7 +18,7 @@
 // g++ -std=c++17 JetFindingEfficiencyMinimal.cpp $(root-config --cflags --libs) -o JetFindingEfficiencyMinimal
 // ./JetFindingEfficiencyMinimal input.root output_prefix
 
-static double gJetRadius = 0.4;
+static double gJetRadius = 0.5;
 static double gMinJetPt = 5.0;
 static double gMaxJetPt = 60.0;
 static double gMinJetEta = 2.5;
@@ -27,6 +27,18 @@ static double gMinD0Pt = 1.0;
 static double gMaxD0Pt = 50.0;
 static double gMinD0Eta = 2.0;
 static double gMaxD0Eta = 4.5;
+
+inline double DeltaPhi(double a, double b) {
+    double d = a - b;
+    while (d > M_PI) d -= 2*M_PI;
+    while (d <= -M_PI) d += 2*M_PI;
+    return d;
+}
+inline double DeltaR(double eta1, double phi1, double eta2, double phi2) {
+    double dphi = DeltaPhi(phi1, phi2);
+    double deta = eta1 - eta2;
+    return std::sqrt(deta*deta + dphi*dphi);
+}
 
 inline bool PassesJetSelectionMC(const std::vector<float>* mc_jet_pt, const std::vector<float>* mc_jet_eta, int idx) {
     if (!mc_jet_pt || !mc_jet_eta) return false;
@@ -52,12 +64,20 @@ inline bool PassesD0Selection(double d0_pt, double d0_eta) {
     return true;
 }
 
-int JetFindingEfficiencyMinimal() {
+int JetFindingEfficiencyMinimal2() {
+    // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/54/54.root";
     std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root";
-    std::string outPrefix = "jetFindingEffMinimal";
+    // std::string outPrefix = "jetFindingEffMinimal_MBonly";
+    std::string outPrefix = "jetFindingEffMinimal_fullMC";
 
-    // create output directory for all plots and root file
-    std::string outDir = outPrefix + "_outputs";
+    // create output directory for all plots and root file (append today's date)
+    char _datebuf[32];
+    {
+        time_t _t = time(nullptr);
+        struct tm _tm = *localtime(&_t);
+        strftime(_datebuf, sizeof(_datebuf), "%Y-%m-%d", &_tm);
+    }
+    std::string outDir = outPrefix + "_outputs_" + std::string(_datebuf);
     try { std::filesystem::create_directories(outDir); } catch (...) {
         std::cerr << "Warning: failed to create output directory '" << outDir << "' - will attempt to write files to current directory\n"; outDir = "."; }
     // secondary folder for PNG copies
@@ -165,68 +185,33 @@ int JetFindingEfficiencyMinimal() {
         }
 
         // denominator: MC jets with a generator D0 in radius and passing selection
+        // numerator (filled here): if any reco jet matches this MC jet (deltaR <= gJetRadius)
         for (size_t mcj=0; mcj<nMCJets; ++mcj) {
             if (mc_maxD0[mcj] <= 0) continue;
             if (!PassesJetSelectionMC(mc_jet_pt, mc_jet_eta, mcj)) continue;
             double mcPt = mc_jet_pt->at(mcj);
             double mcEta = mc_jet_eta->at(mcj);
-            // determine if this MC jet was reconstructed (MC->reco via mc_d0_matched mapping)
-            bool matched = false;
-            if (mc_d0_jet_idx && mc_d0_matched && d0_jet_idx) {
-                for (size_t i=0;i<mc_d0_jet_idx->size();++i) {
-                    if (mc_d0_jet_idx->at(i) != (int)mcj) continue;
-                    int recoD0 = mc_d0_matched->at(i);
-                    if (recoD0 < 0) continue;
-                    if (!d0_jet_idx) continue;
-                    if (recoD0 >= (int)d0_jet_idx->size()) continue;
-                    int recoJet = d0_jet_idx->at(recoD0);
-                    if (recoJet < 0 || recoJet >= (int)reco_maxD0.size()) continue;
-                    if (!PassesJetSelectionReco(jet_pt, jet_eta, recoJet)) continue;
-                    if (reco_maxD0[recoJet] > 0) { matched = true; break; }
-                }
-            }
+            double mcPhi = mc_jet_phi ? mc_jet_phi->at(mcj) : 0.0;
             // fill denominator zT vs jetPt
             double zT = mc_maxD0[mcj] / mcPt;
             if (zT > 0 && zT < zTmax) h_den_zT->Fill(zT, mcPt);
-            // we don't fill TEff here; numerator will be filled by matching reco jets to MC jets
+
+            // now search for a reconstructed jet that matches this MC jet within deltaR and contains a reconstructed D0
+            bool matched = false;
+            for (size_t rj=0; rj<nRecoJets; ++rj) {
+                // Do not require the reco jet to contain a reconstructed D0 here;
+                // we only require a reconstructed jet that matches the MC jet by geometry.
+                if (!PassesJetSelectionReco(jet_pt, jet_eta, rj)) continue;
+                double rEta = jet_eta ? jet_eta->at(rj) : 0.0;
+                double rPhi = jet_phi ? jet_phi->at(rj) : 0.0;
+                double dr = DeltaR(mcEta, mcPhi, rEta, rPhi);
+                if (dr <= gJetRadius) { matched = true; break; }
+            }
+            if (matched) {
+                if (zT > 0 && zT < zTmax) h_num_zT->Fill(zT, mcPt);
+            }
         }
 
-        // numerator: for each reco jet with a reco D0, find matched MC jet and fill using MC jet kinematics (avoid double-counting)
-        std::vector<char> countedMC(nMCJets,0);
-        for (size_t rj=0; rj<nRecoJets; ++rj) {
-            if (reco_maxD0[rj] <= 0) continue;
-            if (!PassesJetSelectionReco(jet_pt, jet_eta, rj)) continue;
-            // find a reco D0 in this jet and see if it is MC-matched
-            int matchedMCJet = -1;
-            if (d0_jet_idx && mc_d0_matched) {
-                for (size_t i=0;i<d0_jet_idx->size();++i) {
-                    if (d0_jet_idx->at(i) != (int)rj) continue;
-                    // find if this reco D0 corresponds to an MC D0 index (mc_d0_matched maps mc_d0_idx -> reco_d0_idx)
-                    // But we have mc_d0_matched in MC-index order; search MC list for an entry equal to this reco index
-                    for (size_t mc_i=0; mc_i<(mc_d0_matched?mc_d0_matched->size():0); ++mc_i) {
-                        if (mc_d0_matched->at(mc_i) == (int)i) {
-                            int mcjet = mc_d0_jet_idx ? mc_d0_jet_idx->at(mc_i) : -1;
-                            if (mcjet < 0) continue;
-                            if (!PassesJetSelectionMC(mc_jet_pt, mc_jet_eta, mcjet)) continue;
-                            matchedMCJet = mcjet;
-                            break;
-                        }
-                    }
-                    if (matchedMCJet>=0) break;
-                }
-            }
-            if (matchedMCJet<0) continue;
-            if (matchedMCJet < (int)countedMC.size() && !countedMC[matchedMCJet]) {
-                // fill zT numerator using MC jet kinematics and its max D0
-                double maxMCD0 = mc_maxD0[matchedMCJet];
-                double mcPt = mc_jet_pt->at(matchedMCJet);
-                if (maxMCD0 > 0 && mcPt > 0) {
-                    double zT = maxMCD0 / mcPt;
-                    if (zT > 0 && zT < zTmax) h_num_zT->Fill(zT, mcPt);
-                }
-                countedMC[matchedMCJet] = 1;
-            }
-        }
     }
 
     // create efficiency map (zT vs jetPt)

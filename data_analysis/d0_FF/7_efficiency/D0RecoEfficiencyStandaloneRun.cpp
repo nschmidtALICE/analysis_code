@@ -2,8 +2,14 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <filesystem>
+#include <ctime>
+#include <algorithm>
+#include <cctype>
+#include <fstream>
 #include "TFile.h"
 #include "TTree.h"
+#include "TChain.h"
 #include "TH2F.h"
 #include "TEfficiency.h"
 #include "TCanvas.h"
@@ -35,7 +41,8 @@ private:
     // File and tree management
     TFile *m_inputFile;
     TFile *m_outputFile;
-    TTree *m_tree;
+    TChain *m_tree;
+    std::string m_inputName; // store original input specification (possibly comma-separated)
     
     // Configuration parameters
     double m_d0MassWindow;
@@ -105,6 +112,7 @@ private:
     int GetMCMatchIndex(int reco_d0_idx);
     int GetMCMatchQuality(int mc_match_idx);
     bool HasValidMCMatch(int reco_d0_idx, int& mc_match_idx);
+    std::string m_outputDir;
 };
 
 D0RecoEfficiencyStandalone::D0RecoEfficiencyStandalone(TString inputFileName, TString outputFileName)
@@ -113,24 +121,109 @@ D0RecoEfficiencyStandalone::D0RecoEfficiencyStandalone(TString inputFileName, TS
       m_kaonPIDCut(0.5), m_pionPIDCut(0.5), m_ghostProbCut(0.3), m_trackChi2Cut(3.0),
       m_minDaughterMomentum(2.0)
 {
-    // Open input file
-    m_inputFile = TFile::Open(inputFileName, "READ");
-    if (!m_inputFile || m_inputFile->IsZombie()) {
-        std::cerr << "Error: Could not open input file " << inputFileName << std::endl;
+    // Create TChain to allow multiple input files (comma-separated list or list file)
+    m_inputName = std::string(inputFileName.Data());
+    m_tree = new TChain("d0jets");
+    // Helper trim
+    auto trim = [](std::string &s) {
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
+    };
+    // Detect if input is a list file (.txt/.list) or a comma-separated list or a single ROOT file
+    size_t added = 0;
+    auto hasSuffix = [](const std::string &s, const std::string &suffix) {
+        return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+    if (hasSuffix(m_inputName, ".txt") || hasSuffix(m_inputName, ".list")) {
+        // Read file list and add each line
+        std::ifstream in(m_inputName);
+        if (!in.is_open()) {
+            std::cerr << "Error: could not open input list file '" << m_inputName << "'" << std::endl;
+        } else {
+            std::string line;
+            while (std::getline(in, line)) {
+                trim(line);
+                if (line.empty()) continue;
+                if (line[0] == '#') continue;
+                if (!line.empty()) {
+                    int nAdded = m_tree->Add(line.c_str());
+                    if (nAdded > 0) {
+                        ++added;
+                        std::cout << "Added input file from list: " << line << std::endl;
+                    } else {
+                        std::cerr << "[WARN] Failed to add file from list: " << line << std::endl;
+                    }
+                }
+            }
+        }
+    } else {
+        // Parse comma-separated list (or single path)
+        std::string inStr = m_inputName;
+        size_t start = 0;
+        while (start < inStr.size()) {
+            size_t pos = inStr.find(',', start);
+            std::string part = (pos == std::string::npos) ? inStr.substr(start) : inStr.substr(start, pos - start);
+            trim(part);
+            if (!part.empty()) {
+                int nAdded = m_tree->Add(part.c_str());
+                if (nAdded > 0) {
+                    ++added;
+                    std::cout << "Added input file: " << part << std::endl;
+                } else {
+                    std::cerr << "[WARN] Failed to add input file: " << part << std::endl;
+                }
+            }
+            if (pos == std::string::npos) break;
+            start = pos + 1;
+        }
+    }
+    if (added == 0) {
+        std::cerr << "Error: no input files provided for '" << m_inputName << "'" << std::endl;
         return;
     }
-    
-    // Create output file
-    m_outputFile = new TFile(outputFileName, "RECREATE");
-    if (!m_outputFile || m_outputFile->IsZombie()) {
-        std::cerr << "Error: Could not create output file " << outputFileName << std::endl;
-        return;
+
+    // Create dated output directory and output file inside it
+    try {
+        // Build directory name from outputFileName stem + date
+        std::filesystem::path outPath(outputFileName.Data());
+        std::string filename = outPath.filename().string();
+        std::string stem = outPath.stem().string();
+
+        time_t t = time(nullptr);
+        tm local_tm = *localtime(&t);
+        char dateStr[64];
+        strftime(dateStr, sizeof(dateStr), "%Y-%m-%d", &local_tm);
+
+        m_outputDir = stem + "_" + std::string(dateStr);
+
+        // Try to create the directory; if it fails, fallback to current directory
+        if (!std::filesystem::exists(m_outputDir)) {
+            if (!std::filesystem::create_directories(m_outputDir)) {
+                std::cerr << "Warning: Could not create output directory '" << m_outputDir << "'. Using current directory instead." << std::endl;
+                m_outputDir = ".";
+            }
+        }
+
+        std::string fullOutputPath = (m_outputDir == ".") ? filename : (m_outputDir + "/" + filename);
+        m_outputFile = new TFile(fullOutputPath.c_str(), "RECREATE");
+        if (!m_outputFile || m_outputFile->IsZombie()) {
+            std::cerr << "Error: Could not create output file " << fullOutputPath << std::endl;
+            return;
+        }
+    } catch (const std::exception &e) {
+        std::cerr << "Exception while creating output directory/file: " << e.what() << std::endl;
+        // Fallback: try to create file in current directory
+        m_outputFile = new TFile(outputFileName, "RECREATE");
+        if (!m_outputFile || m_outputFile->IsZombie()) {
+            std::cerr << "Error: Could not create output file " << outputFileName << std::endl;
+            return;
+        }
+        m_outputDir = ".";
     }
     
-    // Get tree from input file
-    m_tree = (TTree*)m_inputFile->Get("d0jets");
+    // m_tree is a TChain already pointing to d0jets in the input files
     if (!m_tree) {
-        std::cerr << "Error: Could not find tree 'd0jets' in input file" << std::endl;
+        std::cerr << "Error: TChain not initialized for 'd0jets'" << std::endl;
         return;
     }
     
@@ -179,7 +272,7 @@ void D0RecoEfficiencyStandalone::CleanUp() {
 }
 
 bool D0RecoEfficiencyStandalone::Initialize() {
-    if (!m_inputFile || !m_outputFile || !m_tree) {
+    if (!m_outputFile || !m_tree) {
         std::cerr << "Error: Files or tree not properly initialized" << std::endl;
         return false;
     }
@@ -188,7 +281,7 @@ bool D0RecoEfficiencyStandalone::Initialize() {
     CreateHistograms();
     
     std::cout << "D0RecoEfficiencyStandalone initialized successfully" << std::endl;
-    std::cout << "Input file: " << m_inputFile->GetName() << std::endl;
+    // std::cout << "Input file: " << m_inputFile->GetName() << std::endl;
     std::cout << "Output file: " << m_outputFile->GetName() << std::endl;
     std::cout << "Tree entries: " << m_tree->GetEntries() << std::endl;
     
@@ -627,21 +720,27 @@ void D0RecoEfficiencyStandalone::PlotEfficiency(const std::string &histName) {
     }
     
     // Save canvas
-    TString plotName = TString::Format("%s.png", histName.c_str());
-    c1->SaveAs(plotName);
-    std::cout << "Saved plot: " << plotName << std::endl;
-    
+    std::string pngName = std::string(histName) + ".png";
+    std::string pdfName = std::string(histName) + ".pdf";
+    std::string pngPath = (m_outputDir.empty() || m_outputDir == ".") ? pngName : (m_outputDir + "/" + pngName);
+    std::string pdfPath = (m_outputDir.empty() || m_outputDir == ".") ? pdfName : (m_outputDir + "/" + pdfName);
+
+    c1->SaveAs(pngPath.c_str());
+    std::cout << "Saved plot: " << pngPath << std::endl;
+
     // Also save as PDF
-    plotName = TString::Format("%s.pdf", histName.c_str());
-    c1->SaveAs(plotName);
+    c1->SaveAs(pdfPath.c_str());
     
     delete c1;
 }
 
 // Main function for the standalone reconstruction-based efficiency calculation
-int D0RecoEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_pPb_Pbp/fullMCs.root", 
-// int D0RecoEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", 
-                                 TString outputFile = "output_reco_standalone_full.root",
+int D0RecoEfficiencyStandaloneRun(
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/52/52.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/53/53.root", //this is Pbp
+    TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root", //this is pPb
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", //this is pPb
+                                //  TString outputFile = "output_reco_standalone_full_Pbp.root",
+                                 TString outputFile = "output_reco_standalone_full_pPb.root",
                                  double massWindow = 50.0, double minPt = 1.0,
                                  double minEta = 2.0, double maxEta = 4.5,
                                  double kaonPIDCut = 0.5, double pionPIDCut = 0.5,

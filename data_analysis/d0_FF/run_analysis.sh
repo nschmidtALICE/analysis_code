@@ -102,9 +102,10 @@ run_stage1() {
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/52/52.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/53/53.root"
-        "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/54/54.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/54/54.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/55/55.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/56/56.root"
+        "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/57_FF_pPb_DATA.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1123981.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_17_MC_output_D0FF/20250514_Pbp_MC_output_D0FF.root"
@@ -140,14 +141,22 @@ run_stage2() {
     echo "Running Stage 2: Fit data"
     cd "$BASE_DIR/2_fitData"
     # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_1127plus_filtered.root"
+    # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus_filtered.root"
+    inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/57_FF_pPb_DATA_filtered.root"
+    # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/59_FF_Pbp_DATA_filtered.root"
+
     # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_11276a7plus_filtered.root"
-    inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus_filtered.root"
     # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250501_Pbp_data/Pbp_data_filterV1.root"
     isMCswitch="false"
     if [ "$MC_MODE" = "True" ]; then
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_pPb_Pbp/filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/filtered.root"
-        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output_filtered.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output_filtered.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/53_filtered.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/54_filtered.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/55_filtered.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/56_filtered.root"
+        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/53to56_filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250609_Pbp_MC_output/1122665/1122665_filtered.root"
@@ -155,6 +164,7 @@ run_stage2() {
         isMCswitch="true"
     fi
     root -x -l -b -q MassFitter.C'+("'$inputFileMassFit'",'$isMCswitch')'
+    #void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = false, bool enableSPlot = true)
     # python3 MassFitterScript_TestReduce.py -m "$MC_MODE"
     if [ $? -ne 0 ]; then
         echo "Error: Stage 2 failed"

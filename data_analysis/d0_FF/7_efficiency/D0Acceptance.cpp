@@ -6,6 +6,9 @@
 #include "TMath.h"
 #include "TH2D.h"
 #include "TString.h"
+#include "TCanvas.h"
+#include <filesystem>
+#include <ctime>
 
 void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", TString outputFile = "D0AcceptanceMap.root") {
 
@@ -130,12 +133,60 @@ void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/202
     hAcc->SetTitle("D0 acceptance map;pt [GeV];eta");
     hAcc->Divide(hDen);
 
-    // Write to output file
-    TFile* fout = TFile::Open(outputFile, "RECREATE");
+    // Prepare dated output directory (based on outputFile stem)
+    std::string outFileStr = std::string(outputFile.Data());
+    std::filesystem::path outPathObj(outFileStr);
+    std::string baseName = outPathObj.stem().string();
+    // current date
+    std::time_t t = std::time(nullptr);
+    char dateBuf[32] = {0};
+    if (std::tm *lt = std::localtime(&t)) {
+        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", lt);
+    } else {
+        std::snprintf(dateBuf, sizeof(dateBuf), "unknown-date");
+    }
+    std::string outDir = baseName + "_" + std::string(dateBuf);
+    try {
+        std::filesystem::create_directories(outDir);
+    } catch (...) {
+        std::cerr << "Warning: failed to create output directory '" << outDir << "' - will attempt to write files to current directory\n";
+        outDir = ".";
+    }
+
+    // Write to output file inside dated directory
+    std::string outRootPath = outDir + "/" + outPathObj.filename().string();
+    TFile* fout = TFile::Open(outRootPath.c_str(), "RECREATE");
     hDen->Write();
     hNum->Write();
     hAcc->Write();
     fout->Close();
+
+    // Also save simple plots (PNG/PDF) into the same directory
+    TCanvas *cAcc = new TCanvas("cAcc", "D0 acceptance", 800, 600);
+    cAcc->SetRightMargin(0.15);
+    hAcc->SetStats(0);
+    hAcc->Draw("COLZ");
+    std::string pngAcc = outDir + "/" + baseName + "_acceptance.png";
+    std::string pdfAcc = outDir + "/" + baseName + "_acceptance.pdf";
+    cAcc->SaveAs(pngAcc.c_str());
+    cAcc->SaveAs(pdfAcc.c_str());
+    delete cAcc;
+
+    TCanvas *cDen = new TCanvas("cDen", "D0 in range", 800, 600);
+    cDen->SetRightMargin(0.15);
+    hDen->SetStats(0);
+    hDen->Draw("COLZ");
+    std::string pngDen = outDir + "/" + baseName + "_denominator.png";
+    cDen->SaveAs(pngDen.c_str());
+    delete cDen;
+
+    TCanvas *cNum = new TCanvas("cNum", "D0 with daughters in acc", 800, 600);
+    cNum->SetRightMargin(0.15);
+    hNum->SetStats(0);
+    hNum->Draw("COLZ");
+    std::string pngNum = outDir + "/" + baseName + "_numerator.png";
+    cNum->SaveAs(pngNum.c_str());
+    delete cNum;
 
     f->Close();
     return;

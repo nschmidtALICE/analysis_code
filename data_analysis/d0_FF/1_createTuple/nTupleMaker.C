@@ -1,4 +1,5 @@
 #include <TFile.h>
+#include <TChain.h>
 #include <TTree.h>
 #include <TLorentzVector.h>
 #include <TString.h>
@@ -7,33 +8,30 @@
 #include <vector>
 #include <cmath>
 #include <TH2D.h>
+#include <fstream>
+#include <string>
 
 void createResponseMatrix(const char *inputFile, const char *outputFile);
 
-void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true)
+// doJet/doJetMode semantics:
+// - doJet=false or doJetMode=0: No jet requirements; do not read or write jet-related branches.
+// - doJet=true  or doJetMode=1: Require a D0-associated jet; apply jet pT/eta cuts to the associated jet; write jet/D0-jet branches.
+// - doJetMode=2: Require at least one jet in the EVENT passing pT/eta cuts (no D0-jet association required); do not write D0-jet branches.
+void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true, bool doJet = true, int doJetMode = -1)
 {
     std::cout << "Starting D0 FF Analysis with minimal ntuple maker" << std::endl;
 
     // Use default files if empty string provided
-    TString fInputFileName;
-    if (strlen(inputFile) == 0)
-    {
-        if (inputMC)
-        {
-            fInputFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/d0ff_outputs/localRunning_MC_ntuple_test.root";
-        }
-        else
-        {
-            fInputFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/d0ff_outputs/localRunning_MeasuredData_ntuple_test.root";
-        }
-    }
-    else
-    {
-        fInputFileName = inputFile;
-    }
+    TString fInputFileName = inputFile;
 
+    // Build output file name robustly for both .root and list inputs
     TString fOutputFileName = fInputFileName;
-    fOutputFileName.ReplaceAll(".root", "_filtered.root");
+    bool inputIsRoot = fInputFileName.EndsWith(".root");
+    if (inputIsRoot) {
+        fOutputFileName.ReplaceAll(".root", "_filtered.root");
+    } else {
+        fOutputFileName.ReplaceAll(".txt", "_filtered.root");
+    }
 
     std::cout << "Input file: " << fInputFileName << std::endl;
     std::cout << "Output file: " << fOutputFileName << std::endl;
@@ -44,41 +42,106 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
             std::cerr << "ERROR: responseOnly requested but inputMC=0 (need MC for response). Aborting." << std::endl;
             return;
         }
-        TString respOut = fInputFileName; respOut.ReplaceAll(".root", "_response.root");
+        TString respOut = fInputFileName;
+        if (respOut.EndsWith(".root")) {
+            respOut.ReplaceAll(".root", "_response.root");
+        } else {
+            respOut.ReplaceAll(".txt", "_response.root");
+        }
         std::cout << "[responseOnly] Generating response matrix from original file -> " << respOut << std::endl;
         createResponseMatrix(fInputFileName, respOut);
         std::cout << "[responseOnly] Done." << std::endl;
         return;
     }
 
-    // Open input file
-    TFile *inputRoot = TFile::Open(fInputFileName, "READ");
-    if (!inputRoot || inputRoot->IsZombie())
+    // Resolve jet mode (backward compatible with existing doJet flag)
+    int jetMode = doJetMode;
+    if (jetMode == -1)
     {
-        std::cerr << "ERROR: Cannot open input file: " << fInputFileName << std::endl;
-        return;
+        jetMode = doJet ? 1 : 0;
     }
 
-    // Get input tree
-    TTree *inputTree = (TTree *)inputRoot->Get("d0jets");
-    if (!inputTree)
+    // Prepare input as either a single TTree from TFile or a TChain from a file list
+    TFile *inputRoot = nullptr;
+    TChain *inputChain = nullptr;
+    TTree *inputTree = nullptr;
+
+    auto isListPath = [&](const TString &path) {
+        return path.EndsWith(".txt");
+    };
+
+    if (isListPath(fInputFileName))
     {
-        std::cerr << "ERROR: Cannot find 'd0jets' tree in input file" << std::endl;
-        inputRoot->Close();
-        return;
+        // Build a TChain from a list of ROOT files
+        inputChain = new TChain("d0jets");
+        std::ifstream listFile(fInputFileName.Data());
+        if (!listFile.is_open()) {
+            std::cerr << "ERROR: Cannot open input list file: " << fInputFileName << std::endl;
+            return;
+        }
+        std::string line;
+        int added = 0;
+        while (std::getline(listFile, line)) {
+            // Trim whitespace
+            if (line.empty()) continue;
+            // Skip comments
+            if (line[0] == '#') continue;
+            TString fpath(line.c_str());
+            fpath = fpath.Strip(TString::kBoth, ' ');
+            if (fpath.Length() == 0) continue;
+            Long64_t nAdded = inputChain->Add(fpath.Data());
+            if (nAdded > 0) {
+                ++added;
+            } else {
+                std::cerr << "[WARN] Failed to add file to chain: " << fpath << std::endl;
+            }
+        }
+        if (added == 0 || inputChain->GetListOfFiles()->GetEntries() == 0) {
+            std::cerr << "ERROR: TChain is empty — no valid ROOT files were added from list: " << fInputFileName << std::endl;
+            delete inputChain;
+            return;
+        }
+        inputTree = inputChain; // TChain is-a TTree
+    }
+    else
+    {
+        // Single ROOT file path
+        inputRoot = TFile::Open(fInputFileName, "READ");
+        if (!inputRoot || inputRoot->IsZombie())
+        {
+            std::cerr << "ERROR: Cannot open input file: " << fInputFileName << std::endl;
+            if (inputRoot) inputRoot->Close();
+            return;
+        }
+        inputTree = (TTree *)inputRoot->Get("d0jets");
+        if (!inputTree)
+        {
+            std::cerr << "ERROR: Cannot find 'd0jets' tree in input file" << std::endl;
+            inputRoot->Close();
+            return;
+        }
     }
 
 
 
     //load efficiency maps for pions and kaons
-    TFile* effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    TFile* effFile_kaon;
+    if(pPbORPbp == "Pbp")
+        effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_Ap_09_pEta_k/effhists-ApTurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    else
+        effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_pA_09_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+
     if (!effFile_kaon || effFile_kaon->IsZombie())
     {
         std::cerr << "Error: Could not open kaon pid efficiency map file" << std::endl;
         return;
     }
 
-    TFile* effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_09_2d_pEta/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    TFile* effFile_Pion;
+    if(pPbORPbp == "Pbp")
+        effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_Ap_09_pEta_pi/effhists-ApTurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    else
+        effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_pA_09_pEta_pi/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
 
     TH2D* effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
     TH2D* effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
@@ -90,7 +153,14 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
         return;
     }
 
-    TFile* effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone.root");
+    TFile* effFile_Reconstruction;
+    if(pPbORPbp == "Pbp"){
+        // effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/D0RecoEffi_Pbp_20251014/output_reco_standalone_full_Pbp.root");
+        std::cout << "No Pbp reconstruction efficiency file defined... returning" << std::endl;
+        return;
+    } else
+        effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_54_pPb_2026-01-06/output_reco_standalone_54_pPb.root");
+        // effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_full_pPb_2025-10-14/output_reco_standalone_full_pPb.root");
     if(!effFile_Reconstruction || effFile_Reconstruction->IsZombie())
     {
         std::cerr << "Error: Could not open reconstruction efficiency file" << std::endl;
@@ -105,7 +175,12 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
         return;
     }
 
-    TFile* acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap.root");
+    TFile* acceptanceFile;
+    if(pPbORPbp == "Pbp")
+        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_Pbp_2025-10-14/D0AcceptanceMap_Pbp.root");
+    else
+        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_pPb_54_2026-01-06/D0AcceptanceMap_pPb_54.root");
+        // acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_pPb_2025-10-14/D0AcceptanceMap_pPb.root");
     if (!acceptanceFile || acceptanceFile->IsZombie())
     {
         std::cerr << "Error: Could not open acceptance map file" << std::endl;
@@ -125,7 +200,7 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
     if (!outputRoot || outputRoot->IsZombie())
     {
         std::cerr << "ERROR: Cannot create output file: " << fOutputFileName << std::endl;
-        inputRoot->Close();
+        if (inputRoot) inputRoot->Close();
         return;
     }
 
@@ -190,15 +265,18 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
     inputTree->SetBranchAddress("run_num", &run_num);
     inputTree->SetBranchAddress("n_pvs", &n_pvs);
 
-    inputTree->SetBranchAddress("jet_pt", &jet_pt);
-    inputTree->SetBranchAddress("jet_eta", &jet_eta);
-    inputTree->SetBranchAddress("jet_phi", &jet_phi);
-    inputTree->SetBranchAddress("jet_mass", &jet_mass);
-    inputTree->SetBranchAddress("jet_n_const", &jet_n_const);
-    inputTree->SetBranchAddress("jet_n_charged", &jet_n_charged);
-    inputTree->SetBranchAddress("jet_n_neutral", &jet_n_neutral);
-    inputTree->SetBranchAddress("jet_n_d0", &jet_n_d0);
-
+    // Read jet collections when any jet requirement is enabled (mode 1 or 2)
+    if(jetMode != 0)
+    {
+        inputTree->SetBranchAddress("jet_pt", &jet_pt);
+        inputTree->SetBranchAddress("jet_eta", &jet_eta);
+        inputTree->SetBranchAddress("jet_phi", &jet_phi);
+        inputTree->SetBranchAddress("jet_mass", &jet_mass);
+        inputTree->SetBranchAddress("jet_n_const", &jet_n_const);
+        inputTree->SetBranchAddress("jet_n_charged", &jet_n_charged);
+        inputTree->SetBranchAddress("jet_n_neutral", &jet_n_neutral);
+        inputTree->SetBranchAddress("jet_n_d0", &jet_n_d0);
+    }
     inputTree->SetBranchAddress("d0_pt", &d0_pt);
     inputTree->SetBranchAddress("d0_pz", &d0_pz);
     inputTree->SetBranchAddress("d0_e", &d0_e);
@@ -211,11 +289,14 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
     inputTree->SetBranchAddress("d0_fd", &d0_fd);
     inputTree->SetBranchAddress("d0_fd_chi2", &d0_fd_chi2);
     inputTree->SetBranchAddress("d0_DOCA", &d0_DOCA);
-    inputTree->SetBranchAddress("d0_jet_idx", &d0_jet_idx);
-    inputTree->SetBranchAddress("d0_in_jet", &d0_in_jet);
-    inputTree->SetBranchAddress("d0_z", &d0_z);
-    inputTree->SetBranchAddress("d0_jet_dr", &d0_jet_dr);
-
+    // Read D0-jet association branches only when we require D0-associated jets (mode 1)
+    if(jetMode == 1)
+    {
+        inputTree->SetBranchAddress("d0_z", &d0_z);
+        inputTree->SetBranchAddress("d0_jet_idx", &d0_jet_idx);
+        inputTree->SetBranchAddress("d0_in_jet", &d0_in_jet);
+        inputTree->SetBranchAddress("d0_jet_dr", &d0_jet_dr);
+    }
     inputTree->SetBranchAddress("dau_pid", &dau_pid);
     inputTree->SetBranchAddress("dau_pt", &dau_pt);
     inputTree->SetBranchAddress("dau_px", &dau_px);
@@ -268,19 +349,36 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
     float v_combined_efficiency = 0; // New variable for combined efficiency
     float v_combined_eff_and_acceptance = 0; // New variable for combined efficiency and acceptance
     float v_acceptance = 0; // New variable for acceptance
+    // Event-level jet info for mode 2 (no D0 association)
+    int   v_evtNJets = 0;
+    float v_evtLeadJetPt = 0;
+    float v_evtLeadJetEta = 0;
+    float v_evtLeadJetPhi = 0;
+    float v_evtLeadJetNConst = 0;
 
     // Create branches for output tree
-    outputTree->Branch("tagJetdR", &v_tagdR, "tagJetdR/F");
     outputTree->Branch("tagMass", &v_tagMass, "tagMass/F");
     outputTree->Branch("tagPt", &v_tagPt, "tagPt/F");
     outputTree->Branch("tagEta", &v_tagEta, "tagEta/F");
-    outputTree->Branch("tagidxjet", &v_tag_idx_jet, "tagidxjet/F");
     outputTree->Branch("tag_ip_chi2", &v_tag_decVtxChi2, "tag_ip_chi2/F");
     outputTree->Branch("log_tag_ipchi2", &v_tag_logdecVtxChi2, "log_tag_ipchi2/F");
-    outputTree->Branch("jetPt", &v_jetPt, "jetPt/F");
-    outputTree->Branch("jetEta", &v_jetEta, "jetEta/F");
-    outputTree->Branch("jetnConst", &v_jetnConst, "jetnConst/F");
-    outputTree->Branch("tagZ", &v_tagZ, "tagZ/F");
+    if(jetMode == 1)
+    {
+        outputTree->Branch("tagJetdR", &v_tagdR, "tagJetdR/F");
+        outputTree->Branch("tagidxjet", &v_tag_idx_jet, "tagidxjet/F");
+        outputTree->Branch("jetPt", &v_jetPt, "jetPt/F");
+        outputTree->Branch("jetEta", &v_jetEta, "jetEta/F");
+        outputTree->Branch("jetnConst", &v_jetnConst, "jetnConst/F");
+        outputTree->Branch("tagZ", &v_tagZ, "tagZ/F");
+    }
+    else if (jetMode == 2)
+    {
+        outputTree->Branch("evtNJets", &v_evtNJets, "evtNJets/I");
+        outputTree->Branch("evtLeadJetPt", &v_evtLeadJetPt, "evtLeadJetPt/F");
+        outputTree->Branch("evtLeadJetEta", &v_evtLeadJetEta, "evtLeadJetEta/F");
+        outputTree->Branch("evtLeadJetPhi", &v_evtLeadJetPhi, "evtLeadJetPhi/F");
+        outputTree->Branch("evtLeadJetNConst", &v_evtLeadJetNConst, "evtLeadJetNConst/F");
+    }
     outputTree->Branch("piPprobNNpi", &v_piPprobNNpi, "piPprobNN/F");
     outputTree->Branch("piPprobGhost", &v_piPprobGhost, "piPprobGhost/F");
     outputTree->Branch("piPTrckChi2", &v_piPTrckChi2, "piPTrckChi2/F");
@@ -330,6 +428,42 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
         {
             continue; // Skip events with more than 1 primary vertex
         }
+        // Jet mode 2: require at least one jet in the event that satisfies pT/eta cuts
+        // and compute event-level jet info (leading jet + counts)
+        int evtNJets_pass = 0;
+        int evtLeadIdx = -1;
+        float evtLeadPt = -1.f;
+        float evtLeadEta = 0.f;
+        float evtLeadPhi = 0.f;
+        float evtLeadNConst = 0.f;
+        if (jetMode == 2)
+        {
+            if (jet_pt && jet_eta)
+            {
+                for (size_t ij = 0; ij < jet_pt->size(); ++ij)
+                {
+                    if ((*jet_pt)[ij] >= 5.0 && (*jet_eta)[ij] >= 2.5 && (*jet_eta)[ij] <= 4.0)
+                    {
+                        evtNJets_pass++;
+                        if ((*jet_pt)[ij] > evtLeadPt)
+                        {
+                            evtLeadPt = (*jet_pt)[ij];
+                            evtLeadIdx = static_cast<int>(ij);
+                        }
+                    }
+                }
+            }
+            if (evtNJets_pass == 0)
+            {
+                continue; // Skip events without a qualifying jet
+            }
+            if (evtLeadIdx >= 0)
+            {
+                evtLeadEta = (jet_eta && evtLeadIdx < (int)jet_eta->size()) ? (*jet_eta)[evtLeadIdx] : 0.f;
+                evtLeadPhi = (jet_phi && evtLeadIdx < (int)jet_phi->size()) ? (*jet_phi)[evtLeadIdx] : 0.f;
+                evtLeadNConst = (jet_n_const && evtLeadIdx < (int)jet_n_const->size()) ? (*jet_n_const)[evtLeadIdx] : 0.f;
+            }
+        }
 
 
         // Process each D0 in the event
@@ -346,16 +480,18 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
                 continue; // Mass window: ±50 MeV around nominal D0 mass
 
             // Check if D0 is associated with a jet
-            int jet_idx = (*d0_jet_idx)[i_d0];
-            if (jet_idx < 0)
-                continue; // Require associated jet
+            int jet_idx = -1;
+            if(jetMode == 1){
+                jet_idx = (*d0_jet_idx)[i_d0];
+                if (jet_idx < 0)
+                    continue; // Require associated jet
 
-            // Jet selection cuts
-            if ((*jet_pt)[jet_idx] < 5.0)
-                continue; // Minimum jet pT
-            if ((*jet_eta)[jet_idx] < 2.5 || (*jet_eta)[jet_idx] > 4.0)
-                continue; // Jet eta range
-
+                // Jet selection cuts for the associated jet
+                if ((*jet_pt)[jet_idx] < 5.0)
+                    continue; // Minimum jet pT
+                if ((*jet_eta)[jet_idx] < 2.5 || (*jet_eta)[jet_idx] > 4.0)
+                    continue; // Jet eta range
+            }
             // D0 vertex quality
             if ((*d0_vtx_chi2)[i_d0] > 10.0)
                 continue; // Require good vertex fit
@@ -457,17 +593,28 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
                 acceptanceMap->GetYaxis()->FindBin((*d0_eta)[i_d0]));
             float combined_eff_and_acceptance = combined_efficiency * acceptance;
             // Fill output variables
-            v_tagdR = (*d0_jet_dr)[i_d0];
             v_tagMass = (*d0_mass)[i_d0];
             v_tagPt = (*d0_pt)[i_d0];
             v_tagEta = (*d0_eta)[i_d0];
-            v_tag_idx_jet = jet_idx;
-            v_tag_decVtxChi2 = (*d0_ip_chi2)[i_d0];
             v_tag_logdecVtxChi2 = (*d0_ip_chi2)[i_d0] > 0 ? std::log10((*d0_ip_chi2)[i_d0]) : -999;
-            v_jetPt = (*jet_pt)[jet_idx];
-            v_jetEta = (*jet_eta)[jet_idx];
-            v_jetnConst = (*jet_n_const)[jet_idx];
-            v_tagZ = (*d0_z)[i_d0];
+            v_tag_decVtxChi2 = (*d0_ip_chi2)[i_d0];
+            if(jetMode == 1){
+                v_tagdR = (*d0_jet_dr)[i_d0];
+                v_tag_idx_jet = jet_idx;
+                v_jetPt = (*jet_pt)[jet_idx];
+                v_jetEta = (*jet_eta)[jet_idx];
+                v_jetnConst = (*jet_n_const)[jet_idx];
+                v_tagZ = (*d0_z)[i_d0];
+            }
+            else if (jetMode == 2)
+            {
+                // Save event-level jet info (same for all D0 in the event)
+                v_evtNJets = evtNJets_pass;
+                v_evtLeadJetPt = evtLeadPt > 0 ? evtLeadPt : 0.f;
+                v_evtLeadJetEta = evtLeadEta;
+                v_evtLeadJetPhi = evtLeadPhi;
+                v_evtLeadJetNConst = evtLeadNConst;
+            }
             v_KprobNNK = kaon_pnn_k;
             v_KprobGhost = kaon_ghost_prob;
             v_KTrckChi2 = kaon_chi2;
@@ -516,12 +663,13 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
     outputTree->Write();
     outputRoot->Write();
     outputRoot->Close();
-    inputRoot->Close();
+    if (inputRoot) inputRoot->Close();
+    if (inputChain) { delete inputChain; inputChain = nullptr; }
 
     std::cout << "Output saved to: " << fOutputFileName << std::endl;
 
     // Create response matrix tree if requested and processing MC
-    if (inputMC && buildResponse)
+    if (inputMC && buildResponse && (jetMode == 1))
     {
         std::cout << "Creating response matrix tree..." << std::endl;
         createResponseMatrix(fInputFileName, fOutputFileName.ReplaceAll("_filtered.root", "_response.root"));
@@ -533,21 +681,58 @@ void nTupleMaker(const char *inputFile = "", int inputMC = 1, bool responseOnly 
 // Function to create response matrix
 void createResponseMatrix(const char *inputFile, const char *outputFile)
 {
-    // Open input file
-    TFile *inputRoot = TFile::Open(inputFile, "READ");
-    if (!inputRoot || inputRoot->IsZombie())
-    {
-        std::cerr << "ERROR: Cannot open input file for response matrix: " << inputFile << std::endl;
-        return;
-    }
+    // Accept either a single ROOT file or a text file list to build a TChain
+    TFile *inputRoot = nullptr;
+    TChain *inputChain = nullptr;
+    TTree *inputTree = nullptr;
 
-    // Get input tree
-    TTree *inputTree = (TTree *)inputRoot->Get("d0jets");
-    if (!inputTree)
+    TString inPath(inputFile);
+    auto isListPath = [&](const TString &path) {
+        return path.EndsWith(".txt");
+    };
+
+    if (isListPath(inPath))
     {
-        std::cerr << "ERROR: Cannot find 'd0jets' tree in input file" << std::endl;
-        inputRoot->Close();
-        return;
+        inputChain = new TChain("d0jets");
+        std::ifstream listFile(inPath.Data());
+        if (!listFile.is_open()) {
+            std::cerr << "ERROR: Cannot open input list file for response matrix: " << inputFile << std::endl;
+            return;
+        }
+        std::string line;
+        int added = 0;
+        while (std::getline(listFile, line)) {
+            if (line.empty()) continue;
+            if (line[0] == '#') continue;
+            TString fpath(line.c_str());
+            fpath = fpath.Strip(TString::kBoth, ' ');
+            if (fpath.Length() == 0) continue;
+            Long64_t nAdded = inputChain->Add(fpath.Data());
+            if (nAdded > 0) ++added; else std::cerr << "[WARN] Failed to add file to chain (response): " << fpath << std::endl;
+        }
+        if (added == 0 || inputChain->GetListOfFiles()->GetEntries() == 0) {
+            std::cerr << "ERROR: TChain is empty in response matrix — no valid files added from list: " << inputFile << std::endl;
+            delete inputChain;
+            return;
+        }
+        inputTree = inputChain;
+    }
+    else
+    {
+        inputRoot = TFile::Open(inputFile, "READ");
+        if (!inputRoot || inputRoot->IsZombie())
+        {
+            std::cerr << "ERROR: Cannot open input file for response matrix: " << inputFile << std::endl;
+            if (inputRoot) inputRoot->Close();
+            return;
+        }
+        inputTree = (TTree *)inputRoot->Get("d0jets");
+        if (!inputTree)
+        {
+            std::cerr << "ERROR: Cannot find 'd0jets' tree in input file" << std::endl;
+            inputRoot->Close();
+            return;
+        }
     }
 
     // Create output file
@@ -569,6 +754,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     float r_jet_nconst_det = 0;
     float r_d0_pt_det = 0;
     float r_d0_eta_det = 0;
+    float r_d0_y_det = 0;
     float r_d0_phi_det = 0;
     float r_d0_mass_det = 0;
     float r_d0_z_det = 0;
@@ -579,6 +765,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     float r_jet_nconst_mc = 0;
     float r_d0_pt_mc = 0;
     float r_d0_eta_mc = 0;
+    float r_d0_y_mc = 0;
     float r_d0_phi_mc = 0;
     float r_d0_mass_mc = 0;
     float r_d0_z_mc = 0;
@@ -596,6 +783,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     responseTree->Branch("jet_nconst_det", &r_jet_nconst_det, "jet_nconst_det/F");
     responseTree->Branch("d0_pt_det", &r_d0_pt_det, "d0_pt_det/F");
     responseTree->Branch("d0_eta_det", &r_d0_eta_det, "d0_eta_det/F");
+    responseTree->Branch("d0_y_det", &r_d0_y_det, "d0_y_det/F");
     responseTree->Branch("d0_phi_det", &r_d0_phi_det, "d0_phi_det/F");
     responseTree->Branch("d0_mass_det", &r_d0_mass_det, "d0_mass_det/F");
     responseTree->Branch("d0_z_det", &r_d0_z_det, "d0_z_det/F");
@@ -606,6 +794,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     responseTree->Branch("jet_nconst_mc", &r_jet_nconst_mc, "jet_nconst_mc/F");
     responseTree->Branch("d0_pt_mc", &r_d0_pt_mc, "d0_pt_mc/F");
     responseTree->Branch("d0_eta_mc", &r_d0_eta_mc, "d0_eta_mc/F");
+    responseTree->Branch("d0_y_mc", &r_d0_y_mc, "d0_y_mc/F");
     responseTree->Branch("d0_phi_mc", &r_d0_phi_mc, "d0_phi_mc/F");
     responseTree->Branch("d0_mass_mc", &r_d0_mass_mc, "d0_mass_mc/F");
     responseTree->Branch("d0_z_mc", &r_d0_z_mc, "d0_z_mc/F");
@@ -625,6 +814,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
 
     std::vector<float> *d0_pt = nullptr;
     std::vector<float> *d0_eta = nullptr;
+    std::vector<float> *d0_e = nullptr;
+    std::vector<float> *d0_pz = nullptr;
     std::vector<float> *d0_phi = nullptr;
     std::vector<float> *d0_mass = nullptr;
     std::vector<int> *d0_jet_idx = nullptr;
@@ -641,6 +832,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     std::vector<int> *mc_d0_pid = nullptr;
     std::vector<float> *mc_d0_pt = nullptr;
     std::vector<float> *mc_d0_eta = nullptr;
+    std::vector<float> *mc_d0_e = nullptr;
+    std::vector<float> *mc_d0_pz = nullptr;
     std::vector<float> *mc_d0_phi = nullptr;
     std::vector<float> *mc_d0_mass = nullptr;
     std::vector<int> *mc_d0_origin = nullptr;
@@ -674,6 +867,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
 
     inputTree->SetBranchAddress("d0_pt", &d0_pt);
     inputTree->SetBranchAddress("d0_eta", &d0_eta);
+    inputTree->SetBranchAddress("d0_e", &d0_e);
+    inputTree->SetBranchAddress("d0_pz", &d0_pz);
     inputTree->SetBranchAddress("d0_phi", &d0_phi);
     inputTree->SetBranchAddress("d0_mass", &d0_mass);
     inputTree->SetBranchAddress("d0_jet_idx", &d0_jet_idx);
@@ -690,6 +885,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     inputTree->SetBranchAddress("mc_d0_pid", &mc_d0_pid);
     inputTree->SetBranchAddress("mc_d0_pt", &mc_d0_pt);
     inputTree->SetBranchAddress("mc_d0_eta", &mc_d0_eta);
+    inputTree->SetBranchAddress("mc_d0_e", &mc_d0_e);
+    inputTree->SetBranchAddress("mc_d0_pz", &mc_d0_pz);
     inputTree->SetBranchAddress("mc_d0_phi", &mc_d0_phi);
     inputTree->SetBranchAddress("mc_d0_mass", &mc_d0_mass);
     inputTree->SetBranchAddress("mc_d0_origin", &mc_d0_origin);
@@ -783,6 +980,13 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             // MC truth info
             r_d0_pt_mc = (*mc_d0_pt)[iMC];
             r_d0_eta_mc = (*mc_d0_eta)[iMC];
+            float d0_mc_rapidity = 0;
+            if ((*mc_d0_e)[iMC] > (*mc_d0_pz)[iMC]) {
+                d0_mc_rapidity = 0.5 * log(((*mc_d0_e)[iMC] + (*mc_d0_pz)[iMC]) / ((*mc_d0_e)[iMC] - (*mc_d0_pz)[iMC]));
+            } else {
+                d0_mc_rapidity = -999; // Assign an invalid value if rapidity cannot be calculated
+            }
+            r_d0_y_mc = d0_mc_rapidity;
             r_d0_phi_mc = (*mc_d0_phi)[iMC];
             r_d0_mass_mc = (*mc_d0_mass)[iMC];
             r_d0_z_mc = (*mc_d0_z)[iMC];
@@ -851,6 +1055,13 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             r_d0_phi_det = (*d0_phi)[matched_d0_idx];
             r_d0_mass_det = (*d0_mass)[matched_d0_idx];
             r_d0_z_det = (*d0_z)[matched_d0_idx];
+            float d0_det_rapidity = 0;
+            if ((*d0_e)[matched_d0_idx] > (*d0_pz)[matched_d0_idx]) {
+                d0_det_rapidity = 0.5 * log(((*d0_e)[matched_d0_idx] + (*d0_pz)[matched_d0_idx]) / ((*d0_e)[matched_d0_idx] - (*d0_pz)[matched_d0_idx]));
+            } else {
+                d0_det_rapidity = -999; // Assign an invalid value if rapidity cannot be calculated
+            }
+            r_d0_y_det = d0_det_rapidity;
 
             // Reconstructed jet info
             if (reco_jet_idx < (int)jet_pt->size())
@@ -1017,7 +1228,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     outputRoot->cd();
     responseTree->Write();
     outputRoot->Close();
-    inputRoot->Close();
+    if (inputRoot) inputRoot->Close();
+    if (inputChain) { delete inputChain; inputChain = nullptr; }
 
     std::cout << "Response matrix saved to: " << outputFile << std::endl;
 }

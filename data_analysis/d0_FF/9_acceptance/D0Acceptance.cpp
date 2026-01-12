@@ -7,8 +7,16 @@
 #include "TH2D.h"
 #include "TString.h"
 #include "TCanvas.h"
+#include "TChain.h"
+#include <filesystem>
+#include <ctime>
 
-void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", TString outputFile = "D0AcceptanceMap_pPb.root") {
+void D0Acceptance(
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/52/52.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/53/53.root",
+    // TString outputFile = "D0AcceptanceMap_Pbp.root") {
+    TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root",
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root",
+    TString outputFile = "D0AcceptanceMap_pPb_54.root") {
 
     // Kinematic selection
     double minPt = 0.0, maxPt = 60.0;
@@ -17,15 +25,43 @@ void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/202
     // Daughter acceptance
     double dauMinEta = 2.0, dauMaxEta = 5.0;
 
-    // Open file and tree
-    TFile* f = TFile::Open(inputFile, "READ");
-    if (!f || f->IsZombie()) {
-        std::cerr << "Error: Could not open input file " << inputFile << std::endl;
+    // Build a TChain so multiple input files (comma-separated) can be processed
+    TChain chain("d0jets");
+    std::string inStr = std::string(inputFile.Data());
+    // split on commas
+    auto trim = [](std::string &s) {
+        // ltrim
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        // rtrim
+        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
+    };
+    std::size_t added = 0;
+    size_t start = 0;
+    while (start < inStr.size()) {
+        size_t pos = inStr.find(',', start);
+        std::string part = (pos == std::string::npos) ? inStr.substr(start) : inStr.substr(start, pos - start);
+        trim(part);
+        if (!part.empty()) {
+            if (std::filesystem::exists(part)) {
+                chain.Add(part.c_str());
+                ++added;
+            } else {
+                // still add — TChain will try to open; but warn the user
+                std::cerr << "Warning: input file does not exist (yet): '" << part << "' — TChain will still attempt to open it when reading." << std::endl;
+                chain.Add(part.c_str());
+                ++added;
+            }
+        }
+        if (pos == std::string::npos) break;
+        start = pos + 1;
+    }
+    if (added == 0) {
+        std::cerr << "Error: no input files provided or found for '" << inStr << "'" << std::endl;
         return;
     }
-    TTree* t = (TTree*)f->Get("d0jets");
+    TTree* t = &chain; // TChain inherits from TTree
     if (!t) {
-        std::cerr << "Error: Could not find tree 'd0jets' in input file" << std::endl;
+        std::cerr << "Error: failed to create TChain for 'd0jets'" << std::endl;
         return;
     }
 
@@ -133,26 +169,47 @@ void D0Acceptance(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/202
 
 
 
-    // Write to output file
-    TFile* fout = TFile::Open(outputFile, "RECREATE");
+    // Prepare dated output directory (based on outputFile stem)
+    std::string outFileStr = std::string(outputFile.Data());
+    std::filesystem::path outPathObj(outFileStr);
+    std::string baseName = outPathObj.stem().string();
+    // current date YYYY-MM-DD
+    std::time_t timec = std::time(nullptr);
+    char dateBuf[32] = {0};
+    if (std::tm* lt = std::localtime(&timec)) {
+        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", lt);
+    } else {
+        std::snprintf(dateBuf, sizeof(dateBuf), "unknown-date");
+    }
+    std::string outDir = baseName + "_" + std::string(dateBuf);
+    try {
+        std::filesystem::create_directories(outDir);
+    } catch (...) {
+        std::cerr << "Warning: failed to create output directory '" << outDir << "' - will attempt to write files to current directory\n";
+        outDir = ".";
+    }
+
+    // Write to output file inside dated directory
+    std::string outRootPath = outDir + "/" + outPathObj.filename().string();
+    TFile* fout = TFile::Open(outRootPath.c_str(), "RECREATE");
     hDen->Write();
     hNum->Write();
     hAcc->Write();
     fout->Close();
 
-    // Plot the acceptance map
+    // Plot the acceptance map and save into dated folder
     TCanvas* cAcc = new TCanvas("cAcc", "D0 Acceptance Map", 800, 600);
     hAcc->SetStats(0);
     hAcc->GetZaxis()->SetTitle("Acceptance");
     hAcc->Draw("COLZ");
     cAcc->SetRightMargin(0.15);
-    TString pngName = "D0AcceptanceMap.png";
-    TString pdfName = "D0AcceptanceMap.pdf";
-    cAcc->SaveAs(pngName);
-    cAcc->SaveAs(pdfName);
+    std::string pngName = outDir + "/" + baseName + "_acceptance.png";
+    std::string pdfName = outDir + "/" + baseName + "_acceptance.pdf";
+    cAcc->SaveAs(pngName.c_str());
+    cAcc->SaveAs(pdfName.c_str());
     std::cout << "Saved acceptance map plot: " << pngName << std::endl;
     delete cAcc;
 
-    f->Close();
+    // f->Close();
     return;
 }

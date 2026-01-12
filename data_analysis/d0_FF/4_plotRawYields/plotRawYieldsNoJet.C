@@ -199,6 +199,8 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     std::cout << "Start Plots for D0 in pT range: " << ptString << std::endl;
     std::cout << "- - - - - - - - - - - - - - - - -" << std::endl;
     
+    // Normalize pt range: NoJet outputs are inclusive; default to "inclusive" if empty
+    if (ptString.empty()) ptString = "inclusive";
     // Format pT range display string
     ptRange = ptString;
     std::replace(ptRange.begin(), ptRange.end(), '_', '-');
@@ -213,22 +215,26 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     }
     
     // Prepare input file path
-    // Try to locate the latest dated output directory created by MassFitter (e.g. D0_FF_DATA_YYYY-MM-DD[_beamTag])
+    // Try to locate the latest dated output directory created by MassFitterNoJet
+    // New default: D0_INCL_DATA_YYYY-MM-DD[_beamTag] or D0_INCL_MC_YYYY-MM-DD[_beamTag]
+    // Backward-compatible fallback: D0_FF_DATA_* or D0_FF_MC_*
     std::string parentDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData";
-    std::string baseName = isMC ? "D0_FF_MC" : "D0_FF_DATA";
-    std::string selectedDirName = "";
+    const std::string prefIncl = isMC ? "D0_INCL_MC_" : "D0_INCL_DATA_";
+    const std::string prefLegacy = isMC ? "D0_FF_MC_"   : "D0_FF_DATA_";
+    const std::string undatedIncl = isMC ? "D0_INCL_MC" : "D0_INCL_DATA";
+    const std::string undatedLegacy = isMC ? "D0_FF_MC" : "D0_FF_DATA";
+
+    std::string selectedIncl = "";
+    std::string selectedLegacy = "";
 
     try {
         for (const auto& entry : std::filesystem::directory_iterator(parentDir)) {
             if (!entry.is_directory()) continue;
             std::string name = entry.path().filename().string();
-            // Match directories that start with baseName + "_" (dated directories)
-            std::string prefix = baseName + "_";
-            if (name.rfind(prefix, 0) == 0) {
-                // choose lexicographically largest (YYYY-MM-DD sorts correctly)
-                if (selectedDirName.empty() || name > selectedDirName) {
-                    selectedDirName = name;
-                }
+            if (name.rfind(prefIncl, 0) == 0) {
+                if (selectedIncl.empty() || name > selectedIncl) selectedIncl = name;
+            } else if (name.rfind(prefLegacy, 0) == 0) {
+                if (selectedLegacy.empty() || name > selectedLegacy) selectedLegacy = name;
             }
         }
     } catch (const std::exception& e) {
@@ -236,13 +242,25 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     }
 
     std::string basepath;
-    if (!selectedDirName.empty()) {
-        basepath = parentDir + "/" + selectedDirName;
-        std::cout << "Using dated MassFitter output directory: " << basepath << std::endl;
+    if (!selectedIncl.empty()) {
+        basepath = parentDir + "/" + selectedIncl;
+        std::cout << "Using dated NoJet output directory: " << basepath << std::endl;
+    } else if (!selectedLegacy.empty()) {
+        basepath = parentDir + "/" + selectedLegacy;
+        std::cout << "Using legacy dated output directory: " << basepath << std::endl;
     } else {
-        // Fallback to legacy non-dated path
-        basepath = parentDir + "/" + baseName;
-        std::cout << "No dated MassFitter output found, falling back to: " << basepath << std::endl;
+        // Fallback to undated directories if present, prefer INCL naming
+        if (std::filesystem::exists(parentDir + "/" + undatedIncl)) {
+            basepath = parentDir + "/" + undatedIncl;
+            std::cout << "No dated output found, falling back to undated (INCL): " << basepath << std::endl;
+        } else if (std::filesystem::exists(parentDir + "/" + undatedLegacy)) {
+            basepath = parentDir + "/" + undatedLegacy;
+            std::cout << "No dated output found, falling back to undated (legacy): " << basepath << std::endl;
+        } else {
+            // Final fallback preserves previous behavior for robustness
+            basepath = parentDir + "/" + undatedIncl;
+            std::cout << "No matching output directory found; attempting: " << basepath << std::endl;
+        }
     }
     std::string rootFileName = basepath + "/FitParametersUnBinnedD0" + obsTag + "_" + ptString + ".root";
     TFile* fInFileHisto = nullptr;
@@ -848,8 +866,11 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
     myLegend0->SetMargin(0.25);
     myLegend0->SetTextSize(0.04);
     
-    myLegend0->AddEntry(myBlankHisto2, "Anti-#it{k}_{T} #it{R} = 0.5, #it{#eta}_{jet}= 2.5-4", "");
-    myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
+    // Only add jet/algorithm legend details for zT mode
+    if (obsTag == "zT") {
+        myLegend0->AddEntry(myBlankHisto2, "Anti-#it{k}_{T} #it{R} = 0.5, #it{#eta}_{jet}= 2.5-4", "");
+        myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
+    }
     myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>2 (GeV/#it{c})", "");
     
     TLatex* collaboration = new TLatex(0.62, 0.88, "#bf{LHCb} in progress");
@@ -904,9 +925,9 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     // Set pad and histo arrangement
     TPad* myPad2 = new TPad("myPad", "The pad", 0, 0, 1, 1);
     myPad2->SetLeftMargin(0.15);
-    myPad2->SetTopMargin(0.06);
-    myPad2->SetRightMargin(0.04);
-    myPad2->SetBottomMargin(0.15);
+    myPad2->SetTopMargin(0.01);
+    myPad2->SetRightMargin(0.01);
+    myPad2->SetBottomMargin(0.10);
     myPad2->SetTicks();
     myPad2->Draw();
     
@@ -1001,12 +1022,31 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     myLegend1->SetMargin(0.25);
     myLegend1->SetTextSize(0.04);
     
-    myLegend1->AddEntry(yieldArray[0], " #it{p}_{T}^{jet}:", "");
-    
-    for (size_t i = 0; i < yieldArray.size(); i++) {
-        std::string displayPt = pTArray[i];
-        std::replace(displayPt.begin(), displayPt.end(), '_', '-');
-        myLegend1->AddEntry(yieldArray[i], Form("  %s (GeV/%s)", displayPt.c_str(), "#it{c}"), "LP");
+    if (obsTag == "zT") {
+        myLegend1->AddEntry(yieldArray[0], " #it{p}_{T}^{jet}:", "");
+        for (size_t i = 0; i < yieldArray.size(); i++) {
+            std::string displayPt = pTArray[i];
+            std::replace(displayPt.begin(), displayPt.end(), '_', '-');
+            myLegend1->AddEntry(yieldArray[i], Form("  %s (GeV/%s)", displayPt.c_str(), "#it{c}"), "LP");
+        }
+    } else {
+        // No jet pT binning: do not display pT range values
+        for (size_t i = 0; i < yieldArray.size(); i++) {
+            std::string label;
+            if (i < pTArray.size()) {
+                std::string txt = pTArray[i];
+                std::string low;
+                low.resize(txt.size());
+                std::transform(txt.begin(), txt.end(), low.begin(), ::tolower);
+                if (low == "inclusive" || low == "incl" || txt.empty()) {
+                    label = "inclusive";
+                }
+            }
+            if (label.empty()) {
+                label = std::string("set ") + std::to_string(static_cast<int>(i + 1));
+            }
+            myLegend1->AddEntry(yieldArray[i], label.c_str(), "LP");
+        }
     }
     
     TLatex* collaboration = new TLatex(0.62, 0.88, "#bf{LHCb} in progress");
@@ -2068,7 +2108,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     // Legend about different contributions
     TLegend* myLegend1;
     if (obsTag.find("Y") != std::string::npos) {
-        myLegend1 = new TLegend(0.55, 0.47, 0.6, 0.59);
+        myLegend1 = new TLegend(0.65, 0.27, 0.7, 0.39);
     } else {
         myLegend1 = new TLegend(0.2, 0.59, 0.4, 0.7);
     }
@@ -2128,7 +2168,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     // Set y-axis title and range
     if (obsTag.find("Y") != std::string::npos) {
         myBlankHisto2->SetYTitle("dN/d#it{y}");
-        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*4);
+        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*10);
         myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
         // if (normType == 1) {
         //     myBlankHisto2->GetYaxis()->SetRangeUser(1, 100000);
@@ -2169,7 +2209,9 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     myLegend1->AddEntry(gpromt, " prompt yield", "LP");
     myLegend1->AddEntry(gNpromt, " non-prompt yield", "LP");
     
-    myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
+    if (obsTag == "zT") {
+        myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
+    }
     myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>2 (GeV/#it{c})", "");
     
     myLegend1->Draw();
@@ -2236,11 +2278,11 @@ TGraphErrors* PlotGraphsObject::create_constant_graph(double value, const std::s
 }
 
 // Implementation of plotRawYields function
-void plotRawYields(const std::string& ptRange = "", bool isZt = true, bool isMC = false) {
+void plotRawYieldsNoJet(const std::string& ptRange = "", bool isZt = false, bool isMC = false) {
     std::cout << "is binned var" << std::endl;
     
     // std::vector<std::string> pTRangeArray = {"7_50"};
-    std::vector<std::string> pTRangeArray = {"5_10", "10_15", "15_20", "20_30", "30_50"};
+    std::vector<std::string> pTRangeArray = {""};
     // std::vector<std::string> pTRangeArray = {"5_8", "8_11", "11_15", "15_20", "20_25", "25_30", "30_40", "40_60"};
     std::vector<TGraphErrors*> yieldArray;
     std::vector<TGraphErrors*> yieldArrayP;

@@ -170,7 +170,8 @@ std::pair<std::string, std::string> RMplotter::setupInputOutput() {
     std::string inputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/3_makeResponseMatrix";
     
     // Input file path
-    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/response.root";
+    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53to56_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665_response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_allMC.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_allMC.root";
@@ -179,8 +180,13 @@ std::pair<std::string, std::string> RMplotter::setupInputOutput() {
     
     std::cout << "Found file: " << fFileName << std::endl;
     
-    // Output directory
-    std::string outputDirFig = inputDir + "/D0_FF_ResMatr/";
+    // Output directory with current date stamp (YYYYMMDD)
+    std::time_t t = std::time(nullptr);
+    std::tm tm = *std::localtime(&t);
+    char dateBuf[16];
+    std::strftime(dateBuf, sizeof(dateBuf), "%Y%m%d", &tm);
+    std::string outputDirFig = inputDir + "/D0_FF_ResMatr_" + dateBuf + "/";
+    std::cout << "Using output directory: " << outputDirFig << std::endl;
     
     // Create output directory if it doesn't exist
     struct stat info;
