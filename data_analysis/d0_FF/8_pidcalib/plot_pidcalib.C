@@ -11,7 +11,7 @@
 #include <cstdio>
 
 // Updated: added optional species and cut parameters to display on the plot
-void plot_pidcalib(const char* filename = "pidcalib_output_pA_09_pEta_pi/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root",
+void plot_pidcalib(const char* filename = "/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_20250319/pidcalib/pidcalib_output_Ap_09_pEta_pi/effhists-ApTurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root",
                    const char* histname = "eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3",
                    const char* species = "",             // "pi" or "K" (auto-detected from histname when empty)
                    double probNNcut = -1.0,               // if <0, will attempt to parse or leave blank
@@ -41,20 +41,24 @@ void plot_pidcalib(const char* filename = "pidcalib_output_pA_09_pEta_pi/effhist
   }
 
   // retrieve histogram (works for TH2D/TH2F via TH2 base)
-  TH2* h = dynamic_cast<TH2*>(f->Get(histname));
+  TH2D* h = dynamic_cast<TH2D*>(f->Get(histname));
   if (!h) {
     std::printf("ERROR: histogram '%s' not found in '%s'. Keys in file:\n", histname, filename);
     f->ls();
     return;
   }
 
-  // build dated output directory: plots/YYYY-MM-DD
-  std::time_t t = std::time(nullptr);
-  std::tm tm = *std::localtime(&t);
-  char datestr[32];
-  std::strftime(datestr, sizeof(datestr), "%Y-%m-%d", &tm);
-  TString outdir = TString::Format("plots/%s", datestr);
-  gSystem->mkdir(outdir.Data(), kTRUE); // recursive
+  // place outputs in the same directory as the input file
+  std::string fname(filename);
+  std::string outdir;
+  size_t pos = fname.find_last_of("/\\");
+  if (pos == std::string::npos) {
+    outdir = "."; // current directory
+  } else {
+    outdir = fname.substr(0, pos);
+  }
+  // ensure directory exists (no-op if it does)
+  gSystem->mkdir(outdir.c_str(), kTRUE);
 
   // optional: set axis titles appropriate for PID efficiency (edit as needed)
   // h->SetTitle("PID efficiency; momentum p [GeV/c]; p_{T} [GeV/c]");
@@ -69,12 +73,23 @@ void plot_pidcalib(const char* filename = "pidcalib_output_pA_09_pEta_pi/effhist
     c->SetTickx();
     c->SetTicky();
   h->SetTitle("");
-  h->GetXaxis()->SetTitle(Form("#it{p}^{%s} [GeV/#it{c}]", partPlot.Data()));
+  h->GetXaxis()->SetTitle(Form("#it{p}^{%s} [MeV/#it{c}]", partPlot.Data()));
   h->GetYaxis()->SetTitleOffset(0.8);
   h->GetYaxis()->SetTitle(Form("#eta^{%s}", partPlot.Data()));
   h->GetZaxis()->SetTitle(Form("PID efficiency for %s", part.Data()));
   h->GetZaxis()->SetRangeUser(0.0, 1.0); // efficiency range
+  h->GetXaxis()->SetRangeUser(2000,100000);
   h->Draw("colz");
+  // // Draw a cropped view so the canvas only shows the requested momentum window.
+  // std::unique_ptr<TH2D> hview(dynamic_cast<TH2D*>(h->Clone("h_pid_view")));
+  // if (!hview) {
+  //   std::printf("ERROR: could not clone histogram '%s'\n", histname);
+  //   return;
+  // }
+  // const int firstXBin = hview->GetXaxis()->FindBin(2.0 + 1e-9);
+  // const int lastXBin = hview->GetXaxis()->FindBin(100.0 - 1e-9);
+  // hview->GetXaxis()->SetRange(firstXBin, lastXBin);
+  // hview->Draw("colz");
 
   // prepare TLatex and draw labels
   TLatex tex;
@@ -145,10 +160,10 @@ void plot_pidcalib(const char* filename = "pidcalib_output_pA_09_pEta_pi/effhist
   if (cutsLabel.Length()>0) tex.DrawLatexNDC(0.12, 0.86, cutsLabel);
 
   // nice colorbar sizing (optional)
-  c->Update();
+  // c->Update();
 
   // save outputs
-  TString base = outdir + "/" + TString(histname);
+  TString base = TString(outdir.c_str()) + "/" + TString(histname);
   c->SaveAs(base + ".png");
   c->SaveAs(base + ".pdf");
 

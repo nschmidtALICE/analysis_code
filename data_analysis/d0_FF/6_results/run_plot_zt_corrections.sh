@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Loop over jet pT ranges and rapidity bins (0..7)
-BASE_DIR="/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA"
+BASE_DIR="/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2026-01-26_Pbp"
 pt_pairs=("5_10" "10_15" "15_20" "20_30" "30_50")
 for pt in "${pt_pairs[@]}"; do
 	for bin in {0..7}; do

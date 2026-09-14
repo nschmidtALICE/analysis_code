@@ -10,13 +10,52 @@
 #include "TChain.h"
 #include <filesystem>
 #include <ctime>
+#include <fstream>
 
 void D0Acceptance(
-    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/52/52.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/53/53.root",
-    // TString outputFile = "D0AcceptanceMap_Pbp.root") {
-    TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root",
     // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root",
-    TString outputFile = "D0AcceptanceMap_pPb_54.root") {
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/73_EPOS_Fix3_pPb.txt",
+    // TString outputFile = "D0AcceptanceMap_pPb_73.root")
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pPb_MC_54plus73_EPOS.txt",
+    // TString outputFile = "D0AcceptanceMap_pPb_54plus73_150bins.root")
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/11_12_pPb_EPOS_Fix1a3.txt",
+    // TString outputFile = "D0AcceptanceMap_pPb_11_12_150bins.root")
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/74_EPOS_Fix4_Pbp.txt",
+    // TString outputFile = "D0AcceptanceMap_Pbp_74.root")
+    TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/15_16_Pbp_EPOS_Fix1a4.txt",
+    TString outputFile = "D0AcceptanceMap_Pbp_15_16_150bins.root")
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/1_pp_MC.txt",
+    // TString outputFile = "D0AcceptanceMap_pp_1_full.root") 
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/74_75_EPOS_Pbp.txt",
+    // TString outputFile = "D0AcceptanceMap_Pbp_74_75.root")
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/73_74_EPOS_MBandTrigg_Pbp.txt",
+    // TString outputFile = "D0AcceptanceMap_Pbp_73_74_v2.root")
+{
+    std::cout << "Calculating D0 acceptance map..." << std::endl;
+    std::cout << "Input file(s): " << inputFile << std::endl;
+    std::cout << "Output file: " << outputFile << std::endl;
+
+
+    // Prepare dated output directory (based on outputFile stem)
+    std::string outFileStr = std::string(outputFile.Data());
+    std::filesystem::path outPathObj(outFileStr);
+    std::string baseName = outPathObj.stem().string();
+    // current date YYYY-MM-DD
+    std::time_t timec = std::time(nullptr);
+    char dateBuf[32] = {0};
+    if (std::tm* lt = std::localtime(&timec)) {
+        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", lt);
+    } else {
+        std::snprintf(dateBuf, sizeof(dateBuf), "unknown-date");
+    }
+    std::string outDir = baseName + "_" + std::string(dateBuf);
+    try {
+        std::filesystem::create_directories(outDir);
+    } catch (...) {
+        std::cerr << "Warning: failed to create output directory '" << outDir << "' - will attempt to write files to current directory\n";
+        outDir = ".";
+    }
+
 
     // Kinematic selection
     double minPt = 0.0, maxPt = 60.0;
@@ -25,35 +64,59 @@ void D0Acceptance(
     // Daughter acceptance
     double dauMinEta = 2.0, dauMaxEta = 5.0;
 
-    // Build a TChain so multiple input files (comma-separated) can be processed
+    // Build a TChain. Accept either a comma-separated list of ROOT files
+    // or a single .txt file listing one input ROOT file path per line.
     TChain chain("d0jets");
-    std::string inStr = std::string(inputFile.Data());
-    // split on commas
     auto trim = [](std::string &s) {
-        // ltrim
         s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !std::isspace(ch); }));
-        // rtrim
         s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
     };
     std::size_t added = 0;
-    size_t start = 0;
-    while (start < inStr.size()) {
-        size_t pos = inStr.find(',', start);
-        std::string part = (pos == std::string::npos) ? inStr.substr(start) : inStr.substr(start, pos - start);
-        trim(part);
-        if (!part.empty()) {
-            if (std::filesystem::exists(part)) {
-                chain.Add(part.c_str());
+    std::string inStr = std::string(inputFile.Data());
+
+    if (inputFile.EndsWith(".txt")) {
+        // Open the text file and add each non-empty, non-comment line as an input path
+        std::ifstream listFile(inStr);
+        if (!listFile.is_open()) {
+            std::cerr << "ERROR: Cannot open input list file: " << inStr << std::endl;
+            return;
+        }
+        std::string line;
+        while (std::getline(listFile, line)) {
+            trim(line);
+            if (line.empty()) continue;
+            if (line.size() > 0 && line[0] == '#') continue;
+            if (std::filesystem::exists(line)) {
+                chain.Add(line.c_str());
                 ++added;
+                std::cout << "Added input file from list: " << line << std::endl;
             } else {
-                // still add — TChain will try to open; but warn the user
-                std::cerr << "Warning: input file does not exist (yet): '" << part << "' — TChain will still attempt to open it when reading." << std::endl;
-                chain.Add(part.c_str());
+                std::cerr << "Warning: listed input file does not exist (yet): '" << line << "' — TChain will still attempt to open it when reading." << std::endl;
+                chain.Add(line.c_str());
                 ++added;
             }
         }
-        if (pos == std::string::npos) break;
-        start = pos + 1;
+    } else {
+        // Comma-separated list provided inline in the argument
+        size_t start = 0;
+        while (start < inStr.size()) {
+            size_t pos = inStr.find(',', start);
+            std::string part = (pos == std::string::npos) ? inStr.substr(start) : inStr.substr(start, pos - start);
+            trim(part);
+            if (!part.empty()) {
+                if (std::filesystem::exists(part)) {
+                    chain.Add(part.c_str());
+                    ++added;
+                    std::cout << "Added input file: " << part << std::endl;
+                } else {
+                    std::cerr << "Warning: input file does not exist (yet): '" << part << "' — TChain will still attempt to open it when reading." << std::endl;
+                    chain.Add(part.c_str());
+                    ++added;
+                }
+            }
+            if (pos == std::string::npos) break;
+            start = pos + 1;
+        }
     }
     if (added == 0) {
         std::cerr << "Error: no input files provided or found for '" << inStr << "'" << std::endl;
@@ -105,7 +168,7 @@ void D0Acceptance(
     std::cout << "Branches set up successfully." << std::endl;
 
     // Define binning for pt and eta
-    const int nPtBins = 300;
+    const int nPtBins = 150;
     const int nEtaBins = 25;
     double ptBins[nPtBins+1];
     double etaBins[nEtaBins+1];
@@ -123,13 +186,28 @@ void D0Acceptance(
     int nD0WithDausInAcc = 0;
 
     std::cout << "Processing " << nEntries << " entries..." << std::endl;
+
+    // Compact in-place progress bar helper
+    auto printProgress = [](Long64_t current, Long64_t total) {
+        const int barWidth = 50;
+        double fraction = total > 0 ? double(current + 1) / double(total) : 1.0;
+        int pos = static_cast<int>(barWidth * fraction);
+        std::cout << "\r[";
+        for (int i = 0; i < barWidth; ++i) {
+            if (i < pos) std::cout << "=";
+            else if (i == pos) std::cout << ">";
+            else std::cout << " ";
+        }
+        std::cout << "] " << static_cast<int>(fraction * 100.0) << "% (" << (current + 1) << "/" << total << ")" << std::flush;
+        if (current + 1 == total) std::cout << std::endl;
+    };
+
+    Long64_t updateInterval = nEntries / 200; // ~200 updates across the run
+    if (updateInterval < 1) updateInterval = 1;
+
     for (Long64_t entry = 0; entry < nEntries; ++entry) {
         t->GetEntry(entry);
-        //progress
-        if (entry % 50000 == 0) {
-            std::cout << "Processing entry " << entry << "/" << nEntries 
-                      << " (" << (100.0 * entry / nEntries) << "%)" << std::endl;
-        }
+        if (entry % updateInterval == 0 || entry + 1 == nEntries) printProgress(entry, nEntries);
         size_t nD0 = mc_d0_pid->size();
         for (size_t i = 0; i < nD0; ++i) {
             // Only D0 or anti-D0
@@ -168,26 +246,6 @@ void D0Acceptance(
     hAcc->Divide(hDen);
 
 
-
-    // Prepare dated output directory (based on outputFile stem)
-    std::string outFileStr = std::string(outputFile.Data());
-    std::filesystem::path outPathObj(outFileStr);
-    std::string baseName = outPathObj.stem().string();
-    // current date YYYY-MM-DD
-    std::time_t timec = std::time(nullptr);
-    char dateBuf[32] = {0};
-    if (std::tm* lt = std::localtime(&timec)) {
-        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", lt);
-    } else {
-        std::snprintf(dateBuf, sizeof(dateBuf), "unknown-date");
-    }
-    std::string outDir = baseName + "_" + std::string(dateBuf);
-    try {
-        std::filesystem::create_directories(outDir);
-    } catch (...) {
-        std::cerr << "Warning: failed to create output directory '" << outDir << "' - will attempt to write files to current directory\n";
-        outDir = ".";
-    }
 
     // Write to output file inside dated directory
     std::string outRootPath = outDir + "/" + outPathObj.filename().string();

@@ -28,6 +28,7 @@
 #include "TF1.h"
 #include "TPad.h"
 #include "TSystem.h"
+#include "TRandom3.h"
 
 // RooFit includes
 #include "RooRealVar.h"
@@ -61,11 +62,16 @@ private:
     std::string outfilePath;
     std::string fOutDataName;
     std::string fOutDataNameB;
+    std::string outputTag;
     
     int nzTBins;
     int numFitItems = 5;
     bool correctionOnly = false;
     bool enableSPlot = true;
+    bool enablePrefitConstraint = false;
+    double prefitFraction = 1.0;
+    int tagZHistBins = 20;
+    std::string massFitModel = "DGauss";
     
     // Helper functions to reduce code duplication
     TCanvas* createStandardCanvas(const std::string& name, const std::string& title, 
@@ -324,7 +330,12 @@ public:
                     bool isZtObservable,
                     TTree* tree,
                     bool enableSPlotAnalysis = true,
-                    const std::string& inputFile = "");  
+                    const std::string& inputFile = "",
+                    const std::string& requestedMassFitModel = "DGauss",
+                    const std::string& outTag = "",
+                    bool usePrefitConstraint = false,
+                    double requestedPrefitFraction = 1.0,
+                    int requestedTagZHistBins = 20);
     
     // Destructor
     ~FitSpectraObject();
@@ -335,6 +346,7 @@ public:
     void initializeResultArrays();
     Fitter* createFitter();
     RooDataSet* prepareMasterDataset(Fitter* fitter);
+    RooDataSet* createPrefitDataset(RooDataSet* data, int bin) const;
     void processCorrectionFactors(Fitter* fitter, RooDataSet* dataMaster);
     void extractCorParam(const std::string& idString, int bin, const std::string& type, 
                         std::vector<TCanvas*>& canvas, std::vector<TCanvas*>& canvasNorm, 
@@ -418,13 +430,45 @@ FitSpectraObject::FitSpectraObject(
         bool isZtObservable,
         TTree* tree,
         bool enableSPlotAnalysis,
-        const std::string& inputFile /* = "" */)
+        const std::string& inputFile /* = "" */,
+        const std::string& requestedMassFitModel /* = "DGauss" */,
+        const std::string& outTag /* = "" */,
+        bool usePrefitConstraint /* = false */,
+        double requestedPrefitFraction /* = 1.0 */,
+        int requestedTagZHistBins /* = 20 */)
         : isMC(isMc), jetPt(ptRange), zBins(zBins), zTObservable(isZtObservable), 
-            inputTree(tree), nzTBins(zBins.size() - 1), enableSPlot(enableSPlotAnalysis), inputFileName(inputFile)
+            inputTree(tree), nzTBins(zBins.size() - 1), enableSPlot(enableSPlotAnalysis),
+            enablePrefitConstraint(usePrefitConstraint), prefitFraction(requestedPrefitFraction),
+            tagZHistBins(requestedTagZHistBins), massFitModel(requestedMassFitModel), inputFileName(inputFile), outputTag(outTag)
 {
+    if (tagZHistBins < 1) {
+        std::cout << "Invalid tagZ histogram bin count " << tagZHistBins
+                  << ", falling back to 20" << std::endl;
+        tagZHistBins = 20;
+    }
+    if (massFitModel == "DCB") {
+        massFitModel = "CBall";
+    }
+    if (massFitModel != "DGauss" && massFitModel != "CBall") {
+        std::cout << "Unknown mass fit model '" << massFitModel << "', falling back to DGauss" << std::endl;
+        massFitModel = "DGauss";
+    }
+
     std::cout << "Initializing FitSpectraObject with pT range: " 
               << ptRange.first << " - " << ptRange.second << " GeV/c" << std::endl;
     std::cout << "sPlot analysis: " << (enableSPlot ? "ENABLED" : "DISABLED") << std::endl;
+    std::cout << "Mass fit model: " << massFitModel << std::endl;
+    if (enablePrefitConstraint && !(prefitFraction > 0.0 && prefitFraction < 1.0)) {
+        std::cout << "Invalid pre-fit fraction " << prefitFraction
+                  << ", disabling per-bin pre-fit constraints" << std::endl;
+        enablePrefitConstraint = false;
+        prefitFraction = 1.0;
+    }
+    std::cout << "Per-bin pre-fit constraints: "
+              << (enablePrefitConstraint ? "ENABLED" : "DISABLED") << std::endl;
+    if (enablePrefitConstraint) {
+        std::cout << "Pre-fit fraction: " << prefitFraction << std::endl;
+    }
 
     // Configure file paths
     configureFilePaths();
@@ -505,7 +549,8 @@ void FitSpectraObject::startFitting() {
         zTObservable,
         isMC,
         outfilePath,
-        true            // update
+        true,           // update
+        inputFileName
     );
     
     
@@ -566,12 +611,17 @@ void FitSpectraObject::configureFilePaths() {
     // Determine optional beam tag from input filename (if provided)
     std::string beamTag = "";
     if (!inputFileName.empty()) {
-        if (inputFileName.find("merged_pPb") != std::string::npos) beamTag = "_pPb";
-        else if (inputFileName.find("merged_Pbp") != std::string::npos) beamTag = "_Pbp";
+        if (inputFileName.find("_pPb") != std::string::npos) beamTag = "_pPb";
+        else if (inputFileName.find("_Pbp") != std::string::npos) beamTag = "_Pbp";
     }
 
     // Build final outputDir by adding date and optional beam tag to the base directory
     std::string outputDir = baseOutputDir + std::string("_") + std::string(dateBuf) + beamTag;
+    // Append user-provided output tag if present to make outputs unique
+    if (!outputTag.empty()) {
+        // sanitize simple cases by prefixing underscore
+        outputDir += std::string("_") + outputTag;
+    }
     // create the dated output directory if it doesn't exist
     std::filesystem::create_directories(outputDir);
 
@@ -653,6 +703,57 @@ RooDataSet* FitSpectraObject::prepareMasterDataset(Fitter* fitter) {
     );
     
     return dataMaster;
+}
+
+RooDataSet* FitSpectraObject::createPrefitDataset(RooDataSet* data, int bin) const {
+    if (!data || !(prefitFraction > 0.0 && prefitFraction < 1.0)) {
+        return nullptr;
+    }
+
+    const RooArgSet* firstRow = data->get(0);
+    if (!firstRow) {
+        return nullptr;
+    }
+
+    const std::string datasetName = std::string(data->GetName()) + "_prefit_bin" + std::to_string(bin);
+    RooDataSet* prefitData = nullptr;
+    const bool isWeighted = data->isWeighted();
+
+    if (isWeighted && data->weightVar()) {
+        RooArgSet prefitVars(*firstRow);
+        RooRealVar* weightVar = dynamic_cast<RooRealVar*>(prefitVars.find(data->weightVar()->GetName()));
+        if (weightVar) {
+            prefitData = new RooDataSet(datasetName.c_str(), datasetName.c_str(), prefitVars,
+                                        RooFit::WeightVar(*weightVar));
+        }
+    }
+
+    if (!prefitData) {
+        prefitData = new RooDataSet(datasetName.c_str(), datasetName.c_str(), *firstRow);
+    }
+
+    const UInt_t seed = static_cast<UInt_t>(1000.0 * std::abs(jetPt.first)) +
+                        7919U * static_cast<UInt_t>(bin + 1);
+    TRandom3 random(seed);
+
+    for (int i = 0; i < data->numEntries(); ++i) {
+        const RooArgSet* row = data->get(i);
+        if (row && random.Uniform() < prefitFraction) {
+            if (isWeighted) {
+                RooArgSet weightedRow(*row);
+                prefitData->add(weightedRow, data->weight());
+            } else {
+                prefitData->add(*row);
+            }
+        }
+    }
+
+    if (prefitData->numEntries() == 0) {
+        delete prefitData;
+        return nullptr;
+    }
+
+    return prefitData;
 }
 
 
@@ -810,7 +911,7 @@ void FitSpectraObject::processCorrectionFactors(Fitter* fitter, RooDataSet* data
                     RooAbsReal* pionEff = dynamic_cast<RooAbsReal*>(row->find("pion_efficiency"));
                     RooAbsReal* combinedPID = dynamic_cast<RooAbsReal*>(row->find("combined_PID_efficiency"));
                     
-                    if (i < 5) {  // Print first 5 entries
+                    if (i < 20) {  // Print first 20 entries
                         std::cout << "  Entry " << i << ": weight=" << weight;
                         if (kaonEff) std::cout << ", kaon_eff=" << kaonEff->getVal();
                         if (pionEff) std::cout << ", pion_eff=" << pionEff->getVal();
@@ -1299,7 +1400,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         std::cout << "Plotting tagZ distribution for bin " << iBin << "..." << std::endl;
         TH1D* tagZHist = new TH1D(("tagZHist_bin" + std::to_string(iBin)).c_str(), 
                                   ("TagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
-                                  20, 0, 1);
+                                  tagZHistBins, 0, 1);
         
         // Fill histogram with tagZ values
         for (int i = 0; i < dataBin->numEntries(); ++i) {
@@ -1354,8 +1455,21 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
         RooAbsPdf* ipChi2Model = nullptr;
         RooRealVar* sig_yieldLim = nullptr;
         RooRealVar* prompt_frac = nullptr;
+        RooDataSet* prefitDataBin = nullptr;
+        TH1* prefitMassHisto = nullptr;
+        std::vector<double> prefitMassParams;
+        std::vector<double> prefitMassErrors;
+        RooDataSet* prefitSignalEnhancedData = nullptr;
+        TH1* prefitIPChi2Histo = nullptr;
+        std::vector<double> prefitIPParams;
+        std::vector<double> prefitIPErrors;
+        RooAbsPdf* prefitIPChi2Model = nullptr;
+        RooRealVar* prefitSigYieldLim = nullptr;
+        RooRealVar* prefitPromptFrac = nullptr;
         
         try {
+            fitter->resetFitDictionaries();
+
             // Perform Single Gaussian fit
             std::cout << "  Performing Single Gaussian fit..." << std::endl;
             // std::tie(massFitHisto, fitParams, fitErrors) = 
@@ -1365,11 +1479,58 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             // FitMRes_SYieldSG[iBin][0] = fitParams[0];
             // FitMRes_SYieldSG[iBin][1] = fitErrors[0];
             
-            // Perform Double Gaussian fit - THIS IS NOW OUR PRIMARY FIT
-            std::cout << "  Performing Double Gaussian fit..." << std::endl;
-            std::vector<double> dgParams, dgErrors;
-            std::tie(massFitHisto, dgParams, dgErrors) = 
-                fitter->massFit("D0", dataBin, "DGauss", iBin, zRangeStr, enableSPlot, splotFile);
+            const std::string selectedMassFitModel = (massFitModel == "CBall") ? "CBall" : "DGauss";
+            const bool useCrystalBall = (selectedMassFitModel == "CBall");
+            auto propagateProductError = [](double firstValue, double secondValue,
+                                            double firstError, double secondError) {
+                const double variance = (secondValue * secondValue * firstError * firstError) +
+                                        (firstValue * firstValue * secondError * secondError);
+                return variance > 0.0 ? std::sqrt(variance) : 0.0;
+            };
+
+            std::cout << "  Performing "
+                      << (useCrystalBall ? "Crystal Ball" : "Double Gaussian")
+                      << " fit..." << std::endl;
+
+            if (enablePrefitConstraint) {
+                prefitDataBin = createPrefitDataset(dataBin, iBin);
+                if (prefitDataBin && prefitDataBin->numEntries() >= 10) {
+                    std::cout << "  Running pre-fit on " << prefitDataBin->numEntries()
+                              << " / " << dataBin->numEntries() << " events" << std::endl;
+
+                    std::tie(prefitMassHisto, prefitMassParams, prefitMassErrors) =
+                        fitter->massFit("D0", prefitDataBin, selectedMassFitModel,
+                                        1000 + iBin, zRangeStr + "_prefit", false, nullptr);
+
+                    if (prefitMassHisto && prefitMassParams.size() >= 12 && prefitMassErrors.size() >= 10) {
+                        const double yieldScale = static_cast<double>(dataBin->numEntries()) /
+                                                  static_cast<double>(prefitDataBin->numEntries());
+                        fitter->resetFitDictionaries();
+                        fitter->applyMassPrefitConstraints("D0", selectedMassFitModel,
+                                                           prefitMassParams, prefitMassErrors,
+                                                           yieldScale);
+                    } else {
+                        std::cout << "  Pre-fit did not converge cleanly; using default full-fit parameters" << std::endl;
+                        fitter->resetFitDictionaries();
+                    }
+                } else {
+                    std::cout << "  Pre-fit skipped: not enough sampled entries for bin " << iBin << std::endl;
+                    fitter->resetFitDictionaries();
+                }
+            }
+
+            std::vector<double> massParams, massErrors;
+            std::tie(massFitHisto, massParams, massErrors) =
+                fitter->massFit("D0", dataBin, selectedMassFitModel, iBin, zRangeStr, enableSPlot, splotFile);
+
+            if (prefitMassHisto) {
+                delete prefitMassHisto;
+                prefitMassHisto = nullptr;
+            }
+            if (prefitDataBin) {
+                delete prefitDataBin;
+                prefitDataBin = nullptr;
+            }
             
             // Store histogram safely
             if (massFitHisto) {
@@ -1397,47 +1558,48 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             
             
             // Store fit results in arrays
-            if (dgParams.size() >= 12 && dgErrors.size() >= 10) {
-                // Store values in result arrays from DGauss fit
-                FitMRes_SYield[iBin][0] = dgParams[0];  // Signal yield
-                FitMRes_SYield[iBin][1] = dgErrors[0];  // Signal yield error
+            if (massParams.size() >= 12 && massErrors.size() >= 10) {
+                // Store values in result arrays from the selected mass fit
+                FitMRes_SYield[iBin][0] = massParams[0];  // Signal yield
+                FitMRes_SYield[iBin][1] = massErrors[0];  // Signal yield error
                 
-                FitMRes_BYield[iBin][0] = dgParams[1];  // Background yield
-                FitMRes_BYield[iBin][1] = dgErrors[1];  // Background yield error
+                FitMRes_BYield[iBin][0] = massParams[1];  // Background yield
+                FitMRes_BYield[iBin][1] = massErrors[1];  // Background yield error
                 
-                FitMRes_Mean[iBin][0] = dgParams[2];    // Mean mass
-                FitMRes_Mean[iBin][1] = dgErrors[2];    // Mean mass error
+                FitMRes_Mean[iBin][0] = massParams[2];    // Mean mass
+                FitMRes_Mean[iBin][1] = massErrors[2];    // Mean mass error
                 
-                FitMRes_Sig1[iBin][0] = dgParams[3];    // Sigma 1
-                FitMRes_Sig1[iBin][1] = dgErrors[3];    // Sigma 1 error
+                FitMRes_Sig1[iBin][0] = massParams[3];    // Sigma 1
+                FitMRes_Sig1[iBin][1] = massErrors[3];    // Sigma 1 error
                 
-                FitMRes_deltaSig[iBin][0] = dgParams[4]; // Delta sigma
-                FitMRes_deltaSig[iBin][1] = dgErrors[4]; // Delta sigma error
+                FitMRes_deltaSig[iBin][0] = massParams[4]; // Delta sigma
+                FitMRes_deltaSig[iBin][1] = massErrors[4]; // Delta sigma error
                 
-                FitMRes_Sig2[iBin][0] = dgParams[3] * dgParams[4]; // Sigma 2 = Sigma1 * deltaSig
-                FitMRes_Sig2[iBin][1] = 0.0;  // We don't have direct error on Sigma2
+                FitMRes_Sig2[iBin][0] = massParams[3] * massParams[4];
+                FitMRes_Sig2[iBin][1] = propagateProductError(massParams[3], massParams[4], massErrors[3], massErrors[4]);
                 
-                // These parameters don't apply to DGauss but we'll set them to 0 for consistency
-                FitMRes_alpha[iBin][0] = 0.0;   // Not used in DGauss
-                FitMRes_alpha[iBin][1] = 0.0;   // Not used in DGauss
+                FitMRes_alpha[iBin][0] = useCrystalBall ? massParams[5] : 0.0;
+                FitMRes_alpha[iBin][1] = useCrystalBall ? massErrors[5] : 0.0;
                 
-                FitMRes_n[iBin][0] = 0.0;       // Not used in DGauss
-                FitMRes_n[iBin][1] = 0.0;       // Not used in DGauss
+                FitMRes_n[iBin][0] = useCrystalBall ? massParams[6] : 0.0;
+                FitMRes_n[iBin][1] = useCrystalBall ? massErrors[6] : 0.0;
                 
-                FitMRes_DGFrac[iBin][0] = dgParams[7];  // Gaussian1 fraction (similar to CB fraction)
-                FitMRes_DGFrac[iBin][1] = dgErrors[7];  // Gaussian1 fraction error
+                FitMRes_DGFrac[iBin][0] = massParams[7];
+                FitMRes_DGFrac[iBin][1] = massErrors[7];
                 
-                FitMRes_pol1[iBin][0] = dgParams[8];    // Pol1
-                FitMRes_pol1[iBin][1] = dgErrors[8];    // Pol1 error
+                FitMRes_pol1[iBin][0] = massParams[8];    // Polynomial parameter 0
+                FitMRes_pol1[iBin][1] = massErrors[8];    // Polynomial parameter 0 error
                 
-                FitMRes_pol2[iBin][0] = dgParams[9];    // Pol2
-                FitMRes_pol2[iBin][1] = dgErrors[9];    // Pol2 error
+                FitMRes_pol2[iBin][0] = massParams[9];    // Polynomial parameter 1
+                FitMRes_pol2[iBin][1] = massErrors[9];    // Polynomial parameter 1 error
                 
-                FitMRes_SYieldLim[iBin][0] = dgParams[10]; // Signal yield in limit region
-                FitMRes_BYieldLim[iBin][0] = dgParams[11]; // Background yield in limit region
+                FitMRes_SYieldLim[iBin][0] = massParams[10]; // Signal yield in limit region
+                FitMRes_BYieldLim[iBin][0] = massParams[11]; // Background yield in limit region
+                FitMRes_SYieldDCB[iBin][0] = useCrystalBall ? massParams[0] : 0.0;
+                FitMRes_SYieldDCB[iBin][1] = useCrystalBall ? massErrors[0] : 0.0;
                 
                 // Print fit results
-                std::cout << "Double Gaussian fit results for bin " << iBin << ":" << std::endl;
+                std::cout << selectedMassFitModel << " fit results for bin " << iBin << ":" << std::endl;
                 std::cout << "  Signal yield: " << FitMRes_SYield[iBin][0] 
                           << " ± " << FitMRes_SYield[iBin][1] << std::endl;
                 std::cout << "  Background yield: " << FitMRes_BYield[iBin][0] 
@@ -1446,9 +1608,19 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                           << " ± " << FitMRes_Mean[iBin][1] << std::endl;
                 std::cout << "  Sigma1: " << FitMRes_Sig1[iBin][0] 
                           << " ± " << FitMRes_Sig1[iBin][1] << std::endl;
-                std::cout << "  Sigma2: " << FitMRes_Sig2[iBin][0] << std::endl;
-                std::cout << "  Gaussian1 fraction: " << FitMRes_DGFrac[iBin][0] 
-                          << " ± " << FitMRes_DGFrac[iBin][1] << std::endl;
+                std::cout << "  Sigma2: " << FitMRes_Sig2[iBin][0]
+                          << " ± " << FitMRes_Sig2[iBin][1] << std::endl;
+                if (useCrystalBall) {
+                    std::cout << "  Alpha: " << FitMRes_alpha[iBin][0]
+                              << " ± " << FitMRes_alpha[iBin][1] << std::endl;
+                    std::cout << "  n: " << FitMRes_n[iBin][0]
+                              << " ± " << FitMRes_n[iBin][1] << std::endl;
+                    std::cout << "  CB fraction: " << FitMRes_DGFrac[iBin][0]
+                              << " ± " << FitMRes_DGFrac[iBin][1] << std::endl;
+                } else {
+                    std::cout << "  Gaussian1 fraction: " << FitMRes_DGFrac[iBin][0] 
+                              << " ± " << FitMRes_DGFrac[iBin][1] << std::endl;
+                }
             }
             
             // Update sig_yieldLim parameter with fitted signal yield
@@ -1515,10 +1687,63 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             ));
             bkgData = dynamic_cast<RooDataSet*>(bkgLeft->Clone("BKG"));
             bkgData->append(*bkgRight);
+
+            if (enablePrefitConstraint && signalEnhancedData) {
+                prefitSignalEnhancedData = createPrefitDataset(signalEnhancedData, 10000 + iBin);
+                if (prefitSignalEnhancedData && prefitSignalEnhancedData->numEntries() >= 10) {
+                    const double fullWeightSum = signalEnhancedData->sumEntries();
+                    const double prefitWeightSum = prefitSignalEnhancedData->sumEntries();
+                    double prefitYieldScale = 1.0;
+                    if (fullWeightSum > 0.0 && prefitWeightSum > 0.0) {
+                        prefitYieldScale = prefitWeightSum / fullWeightSum;
+                    } else if (signalEnhancedData->numEntries() > 0) {
+                        prefitYieldScale = static_cast<double>(prefitSignalEnhancedData->numEntries()) /
+                                           static_cast<double>(signalEnhancedData->numEntries());
+                    }
+
+                    const double prefitMassYield = FitMRes_SYield[iBin][0] * prefitYieldScale;
+                    const double prefitMassYieldErr = FitMRes_SYield[iBin][1] * prefitYieldScale;
+
+                    std::cout << "  Running IP chi2 pre-fit on " << prefitSignalEnhancedData->numEntries()
+                              << " / " << signalEnhancedData->numEntries() << " events"
+                              << " with scaled mass yield " << prefitMassYield << std::endl;
+
+                    fitter->resetFitDictionaries();
+                    std::tie(prefitIPChi2Histo, prefitIPParams, prefitIPErrors,
+                             prefitIPChi2Model, prefitSigYieldLim, prefitPromptFrac) =
+                        fitter->ipchi2FitWithYields("D0", prefitSignalEnhancedData, bkgData,
+                                                    "BKGincluded", 2000 + iBin,
+                                                    zRangeStr + "_ipchi2_prefit",
+                                                    prefitMassYield, prefitMassYieldErr,
+                                                    false, nullptr);
+
+                    if (prefitIPChi2Histo && prefitIPParams.size() >= 12 && prefitIPErrors.size() >= 12) {
+                        fitter->resetFitDictionaries();
+                        fitter->applyIPChi2PrefitConstraints("D0", prefitIPParams, prefitIPErrors);
+                    } else {
+                        std::cout << "  IP chi2 pre-fit did not converge cleanly; using default IP chi2 parameters" << std::endl;
+                        fitter->resetFitDictionaries();
+                    }
+                } else {
+                    std::cout << "  IP chi2 pre-fit skipped: not enough sampled entries for bin " << iBin << std::endl;
+                    fitter->resetFitDictionaries();
+                }
+            }
             
             // Perform IP chi2 fit with yields for sPlot
             std::tie(ipChi2Histo, ipParams, ipErrors, ipChi2Model, sig_yieldLim, prompt_frac) = 
-                fitter->ipchi2FitWithYields("D0", signalEnhancedData, bkgData, "BKGincluded", iBin, zRangeStr, enableSPlot, splotFile);
+                fitter->ipchi2FitWithYields("D0", signalEnhancedData, bkgData, "BKGincluded", iBin, zRangeStr,
+                                            FitMRes_SYield[iBin][0], FitMRes_SYield[iBin][1],
+                                            enableSPlot, splotFile);
+
+            if (prefitIPChi2Histo) {
+                delete prefitIPChi2Histo;
+                prefitIPChi2Histo = nullptr;
+            }
+            if (prefitSignalEnhancedData) {
+                delete prefitSignalEnhancedData;
+                prefitSignalEnhancedData = nullptr;
+            }
             
             if(ipChi2Histo) {
                 // Create a safe copy to avoid potential pointer invalidation issues
@@ -1610,13 +1835,13 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                         
                         // Use the existing method to create prompt signal tagZ distribution
                         TH1D* promptSignalTagZHist = fitter->createPromptSignalTagZDistribution(
-                            dataBin, splotFileName, iBin, eventWeights, "promptSignalTagZ", 20, 0.0, 1.0);
+                            dataBin, splotFileName, iBin, eventWeights, "promptSignalTagZ", tagZHistBins, 0.0, 1.0);
                         
                         if (promptSignalTagZHist) {
                             // Create comparison histograms
                             TH1D* backgroundSubtractedTagZHist = new TH1D(("backgroundSubtractedTagZHist_bin" + std::to_string(iBin)).c_str(), 
                                                                           ("Background-Subtracted TagZ Distribution for Bin " + std::to_string(iBin)).c_str(), 
-                                                                          20, 0, 1);
+                                                                          tagZHistBins, 0, 1);
                             
                             // Create background-subtracted distribution using only mass sPlot weights
                             // Ensure file is synchronized before reading
@@ -1793,31 +2018,31 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             // Create histograms for correction factors in tagZ bins
                             TH1D* tagZKaonCorrHist = new TH1D(("tagZKaonCorr_bin" + std::to_string(iBin)).c_str(), 
                                                               ("Kaon Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
-                                                              20, 0, 1);
+                                                                                                                            tagZHistBins, 0, 1);
                             TH1D* tagZPionCorrHist = new TH1D(("tagZPionCorr_bin" + std::to_string(iBin)).c_str(), 
                                                               ("Pion Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
-                                                              20, 0, 1);
+                                                                                                                            tagZHistBins, 0, 1);
                             TH1D* tagZRecoEffCorrHist = new TH1D(("tagZRecoEffCorr_bin" + std::to_string(iBin)).c_str(),
                                                                 ("Reconstruction Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(),
-                                                                20, 0, 1);
+                                                                                                                                tagZHistBins, 0, 1);
                             TH1D* tagZAcceptanceCorrHist = new TH1D(("tagZAcceptanceCorr_bin" + std::to_string(iBin)).c_str(),
                                                                    ("Acceptance vs TagZ - Bin " + std::to_string(iBin)).c_str(),
-                                                                   20, 0, 1);
+                                                                                                                                     tagZHistBins, 0, 1);
                             TH1D* tagZCombinedCorrHist = new TH1D(("tagZCombinedCorr_bin" + std::to_string(iBin)).c_str(), 
                                                                   ("Combined PID Efficiency vs TagZ - Bin " + std::to_string(iBin)).c_str(), 
-                                                                  20, 0, 1);
+                                                                                                                                    tagZHistBins, 0, 1);
                             
                             // Create counter histograms for averaging
                             TH1D* tagZKaonCountHist = new TH1D(("tagZKaonCount_bin" + std::to_string(iBin)).c_str(), 
-                                                               "Kaon Count", 20, 0, 1);
+                                                                                                                             "Kaon Count", tagZHistBins, 0, 1);
                             TH1D* tagZPionCountHist = new TH1D(("tagZPionCount_bin" + std::to_string(iBin)).c_str(), 
-                                                               "Pion Count", 20, 0, 1);
+                                                                                                                             "Pion Count", tagZHistBins, 0, 1);
                             TH1D* tagZRecoEffCountHist = new TH1D(("tagZRecoEffCount_bin" + std::to_string(iBin)).c_str(),
-                                                                 "Reco Eff Count", 20, 0, 1);
+                                                                                                                                 "Reco Eff Count", tagZHistBins, 0, 1);
                             TH1D* tagZAcceptanceCountHist = new TH1D(("tagZAcceptanceCount_bin" + std::to_string(iBin)).c_str(),
-                                                                    "Acceptance Count", 20, 0, 1);
+                                                                                                                                        "Acceptance Count", tagZHistBins, 0, 1);
                             TH1D* tagZCombinedCountHist = new TH1D(("tagZCombinedCount_bin" + std::to_string(iBin)).c_str(), 
-                                                                   "Combined Count", 20, 0, 1);
+                                                                                                                                     "Combined Count", tagZHistBins, 0, 1);
                             
                             // Fill correction histograms and create efficiency-weighted distributions by iterating through the bin dataset
                             for (int i = 0; i < dataBin->numEntries(); ++i) {
@@ -2011,6 +2236,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             tagZKaonCorrGraph->GetXaxis()->SetTitle("z_{T}");
                             tagZKaonCorrGraph->GetYaxis()->SetTitle("PID Efficiency");
                             tagZKaonCorrGraph->GetYaxis()->SetTitleOffset(1.2);
+                            tagZKaonCorrGraph->GetYaxis()->SetRangeUser(-0.01, 1.05);
                             
                             tagZKaonCorrGraph->Draw("APE");
                             tagZPionCorrGraph->Draw("PE same");
@@ -2053,16 +2279,16 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                             // Create efficiency-weighted histograms
                             TH1D* promptSignalTagZHist_PIDWeighted = new TH1D(("promptSignalTagZHist_PIDWeighted_bin" + std::to_string(iBin)).c_str(),
                                                                              ("Prompt Signal TagZ (PID Weighted) - Bin " + std::to_string(iBin)).c_str(),
-                                                                             20, 0, 1);
+                                                                 tagZHistBins, 0, 1);
                             TH1D* promptSignalTagZHist_RecoWeighted = new TH1D(("promptSignalTagZHist_RecoWeighted_bin" + std::to_string(iBin)).c_str(),
                                                                               ("Prompt Signal TagZ (Reco Weighted) - Bin " + std::to_string(iBin)).c_str(),
-                                                                              20, 0, 1);
+                                                                tagZHistBins, 0, 1);
                             TH1D* promptSignalTagZHist_AcceptanceWeighted = new TH1D(("promptSignalTagZHist_AcceptanceWeighted_bin" + std::to_string(iBin)).c_str(),
                                                                                     ("Prompt Signal TagZ (Acceptance Weighted) - Bin " + std::to_string(iBin)).c_str(),
-                                                                                    20, 0, 1);
+                                                                    tagZHistBins, 0, 1);
                             TH1D* promptSignalTagZHist_FullyWeighted = new TH1D(("promptSignalTagZHist_FullyWeighted_bin" + std::to_string(iBin)).c_str(),
                                                                                ("Prompt Signal TagZ (Fully Weighted) - Bin " + std::to_string(iBin)).c_str(),
-                                                                               20, 0, 1);
+                                                                 tagZHistBins, 0, 1);
                             // enable sumw2 to allow storing propagated errors
                             promptSignalTagZHist_PIDWeighted->Sumw2();
                             promptSignalTagZHist_RecoWeighted->Sumw2();
@@ -2454,8 +2680,22 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
             
         } catch (const std::exception& e) {
             std::cerr << "ERROR in bin fitting: " << e.what() << std::endl;
-            // Emergency cleanup in case of exception
-            // These pointers might be null, so we need to check
+            if (prefitMassHisto) {
+                delete prefitMassHisto;
+                prefitMassHisto = nullptr;
+            }
+            if (prefitDataBin) {
+                delete prefitDataBin;
+                prefitDataBin = nullptr;
+            }
+            if (prefitIPChi2Histo) {
+                delete prefitIPChi2Histo;
+                prefitIPChi2Histo = nullptr;
+            }
+            if (prefitSignalEnhancedData) {
+                delete prefitSignalEnhancedData;
+                prefitSignalEnhancedData = nullptr;
+            }
         }
         
         // Clean up
@@ -2893,7 +3133,8 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
     
     for (int i = 0; i < nBins; ++i) {
         // Check if bin is in valid range and has valid corrections
-        bool isValid = (i < nzTBins - 1 && i < static_cast<int>(zBins.size()) - 1);
+        // Allow up to nzTBins-1 (inclusive) so the final bin is not skipped.
+        bool isValid = (i < nzTBins && i < static_cast<int>(zBins.size()) - 1);
         if (isValid) {
             for (size_t j = 0; j < corrections.size(); ++j) {
                 double val = (*corrections[j].values)[i];
@@ -3010,8 +3251,15 @@ void FitSpectraObject::createCorrectionFactorGraphs(const std::vector<double>& c
               << " valid bins out of " << nBins << " total bins." << std::endl;
 }
 
-void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = false, bool enableSPlot = true)
+void MassFitter(TString inputFile = "", bool isMC = false,
+                bool isZtObservable = false, bool enableSPlot = true,
+                TString massFitModel = "DGauss", TString outputTag = "",
+                double fracEvents = 1.0, bool doLowStatParamConstrain = false,
+                int tagZHistBins = 10)
 {
+    std::cout << "Using tagZHistBins = " << tagZHistBins << std::endl;
+
+    const bool usePrefitConstraint = doLowStatParamConstrain && fracEvents > 0.0 && fracEvents < 1.0;
 
     std::string mcTag = isMC ? "MC" : "";
     std::string obsTag = isZtObservable ? "zT" : "Y";
@@ -3031,69 +3279,95 @@ void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin =
         file->Close();
         return;
     }
+
+    // Optionally reduce the input tree to a random fraction of events.
+    // When low-stat parameter constraints are enabled, the same fraction is instead
+    // used for the per-bin pre-fit and the full tree is kept for the final fit.
+    if (!usePrefitConstraint && fracEvents > 0.0 && fracEvents < 1.0) {
+        std::cout << "Subsampling input tree: keeping fraction " << fracEvents << " of events" << std::endl;
+        // Clone the tree structure but leave entries empty
+        TTree* subsampled = tree->CloneTree(0);
+        if (!subsampled) {
+            std::cerr << "Error: could not clone input tree for subsampling" << std::endl;
+        } else {
+            TRandom3 rnd(0); // seed with 0 for varying seeds per run
+            Long64_t nEntries = tree->GetEntries();
+            Long64_t kept = 0;
+            for (Long64_t i = 0; i < nEntries; ++i) {
+                tree->GetEntry(i);
+                if (rnd.Uniform() < fracEvents) {
+                    subsampled->Fill();
+                    ++kept;
+                }
+            }
+            std::cout << "Subsampled tree: kept " << kept << " / " << nEntries << " entries" << std::endl;
+            // Replace pointer (do not delete original tree as it belongs to the file)
+            tree = subsampled;
+        }
+    }
+    if (usePrefitConstraint) {
+        std::cout << "Per-bin pre-fit constraint mode enabled with fraction " << fracEvents << std::endl;
+    } else if (doLowStatParamConstrain) {
+        std::cout << "Low-stat parameter constraint mode requested but fracEvents=" << fracEvents
+                  << " is not in (0, 1); proceeding without per-bin pre-fit constraints" << std::endl;
+    }
+
+    std::cout << "Using mass fit model: " << massFitModel << std::endl;
     
-    if (isFitSingleBin) {
-        // Single bin configuration
-        std::pair<double, double> jetPt(5, 60);
-        std::vector<double> zBins = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1.0};  // D0 zT bins
+    // Multi-bin configuration
+    // std::vector<double> zBins = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};  // D0 zT bins
+    // std::vector<double> zBins = {
+    //     0.0, 0.05, 0.1, 0.15, 0.2, 
+    //     0.25, 0.3, 0.35, 0.4, 0.45, 
+    //     0.5, 0.55, 0.6, 0.65, 0.7, 
+    //     0.75, 0.8, 0.85, 0.9, 0.95, 
+    //     1.0}; // NOTE default D0 zT bins
+    std::vector<double> zBins = {
+        0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}; // D0 zT bins wider binning
+    // there are 
+    //LHCb y bins (rapidity)
+    // std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
+    // std::vector<double> yBins = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0}; //NOTE default
+    std::vector<double> yBins = {2.5, 3.0, 3.5, 4.0};
+    
+    // pT binning for jets
+    // std::vector<double> startPt = {7};
+    // std::vector<double> endPt = {50};
+    std::vector<double> startPt = {10, 15, 20, 30};
+    std::vector<double> endPt = {15, 20, 30, 100};
+    // std::vector<double> startPt = {5, 10, 15, 20, 30}; //NOTE default
+    // std::vector<double> endPt = {10, 15, 20, 30, 50}; //NOTE default
+    // std::vector<double> startPt = {5, 8, 11, 15, 20, 25, 30, 40};
+    // std::vector<double> endPt = {8, 11, 15, 20, 25, 30, 40, 60};
+
+    //print jet pt bins 
+    std::cout << "Fitting the following jet pT bins:" << std::endl;
+    for (size_t i = 0; i < startPt.size(); ++i) {
+        std::cout << "  Bin " << i << ": " << startPt[i] 
+                    << " to " << endPt[i] << std::endl;
+    }
+    
+    // Process each pT bin
+    for (size_t jetBin = 0; jetBin < startPt.size(); ++jetBin) {
+        std::pair<double, double> jetPt(startPt[jetBin], endPt[jetBin]);
+        
+        // Choose bin array based on observable type
+        const std::vector<double>& binArray = isZtObservable ? zBins : yBins;
         
         // Create and run fit object
         FitSpectraObject fitter(
-            jetPt, isMC, zBins, 
+            jetPt, isMC, binArray,
             isZtObservable,
             tree,  // Pass the tree
             enableSPlot,  // Pass the sPlot flag
-            std::string(inputFile.Data())
+            std::string(inputFile.Data()),
+            std::string(massFitModel.Data()),
+            std::string(outputTag.Data()),
+            usePrefitConstraint,
+            fracEvents,
+            tagZHistBins
         );
         fitter.startFitting();
-    } 
-    else {
-        // Multi-bin configuration
-        // std::vector<double> zBins = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};  // D0 zT bins
-        std::vector<double> zBins = {
-            0.0, 0.05, 0.1, 0.15, 0.2, 
-            0.25, 0.3, 0.35, 0.4, 0.45, 
-            0.5, 0.55, 0.6, 0.65, 0.7, 
-            0.75, 0.8, 0.85, 0.9, 0.95, 
-            1.0}; // D0 zT bins
-        // there are 
-        //LHCb y bins (rapidity)
-        // std::vector<double> yBins = {2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
-        std::vector<double> yBins = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0}; //default
-        // std::vector<double> yBins = {2.5, 3.0, 3.5, 4.0};
-        
-        // pT binning for jets
-        // std::vector<double> startPt = {7};
-        // std::vector<double> endPt = {50};
-        std::vector<double> startPt = {5, 10, 15, 20, 30};
-        std::vector<double> endPt = {10, 15, 20, 30, 50};
-        // std::vector<double> startPt = {5, 8, 11, 15, 20, 25, 30, 40};
-        // std::vector<double> endPt = {8, 11, 15, 20, 25, 30, 40, 60};
-
-        //print jet pt bins 
-        std::cout << "Fitting the following jet pT bins:" << std::endl;
-        for (size_t i = 0; i < startPt.size(); ++i) {
-            std::cout << "  Bin " << i << ": " << startPt[i] 
-                      << " to " << endPt[i] << std::endl;
-        }
-        
-        // Process each pT bin
-        for (size_t jetBin = 0; jetBin < startPt.size(); ++jetBin) {
-            std::pair<double, double> jetPt(startPt[jetBin], endPt[jetBin]);
-            
-            // Choose bin array based on observable type
-            const std::vector<double>& binArray = isZtObservable ? zBins : yBins;
-            
-            // Create and run fit object
-            FitSpectraObject fitter(
-                jetPt, isMC, binArray,
-                isZtObservable,
-                tree,  // Pass the tree
-                enableSPlot,  // Pass the sPlot flag
-                std::string(inputFile.Data())
-            );
-            fitter.startFitting();
-        }
     }
 
 }

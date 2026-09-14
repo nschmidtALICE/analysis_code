@@ -100,6 +100,8 @@ private:
     std::vector<float> *mc_d0_matched_quality;
     
     std::vector<int> *mc_dau_pid;
+    std::vector<float> *mc_dau_eta;
+    std::vector<int> *mc_dau_d0_idx;
     std::vector<int> *mc_dau_matched;
     
     // Helper methods
@@ -236,7 +238,7 @@ D0RecoEfficiencyStandalone::D0RecoEfficiencyStandalone(TString inputFileName, TS
     mc_d0_pid = nullptr; mc_d0_pt = nullptr; mc_d0_eta = nullptr; mc_d0_phi = nullptr;
     mc_d0_px = nullptr; mc_d0_py = nullptr; mc_d0_pz = nullptr; mc_d0_matched = nullptr;
     mc_d0_matched_quality = nullptr;
-    mc_dau_pid = nullptr; mc_dau_matched = nullptr;
+    mc_dau_pid = nullptr; mc_dau_matched = nullptr; mc_dau_eta = nullptr; mc_dau_d0_idx = nullptr;
     
     // Set default binning
     m_ptBins = {2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0, 20.0};
@@ -330,6 +332,12 @@ void D0RecoEfficiencyStandalone::InitializeBranches() {
     
     if (m_tree->FindBranch("mc_dau_pid")) {
         m_tree->SetBranchAddress("mc_dau_pid", &mc_dau_pid);
+    }
+    if (m_tree->FindBranch("mc_dau_eta")) {
+        m_tree->SetBranchAddress("mc_dau_eta", &mc_dau_eta);
+    }
+    if (m_tree->FindBranch("mc_dau_d0_idx")) {
+        m_tree->SetBranchAddress("mc_dau_d0_idx", &mc_dau_d0_idx);
     }
     if (m_tree->FindBranch("mc_dau_matched")) {
         m_tree->SetBranchAddress("mc_dau_matched", &mc_dau_matched);
@@ -461,20 +469,21 @@ bool D0RecoEfficiencyStandalone::PassesQualityCuts(int d0_idx) {
         if (daughter_p < m_minDaughterMomentum)
             return false;
         
-        // Use MC truth PID instead of reconstructed PID
-        if (mc_dau_pid && dau_idx < mc_dau_pid->size()) {
-            int mc_pid = mc_dau_pid->at(dau_idx);
-            if (abs(mc_pid) == 321) { // True kaon
-                foundTrueKaon = true;
-            }
-            else if (abs(mc_pid) == 211) { // True pion
-                foundTruePion = true;
-            }
-        }
+        // // Use MC truth PID instead of reconstructed PID
+        // if (mc_dau_pid && dau_idx < mc_dau_pid->size()) {
+        //     int mc_pid = mc_dau_pid->at(dau_idx);
+        //     if (abs(mc_pid) == 321) { // True kaon
+        //         foundTrueKaon = true;
+        //     }
+        //     else if (abs(mc_pid) == 211) { // True pion
+        //         foundTruePion = true;
+        //     }
+        // }
     }
     
     // Check that we found both true kaon and true pion
-    return foundTrueKaon && foundTruePion;
+    return true;
+    // return foundTrueKaon && foundTruePion;
 }
 
 double D0RecoEfficiencyStandalone::CalculateMCMomentum(int mc_idx) {
@@ -515,19 +524,33 @@ void D0RecoEfficiencyStandalone::CalculateRecoEfficiency() {
     // Loop over all events
     Long64_t nEntries = m_tree->GetEntries();
     std::cout << "Processing " << nEntries << " events..." << std::endl;
-    
+
+    // Compact in-place progress bar helper
+    auto printProgress = [](Long64_t current, Long64_t total) {
+        const int barWidth = 50;
+        double fraction = total > 0 ? double(current + 1) / double(total) : 1.0;
+        int pos = static_cast<int>(barWidth * fraction);
+        std::cout << "\r[";
+        for (int i = 0; i < barWidth; ++i) {
+            if (i < pos) std::cout << "=";
+            else if (i == pos) std::cout << ">";
+            else std::cout << " ";
+        }
+        std::cout << "] " << static_cast<int>(fraction * 100.0) << "% (" << (current + 1) << "/" << total << ")" << std::flush;
+        if (current + 1 == total) std::cout << std::endl;
+    };
+
+    Long64_t updateInterval = nEntries / 500; // ~200 updates
+    if (updateInterval < 1) updateInterval = 1;
+
     // Counters for statistics
     int totalMCInAcceptance = 0;
     int totalRecoMatched = 0;
     int totalRecoSelected = 0;
-    
+
     for (Long64_t entry = 0; entry < nEntries; ++entry) {
         m_tree->GetEntry(entry);
-        
-        if (entry % 50000 == 0) {
-            std::cout << "Processing entry " << entry << "/" << nEntries 
-                     << " (" << (100.0 * entry / nEntries) << "%)" << std::endl;
-        }
+        if (entry % updateInterval == 0 || entry + 1 == nEntries) printProgress(entry, nEntries);
         
         // === DENOMINATOR: Loop over MC D0 particles ===
         const size_t nMCD0s = mc_d0_pt->size();
@@ -541,25 +564,47 @@ void D0RecoEfficiencyStandalone::CalculateRecoEfficiency() {
 
             // Require both MC daughters in acceptance
             bool kaonInAcc = false, pionInAcc = false;
-            if (mc_dau_pid && mc_dau_matched) {
+            // if (mc_dau_pid && mc_dau_d0_idx) {
+            //     // std::cout << "Checking MC daughters for MC D0 index " << mc_idx << std::endl;
+            //     for (size_t dau_idx = 0; dau_idx < mc_dau_pid->size(); ++dau_idx) {
+            //         // std::cout << "  Checking MC daughter index " << dau_idx << std::endl;
+            //         if (mc_dau_d0_idx->at(dau_idx) != static_cast<int>(mc_idx)) continue;
+            //         int pid = mc_dau_pid->at(dau_idx);
+            //         double dau_eta_tmp = 0.0;
+            //         if (mc_dau_eta && dau_idx < mc_dau_eta->size()) {
+            //             dau_eta_tmp = mc_dau_eta->at(dau_idx);
+            //         } else {
+            //             double px = dau_px->at(dau_idx);
+            //             double py = dau_py->at(dau_idx);
+            //             double pz = dau_pz->at(dau_idx);
+            //             double p = std::sqrt(px * px + py * py + pz * pz);
+            //             if (p <= std::fabs(pz)) continue;
+            //             dau_eta_tmp = 0.5 * std::log((p + pz) / (p - pz));
+            //         }
+            //         // std::cout << "    MC daughter eta: " << dau_eta_tmp << std::endl;
+            //         if (dau_eta_tmp < m_minEta || dau_eta_tmp > m_maxEta) continue;
+            //         if (abs(pid) == 321) kaonInAcc = true;
+            //         if (abs(pid) == 211) pionInAcc = true;
+            //     }
+            // } else 
+            if (mc_dau_pid) {
+                // Fallback if the parent index branch is missing: keep the old behavior.
                 for (size_t dau_idx = 0; dau_idx < mc_dau_pid->size(); ++dau_idx) {
-                    // Check if this daughter belongs to this MC D0
-                    // If you have a mc_dau_d0_idx branch, use it for association
                     int pid = mc_dau_pid->at(dau_idx);
-                    // For eta, if you have mc_dau_eta branch, use it; else calculate from px,py,pz
-                    double dau_eta = 0.0;
-                    if (dau_eta < m_minEta || dau_eta > m_maxEta) continue;
+                    double dau_eta_tmp = mc_dau_eta->at(dau_idx);
+                    if ((dau_eta_tmp < m_minEta || dau_eta_tmp > m_maxEta)) continue;
                     if (abs(pid) == 321) kaonInAcc = true;
                     if (abs(pid) == 211) pionInAcc = true;
                 }
-            } else {
-                // If no MC daughter info, skip this check
-                kaonInAcc = pionInAcc = true;
             }
+            // else {
+            //     // If no MC daughter info, skip this check
+            //     // kaonInAcc = pionInAcc = true;
+            // }
             if (!(kaonInAcc && pionInAcc)) continue;
 
             // Calculate momentum only once if needed
-            double mc_p = (h_den_p) ? CalculateMCMomentum(mc_idx) : 0.0;
+            double mc_p = CalculateMCMomentum(mc_idx);
 
             // Fill denominator (MC D0s in acceptance with both daughters in acceptance)
             h_den->Fill(mc_pt, mc_eta);
@@ -574,7 +619,9 @@ void D0RecoEfficiencyStandalone::CalculateRecoEfficiency() {
             // First check if the reconstructed D0 passes selection cuts
             if (!PassesD0Selection(reco_idx))
                 continue;
-            
+
+            totalRecoSelected++;
+
             // Check if this reconstructed D0 has a valid MC match in acceptance
             int mc_match_idx = -1;
             if (!HasValidMCMatch(reco_idx, mc_match_idx))
@@ -585,14 +632,13 @@ void D0RecoEfficiencyStandalone::CalculateRecoEfficiency() {
             // Get MC kinematics for filling histograms
             double mc_pt = mc_d0_pt->at(mc_match_idx);
             double mc_eta = mc_d0_eta->at(mc_match_idx);
-            double mc_p = (h_num_p) ? CalculateMCMomentum(mc_match_idx) : 0.0;
+            double mc_p = CalculateMCMomentum(mc_match_idx);
             
             // Fill numerator (reconstructed D0s that pass selection and have MC match in acceptance)
             h_num->Fill(mc_pt, mc_eta);
             if (h_num_p)
                 h_num_p->Fill(mc_p, mc_eta);
             
-            totalRecoSelected++;
         }
         
         // === Fill TEfficiency objects ===
@@ -736,11 +782,11 @@ void D0RecoEfficiencyStandalone::PlotEfficiency(const std::string &histName) {
 
 // Main function for the standalone reconstruction-based efficiency calculation
 int D0RecoEfficiencyStandaloneRun(
-    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/51/51.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/52/52.root,/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/53/53.root", //this is Pbp
-    TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root", //this is pPb
+    TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53_FF_Pbp_EPOS_8GeV_trigg.root,/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root,/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/55_FF_pPb_EPOS_8GeV_trigg.root,/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/56_FF_pPb_EPOS_10GeV_trigg.root", //this is Pbp
+    // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root", //this is pPb
     // TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root", //this is pPb
                                 //  TString outputFile = "output_reco_standalone_full_Pbp.root",
-                                 TString outputFile = "output_reco_standalone_full_pPb.root",
+                                 TString outputFile = "output_reco_standalone_53to56_pPb.root",
                                  double massWindow = 50.0, double minPt = 1.0,
                                  double minEta = 2.0, double maxEta = 4.5,
                                  double kaonPIDCut = 0.5, double pionPIDCut = 0.5,

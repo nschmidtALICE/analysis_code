@@ -50,6 +50,7 @@ struct MassConfig {
     ParamConfig sigma1;
     ParamConfig deltasigma;
     ParamConfig mean;
+    ParamConfig alpha1;
     ParamConfig n;
     ParamConfig dg_frac;
     ParamConfig pol1;
@@ -96,6 +97,7 @@ private:
     TFile* fInFileHisto;
     std::string TestFilename;
     std::string outfilePath;
+    std::string inputFileName; // store input filename for beam tag detection
     std::string resonance;
     
     // Configuration
@@ -122,22 +124,32 @@ private:
 
 public:
     // Modified constructor that takes TTree* directly
-    Fitter(TTree* tree, 
-           const std::string& resonanceType = "", 
-           int numBins = 1,
-           bool isZtObservable = true,
-           bool isMCData = false, 
-           const std::string& outputPath = ".", 
-           bool update = false);
+        Fitter(TTree* tree, 
+            const std::string& resonanceType = "", 
+            int numBins = 1,
+            bool isZtObservable = true,
+            bool isMCData = false, 
+            const std::string& outputPath = ".", 
+            bool update = false,
+            const std::string& inputFile = "");
     
     // Destructor
     ~Fitter();
     
     // Dictionary methods
+    void resetFitDictionaries();
     void updateDictionary(RooAbsPdf* signalPdf, RooAbsData* data, const std::string& fitFunc);
     void updateSBfraction(const std::string& resonance, int bin, double ptLimLow);
     void updateSigYield(const std::string& resonance);
     void updateBKGYield(const std::string& resonance);
+    void applyMassPrefitConstraints(const std::string& resonance,
+                                   const std::string& fitTypeName,
+                                   const std::vector<double>& fitValues,
+                                   const std::vector<double>& fitErrors,
+                                   double yieldScale = 1.0);
+    void applyIPChi2PrefitConstraints(const std::string& resonance,
+                                      const std::vector<double>& fitValues,
+                                      const std::vector<double>& fitErrors);
     
     // Utility methods
     std::string fiducialCutString(const std::pair<double, double>& jetPt, 
@@ -156,7 +168,7 @@ public:
     std::tuple<TH1*, std::vector<double>, std::vector<double>> 
     massFit(const std::string& resonance, 
             RooDataSet* data, 
-            const std::string& fitTypeName = "DCB", 
+            const std::string& fitTypeName = "DGauss", 
             int bin = -1, 
             const std::string& zRange = "", 
             bool splot = false, 
@@ -178,6 +190,9 @@ public:
                        const std::string& figKey = "All", 
                        int bin = 0, 
                        const std::string& zRange = "",
+                       // mass-fit signal yield and its uncertainty (optional). If provided, used to constrain the IP chi2 fit.
+                       double massSigYield = -1.0,
+                       double massSigYieldErr = -1.0,
                        bool enableSPlot = false,
                        TFile* splotFile = nullptr);
     

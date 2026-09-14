@@ -118,7 +118,8 @@ RMplotter::RMplotter() {
     diagonal_lineDark->SetLineColor(kGray+2);
     
     // Setup binning
-    pTBinning = {0, 5, 10, 15, 20, 30, 200};
+    // pTBinning = {0, 5, 10, 15, 20, 30, 200};
+    pTBinning = {5, 10, 15, 20, 30, 100};
     // zTBinArray = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
     zTBinArray = {
             0.0, 0.05, 0.1, 0.15, 0.2, 
@@ -170,7 +171,21 @@ std::pair<std::string, std::string> RMplotter::setupInputOutput() {
     std::string inputDir = "/media/niviths/local/analysis_code/data_analysis/d0_FF/3_makeResponseMatrix";
     
     // Input file path
-    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53to56_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53to56_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53_FF_Pbp_EPOS_8GeV_trigg_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/55_FF_pPb_EPOS_8GeV_trigg_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/56_FF_pPb_EPOS_10GeV_trigg_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/69_2018sim_D02Kpi_pthgreater15_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/70_2016sim_dijetc _15to20pth_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/71_2016sim_dijetc_20to50pth_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/72_2016sim_dijetc_pthgr50_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/69to71_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/69to72_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/70_72_response.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/73_EPOS_Pbp_response.root";
+    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38_response_sysvar0.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/68/ntuple_test-12757408_response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665_response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_allMC.root";
@@ -494,8 +509,12 @@ void RMplotter::plotRMTag(double dR) {
                 continue;
             }
             
-            // Build histogram in the specific cut ranges for Det and Gen pT
-            std::string histName = "hist" + std::to_string(histIndex);
+            // Build histogram name including gen and det pT ranges
+            int genLow = (int)std::round(pTBinning[indexGenerator]);
+            int genHigh = (int)std::round(pTBinning[indexGenerator+1]);
+            int detLow = (int)std::round(pTBinning[indexDet]);
+            int detHigh = (int)std::round(pTBinning[indexDet+1]);
+            std::string histName = Form("hist_gen%d-%d_det%d-%d", genLow, genHigh, detLow, detHigh);
             TH2F* hist = dynamic_cast<TH2F*>(dataInBin->createHistogram(histName.c_str(), zTDet, 
                                                 RooFit::Binning(tbinsDet), 
                                                 RooFit::YVar(zTPart, RooFit::Binning(tbinsPart))));
@@ -632,6 +651,23 @@ void RMplotter::plotRMTag(double dR) {
     std::string fileName = output + dictKey + "zTBin" + ptTag + "." + fileFormat;
     canvas3->SaveAs(fileName.c_str());
     
+    // Save all generated response histograms to a ROOT file
+    {
+        std::string rootFileName = output + dictKey + "response_matrices.root";
+        TFile outRoot(rootFileName.c_str(), "UPDATE");
+        for (int i = 0; i < nBinsDetLvlv; ++i) {
+            for (int j = 0; j < nBinsGenLvlv; ++j) {
+                if (hh_data[i][j]) {
+                    // ensure unique name in file
+                    std::string objName = std::string(hh_data[i][j]->GetName());
+                    hh_data[i][j]->Write(objName.c_str(), TObject::kOverwrite);
+                }
+            }
+        }
+        outRoot.Close();
+        std::cout << "Saved response histograms to " << rootFileName << std::endl;
+    }
+    
     // Clean up
     for (int i = 0; i < nBinsDetLvlv; ++i) {
         for (int j = 0; j < nBinsGenLvlv; ++j) {
@@ -740,8 +776,12 @@ void RMplotter::plotRMRapidity(double dR) {
                 continue;
             }
             
-            // Build histogram in the specific cut ranges for Det and Gen pT
-            std::string histName = "histRapidity" + std::to_string(histIndex);
+            // Build histogram name including gen and det pT ranges
+            int genLow = (int)std::round(pTBinning[indexGenerator]);
+            int genHigh = (int)std::round(pTBinning[indexGenerator+1]);
+            int detLow = (int)std::round(pTBinning[indexDet]);
+            int detHigh = (int)std::round(pTBinning[indexDet+1]);
+            std::string histName = Form("histRapidity_gen%d-%d_det%d-%d", genLow, genHigh, detLow, detHigh);
             TH2F* hist = dynamic_cast<TH2F*>(dataInBin->createHistogram(histName.c_str(), d0EtaDet, 
                                                 RooFit::Binning(etaBinsDet), 
                                                 RooFit::YVar(d0EtaPart, RooFit::Binning(etaBinsPart))));
@@ -877,6 +917,22 @@ void RMplotter::plotRMRapidity(double dR) {
     std::string ptTag = "pT5-70";
     std::string fileName = output + dictKey + "RapidityBin" + ptTag + "." + fileFormat;
     canvas4->SaveAs(fileName.c_str());
+    
+    // Save all generated rapidity response histograms to the same ROOT file
+    {
+        std::string rootFileName = output + dictKey + "response_matrices.root";
+        TFile outRoot(rootFileName.c_str(), "UPDATE");
+        for (int i = 0; i < nBinsDetLvlv; ++i) {
+            for (int j = 0; j < nBinsGenLvlv; ++j) {
+                if (hh_data[i][j]) {
+                    std::string objName = std::string(hh_data[i][j]->GetName());
+                    hh_data[i][j]->Write(objName.c_str(), TObject::kOverwrite);
+                }
+            }
+        }
+        outRoot.Close();
+        std::cout << "Saved rapidity response histograms to " << rootFileName << std::endl;
+    }
     
     // Clean up
     for (int i = 0; i < nBinsDetLvlv; ++i) {

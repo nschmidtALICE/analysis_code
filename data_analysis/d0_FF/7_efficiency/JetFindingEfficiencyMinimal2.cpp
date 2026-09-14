@@ -3,6 +3,7 @@
 #include <string>
 #include "TFile.h"
 #include "TTree.h"
+#include "TChain.h"
 #include "TH2F.h"
 #include "TF1.h"
 #include "TCanvas.h"
@@ -12,6 +13,7 @@
 #include "TLegend.h"
 #include <filesystem>
 #include <cmath>
+#include <fstream>
 
 // Minimal jet finding efficiency calculator
 // Usage: build with root-config flags, e.g.:
@@ -21,12 +23,12 @@
 static double gJetRadius = 0.5;
 static double gMinJetPt = 5.0;
 static double gMaxJetPt = 60.0;
-static double gMinJetEta = 2.5;
-static double gMaxJetEta = 4.0;
+static double gMinJetRap = 2.5;
+static double gMaxJetRap = 4.0;
 static double gMinD0Pt = 1.0;
 static double gMaxD0Pt = 50.0;
-static double gMinD0Eta = 2.0;
-static double gMaxD0Eta = 4.5;
+static double gMinD0Rap = 2.0;
+static double gMaxD0Rap = 4.5;
 
 inline double DeltaPhi(double a, double b) {
     double d = a - b;
@@ -40,35 +42,41 @@ inline double DeltaR(double eta1, double phi1, double eta2, double phi2) {
     return std::sqrt(deta*deta + dphi*dphi);
 }
 
-inline bool PassesJetSelectionMC(const std::vector<float>* mc_jet_pt, const std::vector<float>* mc_jet_eta, int idx) {
-    if (!mc_jet_pt || !mc_jet_eta) return false;
+inline bool PassesJetSelectionMC(const std::vector<float>* mc_jet_pt, const std::vector<float>* mc_jet_rapidity, int idx) {
+    if (!mc_jet_pt || !mc_jet_rapidity) return false;
     if (idx < 0 || idx >= (int)mc_jet_pt->size()) return false;
     double pt = mc_jet_pt->at(idx);
-    double eta = mc_jet_eta->at(idx);
+    double eta = mc_jet_rapidity->at(idx);
     if (pt < gMinJetPt || pt > gMaxJetPt) return false;
-    if (eta < gMinJetEta || eta > gMaxJetEta) return false;
+    if (eta < gMinJetRap || eta > gMaxJetRap) return false;
     return true;
 }
-inline bool PassesJetSelectionReco(const std::vector<float>* jet_pt, const std::vector<float>* jet_eta, int idx) {
-    if (!jet_pt || !jet_eta) return false;
+inline bool PassesJetSelectionReco(const std::vector<float>* jet_pt, const std::vector<float>* jet_rapidity, int idx) {
+    if (!jet_pt || !jet_rapidity) return false;
     if (idx < 0 || idx >= (int)jet_pt->size()) return false;
     double pt = jet_pt->at(idx);
-    double eta = jet_eta->at(idx);
+    double eta = jet_rapidity->at(idx);
     if (pt < gMinJetPt || pt > gMaxJetPt) return false;
-    if (eta < gMinJetEta || eta > gMaxJetEta) return false;
+    if (eta < gMinJetRap || eta > gMaxJetRap) return false;
     return true;
 }
 inline bool PassesD0Selection(double d0_pt, double d0_eta) {
     if (d0_pt < gMinD0Pt || d0_pt > gMaxD0Pt) return false;
-    if (d0_eta < gMinD0Eta || d0_eta > gMaxD0Eta) return false;
+    if (d0_eta < gMinD0Rap || d0_eta > gMaxD0Rap) return false;
     return true;
 }
 
 int JetFindingEfficiencyMinimal2() {
     // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/54/54.root";
-    std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root";
+    // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS.root";
+    // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root";
     // std::string outPrefix = "jetFindingEffMinimal_MBonly";
-    std::string outPrefix = "jetFindingEffMinimal_fullMC";
+    // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/11_12_pPb_EPOS_Fix1a3.txt";
+    // std::string outPrefix = "jetFindingEffMinimal_pPb_11_12_MC";
+    // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/15_16_Pbp_EPOS_Fix1a4.txt";
+    // std::string outPrefix = "jetFindingEffMinimal_Pbp_15_16_MC";
+    std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/both_pPb_Pbp_MCs_11_12_15_16.txt";
+    std::string outPrefix = "jetFindingEffMinimal_pPb_Pbp_11_12_15_16_MC";
 
     // create output directory for all plots and root file (append today's date)
     char _datebuf[32];
@@ -98,19 +106,46 @@ int JetFindingEfficiencyMinimal2() {
     std::cout << "Input: " << inputName << "\n";
     std::cout << "Output prefix: " << outPrefix << "\n";
 
-    TFile *f = TFile::Open(inputName.c_str(), "READ");
-    if (!f || f->IsZombie()) { std::cerr << "Failed to open input file\n"; return 1; }
-    TTree *t = (TTree*)f->Get("d0jets");
-    if (!t) { std::cerr << "d0jets tree not found\n"; return 1; }
+    TFile *f = nullptr;
+    TChain *chain = nullptr;
+    TTree *t = nullptr;
+
+    // allow input to be a text file listing multiple ROOT files (one per line)
+    auto ends_with = [&](const std::string &s, const std::string &suffix){
+        if (s.size() < suffix.size()) return false;
+        return std::equal(s.end()-suffix.size(), s.end(), suffix.begin());
+    };
+
+    if (ends_with(inputName, ".txt") || ends_with(inputName, ".list")) {
+        std::ifstream infile(inputName);
+        if (!infile) { std::cerr << "Failed to open list file '" << inputName << "'\n"; return 1; }
+        chain = new TChain("d0jets");
+        std::string line;
+        while (std::getline(infile, line)) {
+            // trim
+            auto a = line.find_first_not_of(" \t\r\n");
+            if (a == std::string::npos) continue;
+            auto b = line.find_last_not_of(" \t\r\n");
+            std::string path = line.substr(a, b - a + 1);
+            if (path.empty() || path[0] == '#') continue;
+            chain->Add(path.c_str());
+        }
+        t = chain;
+    } else {
+        f = TFile::Open(inputName.c_str(), "READ");
+        if (!f || f->IsZombie()) { std::cerr << "Failed to open input file\n"; return 1; }
+        t = (TTree*)f->Get("d0jets");
+        if (!t) { std::cerr << "d0jets tree not found\n"; if (f) { f->Close(); delete f; } return 1; }
+    }
 
     // Branches (pointers)
-    std::vector<float>* jet_pt = nullptr; std::vector<float>* jet_eta = nullptr; std::vector<float>* jet_phi = nullptr;
+    std::vector<float>* jet_pt = nullptr; std::vector<float>* jet_rapidity = nullptr; std::vector<float>* jet_phi = nullptr;
     std::vector<float>* d0_pt = nullptr; std::vector<float>* d0_eta = nullptr; std::vector<int>* d0_jet_idx = nullptr; std::vector<float>* d0_jet_dr = nullptr;
-    std::vector<float>* mc_jet_pt = nullptr; std::vector<float>* mc_jet_eta = nullptr; std::vector<float>* mc_jet_phi = nullptr;
+    std::vector<float>* mc_jet_pt = nullptr; std::vector<float>* mc_jet_rapidity = nullptr; std::vector<float>* mc_jet_phi = nullptr;
     std::vector<float>* mc_d0_pt = nullptr; std::vector<float>* mc_d0_eta = nullptr; std::vector<int>* mc_d0_matched = nullptr; std::vector<int>* mc_d0_jet_idx = nullptr; std::vector<float>* mc_d0_jet_dr = nullptr;
 
     t->SetBranchAddress("jet_pt", &jet_pt);
-    t->SetBranchAddress("jet_eta", &jet_eta);
+    t->SetBranchAddress("jet_rapidity", &jet_rapidity);
     t->SetBranchAddress("jet_phi", &jet_phi);
 
     t->SetBranchAddress("d0_pt", &d0_pt);
@@ -119,7 +154,7 @@ int JetFindingEfficiencyMinimal2() {
     t->SetBranchAddress("d0_jet_dr", &d0_jet_dr);
 
     t->SetBranchAddress("mc_jet_pt", &mc_jet_pt);
-    t->SetBranchAddress("mc_jet_eta", &mc_jet_eta);
+    t->SetBranchAddress("mc_jet_rapidity", &mc_jet_rapidity);
     t->SetBranchAddress("mc_jet_phi", &mc_jet_phi);
 
     t->SetBranchAddress("mc_d0_pt", &mc_d0_pt);
@@ -132,9 +167,9 @@ int JetFindingEfficiencyMinimal2() {
     std::vector<double> jetPtBins;
     for (double pt = 0.0; pt <= 60.0; pt += 2.5)
         jetPtBins.push_back(pt);
-    std::vector<double> jetEtaBins;
+    std::vector<double> jetRapBins;
     for (double eta = 2.0; eta <= 4.5; eta += 0.2)
-        jetEtaBins.push_back(eta);
+        jetRapBins.push_back(eta);
 
     // Create zT vs jetPt numerator/denominator
     const int nZTbins = 20;
@@ -188,9 +223,9 @@ int JetFindingEfficiencyMinimal2() {
         // numerator (filled here): if any reco jet matches this MC jet (deltaR <= gJetRadius)
         for (size_t mcj=0; mcj<nMCJets; ++mcj) {
             if (mc_maxD0[mcj] <= 0) continue;
-            if (!PassesJetSelectionMC(mc_jet_pt, mc_jet_eta, mcj)) continue;
+            if (!PassesJetSelectionMC(mc_jet_pt, mc_jet_rapidity, mcj)) continue;
             double mcPt = mc_jet_pt->at(mcj);
-            double mcEta = mc_jet_eta->at(mcj);
+            double mcRap = mc_jet_rapidity->at(mcj);
             double mcPhi = mc_jet_phi ? mc_jet_phi->at(mcj) : 0.0;
             // fill denominator zT vs jetPt
             double zT = mc_maxD0[mcj] / mcPt;
@@ -201,10 +236,10 @@ int JetFindingEfficiencyMinimal2() {
             for (size_t rj=0; rj<nRecoJets; ++rj) {
                 // Do not require the reco jet to contain a reconstructed D0 here;
                 // we only require a reconstructed jet that matches the MC jet by geometry.
-                if (!PassesJetSelectionReco(jet_pt, jet_eta, rj)) continue;
-                double rEta = jet_eta ? jet_eta->at(rj) : 0.0;
+                if (!PassesJetSelectionReco(jet_pt, jet_rapidity, rj)) continue;
+                double rRap = jet_rapidity ? jet_rapidity->at(rj) : 0.0;
                 double rPhi = jet_phi ? jet_phi->at(rj) : 0.0;
-                double dr = DeltaR(mcEta, mcPhi, rEta, rPhi);
+                double dr = DeltaR(mcRap, mcPhi, rRap, rPhi);
                 if (dr <= gJetRadius) { matched = true; break; }
             }
             if (matched) {
@@ -446,6 +481,7 @@ int JetFindingEfficiencyMinimal2() {
     }
 
     delete h_num_zT; delete h_den_zT; delete h_eff; delete h_pred; delete h_diff;
-    f->Close(); delete f;
+    if (f) { f->Close(); delete f; }
+    if (chain) { delete chain; }
     return 0;
 }

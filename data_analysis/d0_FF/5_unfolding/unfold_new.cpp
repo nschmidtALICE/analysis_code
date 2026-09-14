@@ -326,32 +326,23 @@ static void MapUnderOverflowToEdges(TH2 *h)
 // are now fixed to their previous default = true behavior to reduce complexity.
 void unfold_new(
     const std::string &outfile = "unfolded_output.root",
+    const std::string infilePattern = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2026-01-14_Pbp/TagZHistograms_%s.root",
+    const std::string &infileResponse = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS_rename_response.root",
+    const std::string &infileResponseTrigg = "",
+    double weightFitVal = 1.0 / 44.4518,
+
     int nIter = 6,
     // const std::vector<std::string> &jetPtBins = {"7_50"},
-    const std::vector<std::string> &jetPtBins = {"5_10", "10_15", "15_20", "20_30"},
+    const std::vector<std::string> &jetPtBins = {"5_10", "10_15", "15_20", "20_30", "30_50"},
     // std::vector<std::string> jetPtBins = {"5_8", "8_11", "11_15", "15_20", "20_25", "25_30", "30_40", "40_60"},
 
     const std::vector<int> &yBins = {0, 1, 2, 3, 4, 5, 6, 7},
+    // std::vector<double> yBinBorders = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0}; //NOTE default
+    std::vector<double> yBinBorders = {2.5, 3.0, 3.5, 4.0},
     // const std::vector<int> &yBins = {0, 1, 2},
     bool isClosure = false,
-    bool verbose = false)
+    bool verbose = true)
 {
-    // select input file depending on closure flag
-    const std::string &infileResponse = isClosure
-                                            ? "/media/niviths/SSD2/lhcb_analysis_SSD/mc_merge_pPb_Pbp/20250728_pPb_MC_output_response.root"
-                                            // : "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/53to56_response.root";
-                                            : "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS_response.root";
-    // (Color palette helpers moved to file scope.)
-    // Naming scheme
-    std::vector<double> yBinBorders = {2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0};
-    // std::vector<double> yBinBorders = {2.5, 3.0, 3.5, 4.0};
-
-    // Pattern for per-jet measured input files; %s will be replaced with jetPt string
-    // std::string infilePattern = isClosure ? "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_MC/TagZHistograms_%s.root" : "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA/TagZHistograms_%s.root";
-    // if infileResponse contains Pbp, then this should also contain Pbp
-    std::string infilePattern = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2025-11-19_pPb/TagZHistograms_%s.root";
-    // std::string infilePattern = "/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2025-10-14_Pbp/TagZHistograms_%s.root";
-
     std::string unfoldedName = "unfolded_zT";
     //if infilePattern contains pPb, then change unfoldedName to unfolded_zT_pPb
 
@@ -364,6 +355,29 @@ void unfold_new(
     else if (verbose)
     {
         std::cout << "Successfully opened response file: " << infileResponse << std::endl;
+    }
+
+    TFile *finResponseTrigg = nullptr;
+    TTree *treeTrigg = nullptr;
+    if (!infileResponseTrigg.empty())
+    {
+        finResponseTrigg = TFile::Open(infileResponseTrigg.c_str());
+        if (!finResponseTrigg || finResponseTrigg->IsZombie())
+        {
+            std::cerr << "Error: Cannot open triggered response file " << infileResponseTrigg << std::endl;
+            return;
+        }
+        treeTrigg = (TTree *)finResponseTrigg->Get("Response");
+        if (!treeTrigg)
+        {
+            std::cerr << "Error: Missing response tree in triggered response file: " << infileResponseTrigg << std::endl;
+            return;
+        }
+        if (verbose)
+        {
+            std::cout << "Successfully opened triggered response file: " << infileResponseTrigg
+                      << " with weightFitVal=" << weightFitVal << std::endl;
+        }
     }
 
     // Prepare output directory and file (dropped into dated folder)
@@ -478,7 +492,8 @@ void unfold_new(
         for (const auto &yBin : yBins)
         {
             int bestIterIndexForThisY = 1; // will be updated after closure chi2 evaluation
-            TString histName = Form("promptSignalTagZHist_FullyWeighted_%s_bin%d", jetPt.c_str(), yBin);
+            TString histName = Form("promptSignalTagZHist_FullyWeighted_%s_bin%d", jetPt.c_str(), yBin); //default
+            // TString histName = Form("promptSignalTagZHist_AcceptanceWeighted_%s_bin%d", jetPt.c_str(), yBin); //NOTE which should be used here 20260402
 
             if (verbose)
             {
@@ -504,7 +519,7 @@ void unfold_new(
             float d0_eta_det, d0_eta_mc;
             float jet_nconst_det, jet_nconst_mc;
             float jet_dr;
-            int d0_is_primary;
+            // int d0_is_primary;
             tree->SetBranchAddress("d0_z_det", &d0_z_det);
             tree->SetBranchAddress("d0_z_mc", &d0_z_mc);
             // Optional mass branches - only used to tighten response filling
@@ -519,7 +534,7 @@ void unfold_new(
             tree->SetBranchAddress("jet_nconst_det", &jet_nconst_det);
             tree->SetBranchAddress("jet_nconst_mc", &jet_nconst_mc);
             tree->SetBranchAddress("jet_dr", &jet_dr);
-            tree->SetBranchAddress("d0_is_primary", &d0_is_primary);
+            // tree->SetBranchAddress("d0_is_primary", &d0_is_primary);
 
             // Determine eta bin borders from yBin index
             int yBinIdx = yBin;
@@ -597,100 +612,131 @@ void unfold_new(
             if (verbose)
                 std::cout << "Pre-fill measured total: " << measuredTotal << std::endl;
 
-            Long64_t nEntries = tree->GetEntries();
             int nFilled = 0;
+            int nFilledTrigg = 0; // number of events filled from the triggered tree (if applicable)
             int nMissed = 0; // Events that pass MC cuts but fail detector cuts
+            int nFake = 0; // Events that pass detector cuts but fail MC cuts
 
-            // Optional: detect common per-event weight branch names and hook them
-            float evtWeight = 1.0f;
-            if (tree->GetBranch("weight"))
-                tree->SetBranchAddress("weight", &evtWeight);
-            else if (tree->GetBranch("evtWeight"))
-                tree->SetBranchAddress("evtWeight", &evtWeight);
-            else if (tree->GetBranch("eventWeight"))
-                tree->SetBranchAddress("eventWeight", &evtWeight);
-            else if (tree->GetBranch("totalWeight"))
-                tree->SetBranchAddress("totalWeight", &evtWeight);
-
-            for (Long64_t i = 0; i < nEntries; ++i)
+            auto fillResponseFromTree = [&](TTree *sourceTree, double sampleWeight, const char *sampleLabel)
             {
-                tree->GetEntry(i);
+                float loc_d0_z_det, loc_d0_z_mc;
+                float loc_d0_mass_det = 0.0f, loc_d0_mass_mc = 0.0f;
+                float loc_jet_pt_det, loc_jet_pt_mc;
+                float loc_d0_eta_det, loc_d0_eta_mc;
+                float loc_jet_nconst_det, loc_jet_nconst_mc;
+                float loc_jet_dr;
+                // int loc_d0_is_primary;
+                float evtWeight = 1.0f;
 
-                // Check MC level cuts
-                bool passMC = (d0_eta_mc >= eta_min && d0_eta_mc < eta_max &&
-                               jet_pt_mc >= jetpt_min && jet_pt_mc < jetpt_max &&
-                               jet_nconst_mc > 1);
+                sourceTree->SetBranchAddress("d0_z_det", &loc_d0_z_det);
+                sourceTree->SetBranchAddress("d0_z_mc", &loc_d0_z_mc);
+                if (sourceTree->GetBranch("d0_mass_det"))
+                    sourceTree->SetBranchAddress("d0_mass_det", &loc_d0_mass_det);
+                if (sourceTree->GetBranch("d0_mass_mc"))
+                    sourceTree->SetBranchAddress("d0_mass_mc", &loc_d0_mass_mc);
+                sourceTree->SetBranchAddress("jet_pt_det", &loc_jet_pt_det);
+                sourceTree->SetBranchAddress("jet_pt_mc", &loc_jet_pt_mc);
+                sourceTree->SetBranchAddress("d0_eta_det", &loc_d0_eta_det);
+                sourceTree->SetBranchAddress("d0_eta_mc", &loc_d0_eta_mc);
+                sourceTree->SetBranchAddress("jet_nconst_det", &loc_jet_nconst_det);
+                sourceTree->SetBranchAddress("jet_nconst_mc", &loc_jet_nconst_mc);
+                sourceTree->SetBranchAddress("jet_dr", &loc_jet_dr);
+                // sourceTree->SetBranchAddress("d0_is_primary", &loc_d0_is_primary);
 
-                // Check detector level cuts
-                bool passDet = (d0_eta_det >= eta_min && d0_eta_det < eta_max &&
-                                jet_pt_det >= jetpt_min && jet_pt_det < jetpt_max &&
-                                jet_nconst_det > 1);
+                // Prefer explicit event-level weight branch names if present
+                if (sourceTree->GetBranch("event_weight"))
+                    sourceTree->SetBranchAddress("event_weight", &evtWeight);
+                else if (sourceTree->GetBranch("eventWeight"))
+                    sourceTree->SetBranchAddress("eventWeight", &evtWeight);
+                else if (sourceTree->GetBranch("totalWeight"))
+                    sourceTree->SetBranchAddress("totalWeight", &evtWeight);
+                else if (sourceTree->GetBranch("evtWeight"))
+                    sourceTree->SetBranchAddress("evtWeight", &evtWeight);
+                else if (sourceTree->GetBranch("weight"))
+                    sourceTree->SetBranchAddress("weight", &evtWeight);
 
-                // Mass-window requirement (optional): only apply if mass branches exist
-                // Use a reasonable default window (in GeV) - keep consistent with other tools if available.
-                const double massWindow = 0.05; // 50 MeV default
-                bool haveMassDet = (tree->GetBranch("d0_mass_det") != nullptr);
-                bool haveMassMc = (tree->GetBranch("d0_mass_mc") != nullptr);
-                if (haveMassMc)
+                const bool haveMassDet = (sourceTree->GetBranch("d0_mass_det") != nullptr);
+                const bool haveMassMc = (sourceTree->GetBranch("d0_mass_mc") != nullptr);
+                if (!haveMassMc)
+                    std::cerr << "Warning: d0_mass_mc branch not found in " << sampleLabel << " tree. Mass cut at MC level skipped." << std::endl;
+                if (!haveMassDet)
+                    std::cerr << "Warning: d0_mass_det branch not found in " << sampleLabel << " tree. Mass cut at detector level skipped." << std::endl;
+
+                const double massWindow = 0.07;
+                const double d0PdgMass = 1.86484;
+                Long64_t nSourceEntries = sourceTree->GetEntries();
+                for (Long64_t i = 0; i < nSourceEntries; ++i)
                 {
-                    // require MC mass to be within window around PDG mass (1.86484 GeV)
-                    const double d0_pdg_mass = 1.86484;
-                    if (std::abs((double)d0_mass_mc - d0_pdg_mass) > massWindow)
+                    sourceTree->GetEntry(i);
+
+                    bool passMC = (loc_d0_eta_mc >= eta_min && loc_d0_eta_mc < eta_max &&
+                                   loc_jet_pt_mc >= jetpt_min && loc_jet_pt_mc < jetpt_max &&
+                                   loc_jet_nconst_mc > 1);
+                    bool passDet = (loc_d0_eta_det >= eta_min && loc_d0_eta_det < eta_max &&
+                                    loc_jet_pt_det >= jetpt_min && loc_jet_pt_det < jetpt_max &&
+                                    loc_jet_nconst_det > 1);
+
+                    if (haveMassMc && std::abs((double)loc_d0_mass_mc - d0PdgMass) > massWindow)
                         passMC = false;
-                } else {
-                    std::cerr << "Warning: d0_mass_mc branch not found in tree. Mass cut at MC level skipped." << std::endl;
-                }
-                if (haveMassDet)
-                {
-                    const double d0_pdg_mass = 1.86484;
-                    if (std::abs((double)d0_mass_det - d0_pdg_mass) > massWindow)
+                    if (haveMassDet && std::abs((double)loc_d0_mass_det - d0PdgMass) > massWindow)
                         passDet = false;
-                } else {
-                    std::cerr << "Warning: d0_mass_det branch not found in tree. Mass cut at detector level skipped." << std::endl;
-                }
 
-                // check distance between jets
-                if (jet_dr > 0.15)
-                {
-                    continue;
-                }
+                    if (loc_jet_dr > 0.4) //NOTE is this correct? //20260401
+                    // if (loc_jet_dr > 0.15)
+                        continue;
 
-                // Fill MC truth template for any event that passes MC selection (use evtWeight if present)
-                if (passMC)
-                {
-                    hPrior->Fill(d0_z_mc, evtWeight);
-                }
+                    const double totalWeight = sampleWeight * evtWeight;
+                    if (passMC)
+                        hPrior->Fill(loc_d0_z_mc, totalWeight);
 
-                if (passMC && passDet)
-                {
-                    // Both MC and detector level pass - normal response
-                    response.Fill(d0_z_det, d0_z_mc, evtWeight);
-                    ++nFilled;
+                    if (passMC && passDet)
+                    {
+                        response.Fill(loc_d0_z_det, loc_d0_z_mc, totalWeight);
+                        ++nFilled;
+                        if(sampleWeight != 1.0)
+                            ++nFilledTrigg;
+                    }
+                    else if (passMC && !passDet)
+                    {
+                        response.Miss(loc_d0_z_mc, totalWeight);
+                        ++nMissed;
+                        hMissedTruth->Fill(loc_d0_z_mc, totalWeight);
+                    }
+                    // else if (!passMC && passDet)
+                    // {
+                    //     response.Fake(loc_d0_z_det, totalWeight);
+                    //     ++nFake;
+                    //     hFakeReco->Fill(loc_d0_z_det, totalWeight);
+                    // }
                 }
-                else if (passMC && !passDet)
-                {
-                    // MC level passes but detector fails - missed event
-                    response.Miss(d0_z_mc, evtWeight);
-                    ++nMissed;
-                    hMissedTruth->Fill(d0_z_mc, evtWeight);
-                }
-                else if (!passMC && passDet)
-                {
-                    // Detector level passes but MC fails - fake events ignored in response
-                    // hFakeReco->Fill(d0_z_det, evtWeight);
-                }
-                // If neither passes, skip the event
+            };
 
-                // (Event-level caching removed.)
+            fillResponseFromTree(tree, 1.0, "minimum-bias");
+            if (treeTrigg)
+                fillResponseFromTree(treeTrigg, weightFitVal, "triggered");
+
+            Long64_t totalProcessed = tree->GetEntries();
+            if (treeTrigg){
+                totalProcessed += treeTrigg->GetEntries();
+                std::cout << "  - Triggered tree entries: " << treeTrigg->GetEntries() << std::endl;
             }
 
             if (verbose)
             {
                 std::cout << "Response matrix statistics:" << std::endl;
                 std::cout << "  - Filled: " << nFilled << " entries" << std::endl;
+                if (treeTrigg)
+                    std::cout << "    - Filled triggered: " << nFilledTrigg << " entries" << std::endl;
                 std::cout << "  - Missed: " << nMissed << " entries" << std::endl;
-                std::cout << "  - Fake: (ignored in response, diagnostics only)" << std::endl;
-                std::cout << "  - Total processed: " << nEntries << std::endl;
+                std::cout << "  - Fake: " << nFake << " entries" << std::endl;
+                std::cout << "  - Total processed: " << totalProcessed << std::endl;
+                // Extra diagnostics: compare response projections to counters
+                TH1 *hRespMeasNow = response.Hmeasured();
+                TH1 *hRespTruthNow = response.Htruth();
+                double rmeas = hRespMeasNow ? hRespMeasNow->Integral() : 0.0;
+                double rtruth = hRespTruthNow ? hRespTruthNow->Integral() : 0.0;
+                std::cout << "  - Response Hmeasured integral: " << rmeas << "  Htruth integral: " << rtruth << std::endl;
+                std::cout << "  - Sum(Fill)=" << nFilled << " Sum(Miss)=" << nMissed << " Sum(Fake)=" << nFake << std::endl;
             }
 
             // Validate response matrix has sufficient statistics

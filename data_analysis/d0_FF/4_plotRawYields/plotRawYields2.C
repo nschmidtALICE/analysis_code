@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <iomanip>
+#include <limits>
+#include <set>
 
 // ROOT includes
 #include "TFile.h"
@@ -24,6 +26,12 @@
 #include "TPaveText.h"
 #include "TLine.h"
 
+std::string collLabel = "";
+
+// Global plot output extension. Set to ".pdf" or ".png" here.
+// Edit this variable to change output format for all plots.
+static std::string gPlotExt = ".png";
+// static std::string gPlotExt = ".pdf";
 
 
 // Check if a graph is valid
@@ -43,6 +51,7 @@ private:
     
 public:
     std::string OutfilePath;
+    std::string collSuffix;
     
     // Histograms and graphs
     TGraphErrors* hMYield;
@@ -66,6 +75,8 @@ public:
     // TagZ-dependent correction factors (maps with bin number as key)
     std::map<int, TGraphErrors*> gTagZKaonCorr;
     std::map<int, TGraphErrors*> gTagZPionCorr;
+    std::map<int, TGraphErrors*> gTagZRecoEffCorr;
+    std::map<int, TGraphErrors*> gTagZAcceptanceCorr;
     std::map<int, TGraphErrors*> gTagZCombinedCorr;
     
     // TagZ histograms (maps with bin number as key)
@@ -104,6 +115,7 @@ public:
     // Public methods
     TGraphErrors* plotPt(bool isCorrected = false);
     void plotCorrFacAcceptance();
+    void plotCorrFacTagZ();
     void plotCombinedCorrectionDemo();
     void plotTagZWeightedHistogramsDemo();
     TGraphErrors* plotNonPromptFraction(bool isCorrected = false);
@@ -159,9 +171,8 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     ptString(ptRng), minPlotRange(0), minFitRange(0), maxFitRange(1) {
     
     
-    collsys = new TLatex(0.62, 0.83, "p-Pb, #sqrt{#it{s}} = 8.16 TeV");
-    
-    // TLatex* collsys = new TLatex(0.62, 0.83, "Pb-p, #sqrt{#it{s}} = 8.16 TeV");
+    // Create empty TLatex; actual label set after resolving input directory
+    collsys = new TLatex(0.62, 0.83, "");
     collsys->SetNDC();
     collsys->SetTextSize(0.044);
 
@@ -187,6 +198,8 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     // Initialize tagZ correction factor maps
     gTagZKaonCorr.clear();
     gTagZPionCorr.clear();
+    gTagZRecoEffCorr.clear();
+    gTagZAcceptanceCorr.clear();
     gTagZCombinedCorr.clear();
     
     // Processed graphs
@@ -244,14 +257,41 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         }
 
         if (!selectedDirName.empty()) {
-            basepath = parentDir + "/" + selectedDirName;
-            std::cout << "Using dated MassFitter output directory: " << basepath << std::endl;
-        } else {
+                basepath = parentDir + "/" + selectedDirName;
+                std::cout << "Using dated MassFitter output directory: " << basepath << std::endl;
+            } else {
             // Fallback to legacy non-dated path
             basepath = parentDir + "/" + baseName;
             std::cout << "No dated MassFitter output found, falling back to: " << basepath << std::endl;
         }
+
     }
+
+        // Update collision system label based on resolved input directory name
+        try {
+            std::string lowerPath = basepath;
+            std::cout << "Resolved input directory: " << lowerPath << std::endl;
+            std::cout << "Resolved input directory: " << lowerPath << std::endl;
+            std::cout << "Resolved input directory: " << lowerPath << std::endl;
+            std::cout << "Resolved input directory: " << lowerPath << std::endl;
+            std::cout << "Resolved input directory: " << lowerPath << std::endl;
+            std::cout << "Resolved input directory: " << lowerPath << std::endl;
+            // simple case-insensitive check
+            // for (auto &c : lowerPath) c = std::tolower(c);
+            if (lowerPath.find("_pPb") != std::string::npos || lowerPath.find("_ppb") != std::string::npos || lowerPath.find("ppb") != std::string::npos || lowerPath.find("p_pb") != std::string::npos) {
+                collLabel = "p-Pb, #sqrt{#it{s}} = 8.16 TeV";
+            } else if (lowerPath.find("_Pbp") != std::string::npos || lowerPath.find("_pbp") != std::string::npos || lowerPath.find("pbp") != std::string::npos) {
+                collLabel = "Pb-p, #sqrt{#it{s}} = 8.16 TeV";
+            }
+            if (!collLabel.empty()) {
+                delete collsys;
+                collsys = new TLatex(0.62, 0.83, collLabel.c_str());
+                collsys->SetNDC();
+                collsys->SetTextSize(0.044);
+            }
+        } catch (...) {
+            // ignore label-setting errors
+        }
     std::string rootFileName = basepath + "/FitParametersUnBinnedD0" + obsTag + "_" + ptString + ".root";
     TFile* fInFileHisto = nullptr;
     
@@ -275,6 +315,13 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
     std::cout << "Opened corrections file: " << rootFileNameCorrections << std::endl;
     
     // Create output directory
+    // If the caller provided a basepath_override containing pPb or Pbp,
+    // prepare a suffix to append to individual plot filenames.
+    collSuffix = "";
+    if (!basepath_override.empty()) {
+        if (basepath_override.find("pPb") != std::string::npos) collSuffix = "_pPb";
+        else if (basepath_override.find("Pbp") != std::string::npos) collSuffix = "_Pbp";
+    }
     OutfilePath = basepath + "/RawSignalYields_D0/";
     if (!std::filesystem::exists(OutfilePath)) {
         std::filesystem::create_directories(OutfilePath);
@@ -404,8 +451,6 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
             // gAccCorr5 = create_empty_graph();
             gAccCorr6 = create_empty_graph();
             
-            // Load tagZ-dependent correction factors
-            loadTagZCorrectionFactors(basepath, isMC);
         } catch (const std::exception& e) {
             std::cerr << "Error loading correction histograms: " << e.what() << std::endl;
             // Create empty graphs as fallbacks
@@ -497,6 +542,10 @@ PlotGraphsObject::PlotGraphsObject(const std::string& ptRng, bool isZt, bool isM
         
         // Set gAccCorrTotal to a fallback constant value
         gAccCorrTotal = create_constant_graph(1.0, "AccCorrTotal_fallback");
+
+        // TagZ-dependent correction factors and histograms can still exist even when
+        // the main fit-parameter file is absent for this observable.
+        loadTagZCorrectionFactors(basepath, isMC);
         
         if (fInFileHisto) {
             fInFileHisto->Close();
@@ -543,6 +592,20 @@ PlotGraphsObject::~PlotGraphsObject() {
         }
     }
     gTagZPionCorr.clear();
+
+    for (auto& pair : gTagZRecoEffCorr) {
+        if (pair.second) {
+            delete pair.second;
+        }
+    }
+    gTagZRecoEffCorr.clear();
+
+    for (auto& pair : gTagZAcceptanceCorr) {
+        if (pair.second) {
+            delete pair.second;
+        }
+    }
+    gTagZAcceptanceCorr.clear();
     
     for (auto& pair : gTagZCombinedCorr) {
         if (pair.second) {
@@ -626,6 +689,7 @@ PlotGraphsObject::~PlotGraphsObject() {
 TGraphErrors* PlotGraphsObject::plotPt(bool isCorrected) {
     plotYieldResult(isCorrected);
     plotCorrFacAcceptance();
+    plotCorrFacTagZ();
     // plotCombinedCorrectionDemo();
     plotTagZWeightedHistogramsDemo();
     return plotNonPromptFraction(isCorrected);
@@ -671,7 +735,7 @@ TGraphErrors* PlotGraphsObject::extrapolateIfNecessary(TGraphErrors* graph) {
 void PlotGraphsObject::plotCorrFacAcceptance() {
     setOptions();
     std::cout << "Plotting Acceptance Correction Factors for " << obsTag << " in pT range: " << ptString << std::endl;
-    std::string outputFilename = OutfilePath + "FinFig_AccCorrFactor_" + obsTag + "_" + ptString + ".png";
+    std::string outputFilename = OutfilePath + "FinFig_AccCorrFactor_" + obsTag + "_" + ptString + collSuffix + gPlotExt;
     
     TCanvas* c = new TCanvas("c", "c: hist", 500*2, 450*2);
     c->cd();
@@ -696,7 +760,7 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     myBlankHisto2->GetXaxis()->SetRangeUser(-0.3, 1);
     
     if (obsTag.find("Y") != std::string::npos) {
-        myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
+        myBlankHisto2->GetXaxis()->SetRangeUser(2.4, 4.0);
     }
     
     myBlankHisto2->GetXaxis()->SetNdivisions(405);
@@ -705,7 +769,7 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     myBlankHisto2->SetLineColor(0);
     
     myBlankHisto2->SetYTitle("corr Facor");
-    myBlankHisto2->GetYaxis()->SetRangeUser(0, 1.02);
+    myBlankHisto2->GetYaxis()->SetRangeUser(0, 1.59);
     myBlankHisto2->Draw("E");
     
     double MarkerScale = 1.6;
@@ -749,8 +813,18 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
     setHisto(gAccCorrTotal, MarkerScale, kMagenta+2);
     gAccCorrTotal->Draw("same EP");
     
+    //add dotted line at unity
+    double unityXMin = (obsTag.find("Y") != std::string::npos) ? 2.4 : 0.0;
+    double unityXMax = (obsTag.find("Y") != std::string::npos) ? 4.0 : 1.0;
+    TLine* line = new TLine(unityXMin, 1.0, unityXMax, 1.0);
+    line->SetLineColor(kGray+2);
+    line->SetLineStyle(2);
+    line->SetLineWidth(2);
+    line->Draw("same");
+
     // Create legend
-    TLegend* myLegend0 = new TLegend(0.18, 0.35, 0.45, 0.58);
+    TLegend* myLegend0 = new TLegend(0.48, 0.71, 0.95, 0.94);
+    // TLegend* myLegend0 = new TLegend(0.18, 0.35, 0.45, 0.58);
     myLegend0->SetTextFont(42);
     myLegend0->SetBorderSize(0);
     myLegend0->SetFillStyle(0);
@@ -769,8 +843,239 @@ void PlotGraphsObject::plotCorrFacAcceptance() {
 
     myLegend0->Draw();
     
+    // Draw collision-system label and jet pT range in top-left
+    {
+        // collision-system label (top-left)
+        TLatex* collsysTL = new TLatex(0.18, 0.92, collLabel.c_str());
+        collsysTL->SetNDC();
+        collsysTL->SetTextSize(0.038);
+        collsysTL->SetTextFont(42);
+        collsysTL->Draw();
+
+        // jet pT range label (top-left, below coll. label)
+        std::string jetPtRange = ptString;
+        std::replace(jetPtRange.begin(), jetPtRange.end(), '_', '-');
+        TLatex* jetPtLabel = new TLatex(0.18, 0.86, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", jetPtRange.c_str()));
+        jetPtLabel->SetNDC();
+        jetPtLabel->SetTextSize(0.038);
+        jetPtLabel->SetTextFont(42);
+        jetPtLabel->Draw();
+    }
+
     c->SaveAs(outputFilename.c_str());
     c->Close();
+}
+
+void PlotGraphsObject::plotCorrFacTagZ() {
+    setOptions();
+
+    std::set<int> availableBins;
+    for (const auto& pair : gTagZKaonCorr) availableBins.insert(pair.first);
+    for (const auto& pair : gTagZPionCorr) availableBins.insert(pair.first);
+    for (const auto& pair : gTagZRecoEffCorr) availableBins.insert(pair.first);
+    for (const auto& pair : gTagZAcceptanceCorr) availableBins.insert(pair.first);
+    for (const auto& pair : gTagZCombinedCorr) availableBins.insert(pair.first);
+
+    if (availableBins.empty()) {
+        std::cout << "No tagZ correction-factor graphs available for " << ptString
+                  << ", skipping zT correction plots" << std::endl;
+        return;
+    }
+
+    std::cout << "Plotting tagZ-dependent correction factors for pT range: " << ptString << std::endl;
+
+    for (int bin : availableBins) {
+        TGraphErrors* kaonGraph = getTagZCorrectionFactor("kaon", bin);
+        TGraphErrors* pionGraph = getTagZCorrectionFactor("pion", bin);
+        TGraphErrors* recoGraph = getTagZCorrectionFactor("reco", bin);
+        TGraphErrors* acceptanceGraph = getTagZCorrectionFactor("acceptance", bin);
+        TGraphErrors* combinedGraph = getTagZCorrectionFactor("combined", bin);
+
+        TGraphErrors* totalGraph = nullptr;
+        auto accumulateTotal = [&](TGraphErrors* source) {
+            if (!is_valid_graph(source)) {
+                return;
+            }
+            if (!totalGraph) {
+                totalGraph = static_cast<TGraphErrors*>(source->Clone(
+                    Form("gTagZTotalCorr_%s_bin%d", ptString.c_str(), bin)));
+            } else {
+                TGraphErrors* multipliedGraph = multiplyGraphs(totalGraph, source);
+                delete totalGraph;
+                totalGraph = multipliedGraph;
+                totalGraph->SetName(Form("gTagZTotalCorr_%s_bin%d", ptString.c_str(), bin));
+            }
+        };
+
+        accumulateTotal(combinedGraph);
+        accumulateTotal(recoGraph);
+        accumulateTotal(acceptanceGraph);
+
+        std::vector<TGraphErrors*> rangeGraphs = {
+            kaonGraph, pionGraph, recoGraph, acceptanceGraph, combinedGraph, totalGraph
+        };
+
+        double xMin = std::numeric_limits<double>::max();
+        double xMax = std::numeric_limits<double>::lowest();
+        double yMax = 0.0;
+        bool hasValidGraph = false;
+
+        for (TGraphErrors* graph : rangeGraphs) {
+            if (!is_valid_graph(graph)) {
+                continue;
+            }
+            hasValidGraph = true;
+            for (int iPoint = 0; iPoint < graph->GetN(); ++iPoint) {
+                double xValue = 0.0;
+                double yValue = 0.0;
+                graph->GetPoint(iPoint, xValue, yValue);
+                double xError = graph->GetErrorX(iPoint);
+                double yError = graph->GetErrorY(iPoint);
+                xMin = std::min(xMin, xValue - xError);
+                xMax = std::max(xMax, xValue + xError);
+                yMax = std::max(yMax, yValue + yError);
+            }
+        }
+
+        if (!hasValidGraph) {
+            delete totalGraph;
+            continue;
+        }
+
+        double xPadding = 0.04 * (xMax - xMin);
+        if (xPadding <= 0.0) {
+            xPadding = 0.05;
+        }
+        double plotXMin = std::max(0.0, xMin - xPadding);
+        double plotXMax = xMax + xPadding;
+        double plotYMax = 1.59;
+
+        std::string outputFilename = OutfilePath + "FinFig_AccCorrFactor_zT_" + ptString +
+                                     "_bin" + std::to_string(bin) + collSuffix + gPlotExt;
+
+        TCanvas* c = new TCanvas(Form("cTagZCorr_%s_bin%d", ptString.c_str(), bin),
+                                 Form("TagZ correction factors %s bin %d", ptString.c_str(), bin),
+                                 500 * 2, 450 * 2);
+        c->cd();
+        TGaxis::SetMaxDigits(3);
+
+        TPad* myPad = new TPad(Form("myPadTagZ_%d", bin), "The pad", 0, 0, 1, 1);
+        myPad->SetLeftMargin(0.15);
+        myPad->SetTopMargin(0.01);
+        myPad->SetRightMargin(0.02);
+        myPad->SetBottomMargin(0.15);
+        myPad->SetTicks();
+        myPad->Draw();
+        myPad->cd();
+
+        TH1F* myBlankHisto = new TH1F(Form("myBlankHisto2TagZ_%s_bin%d", ptString.c_str(), bin),
+                                      Form("Blank Histogram zT %s bin %d", ptString.c_str(), bin),
+                                      100, plotXMin, plotXMax);
+        myBlankHisto->GetXaxis()->SetNdivisions(505);
+        myBlankHisto->SetXTitle("#it{z}_{T} = p_{T}^{D^{0}}/p_{T}^{jet}");
+        myBlankHisto->GetXaxis()->SetTitleSize(0.05);
+        myBlankHisto->GetXaxis()->SetRangeUser(plotXMin, plotXMax);
+        myBlankHisto->GetXaxis()->SetNdivisions(405);
+        myBlankHisto->GetYaxis()->SetTitleOffset(1.35);
+        myBlankHisto->GetYaxis()->SetTitleSize(0.055);
+        myBlankHisto->SetLineColor(0);
+        myBlankHisto->SetYTitle("Correction factor");
+        myBlankHisto->GetYaxis()->SetRangeUser(0.0, plotYMax);
+        myBlankHisto->Draw("E");
+
+        double markerScale = 1.6;
+        if (is_valid_graph(kaonGraph)) {
+            setHisto(kaonGraph, markerScale, kBlue);
+            kaonGraph->Draw("same EP");
+        }
+        if (is_valid_graph(pionGraph)) {
+            setHisto(pionGraph, markerScale, kRed);
+            pionGraph->Draw("same EP");
+        }
+        if (is_valid_graph(combinedGraph)) {
+            setHisto(combinedGraph, markerScale, kGreen + 2);
+            combinedGraph->Draw("same EP");
+        }
+        if (is_valid_graph(recoGraph)) {
+            setHisto(recoGraph, markerScale, kRed - 7);
+            recoGraph->Draw("same EP");
+        }
+        if (is_valid_graph(acceptanceGraph)) {
+            setHisto(acceptanceGraph, markerScale, kBlue - 9);
+            acceptanceGraph->Draw("same EP");
+        }
+        if (is_valid_graph(totalGraph)) {
+            setHisto(totalGraph, markerScale, kMagenta + 2);
+            totalGraph->SetMarkerStyle(25);
+            totalGraph->Draw("same EP");
+        }
+
+        TLine* line = new TLine(plotXMin, 1.0, plotXMax, 1.0);
+        line->SetLineColor(kGray + 2);
+        line->SetLineStyle(2);
+        line->SetLineWidth(2);
+        line->Draw("same");
+
+        TLegend* myLegend = new TLegend(0.46, 0.7, 0.93, 0.96);
+        myLegend->SetTextFont(42);
+        myLegend->SetBorderSize(0);
+        myLegend->SetFillStyle(0);
+        myLegend->SetFillColor(0);
+        myLegend->SetMargin(0.25);
+        myLegend->SetTextSize(0.04);
+        if (is_valid_graph(kaonGraph)) myLegend->AddEntry(kaonGraph, "Kaon PID correction", "lep");
+        if (is_valid_graph(pionGraph)) myLegend->AddEntry(pionGraph, "Pion PID correction", "lep");
+        if (is_valid_graph(combinedGraph)) myLegend->AddEntry(combinedGraph, "Combined PID correction", "lep");
+        if (is_valid_graph(recoGraph)) myLegend->AddEntry(recoGraph, "Reco efficiency correction", "lep");
+        if (is_valid_graph(acceptanceGraph)) myLegend->AddEntry(acceptanceGraph, "Acceptance correction", "lep");
+        if (is_valid_graph(totalGraph)) myLegend->AddEntry(totalGraph, "Total correction", "lep");
+        myLegend->Draw();
+
+        TLatex* collsysTL = new TLatex(0.18, 0.92, collLabel.c_str());
+        collsysTL->SetNDC();
+        collsysTL->SetTextSize(0.038);
+        collsysTL->SetTextFont(42);
+        collsysTL->Draw();
+
+        std::string jetPtRange = ptString;
+        std::replace(jetPtRange.begin(), jetPtRange.end(), '_', '-');
+        TLatex* jetPtLabel = new TLatex(0.18, 0.86,
+                                        Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", jetPtRange.c_str()));
+        jetPtLabel->SetNDC();
+        jetPtLabel->SetTextSize(0.038);
+        jetPtLabel->SetTextFont(42);
+        jetPtLabel->Draw();
+
+        std::string inputBinLabel = Form("Input bin %d", bin);
+        if (is_valid_graph(hMYield) && bin < hMYield->GetN()) {
+            double binCenter = 0.0;
+            double binYield = 0.0;
+            hMYield->GetPoint(bin, binCenter, binYield);
+            double binHalfWidth = hMYield->GetErrorX(bin);
+            if (obsTag == "Y") {
+                inputBinLabel = Form("#it{y} bin: %.2f-%.2f", binCenter - binHalfWidth, binCenter + binHalfWidth);
+            } else {
+                inputBinLabel = Form("#it{z}_{T} bin: %.2f-%.2f", binCenter - binHalfWidth, binCenter + binHalfWidth);
+            }
+        }
+        TLatex* inputBinTL = new TLatex(0.18, 0.80, inputBinLabel.c_str());
+        inputBinTL->SetNDC();
+        inputBinTL->SetTextSize(0.038);
+        inputBinTL->SetTextFont(42);
+        inputBinTL->Draw();
+
+        c->SaveAs(outputFilename.c_str());
+        c->Close();
+
+        delete inputBinTL;
+        delete jetPtLabel;
+        delete collsysTL;
+        delete myLegend;
+        delete line;
+        delete myBlankHisto;
+        delete c;
+        delete totalGraph;
+    }
 }
 
 // Implementation of setHisto method
@@ -794,7 +1099,7 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
         corrTag = "_Corr";
     }
     
-    std::string outputFilename = OutfilePath + "FinFig_NonPromptFrac_" + obsTag + "_" + ptString + corrTag + ".png";
+    std::string outputFilename = OutfilePath + "FinFig_NonPromptFrac_" + obsTag + "_" + ptString + corrTag + collSuffix + gPlotExt;
     
     TCanvas* c = new TCanvas("c", "c: hist", 500*2, 450*2);
     c->cd();
@@ -823,7 +1128,7 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
     myBlankHisto2->SetLineColor(0);
     
     myBlankHisto2->SetYTitle("Non-Prompt Fraction");
-    myBlankHisto2->GetYaxis()->SetRangeUser(0, 0.29);
+    myBlankHisto2->GetYaxis()->SetRangeUser(0, 0.39);
     
     if (obsTag.find("Y") != std::string::npos) {
         myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
@@ -858,7 +1163,7 @@ TGraphErrors* PlotGraphsObject::plotNonPromptFraction(bool isCorrected) {
     
     myLegend0->AddEntry(myBlankHisto2, "Anti-#it{k}_{T} #it{R} = 0.5, #it{#eta}_{jet}= 2.5-4", "");
     myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
-    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>2 (GeV/#it{c})", "");
+    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}} > 1 (GeV/#it{c})", "");
     
     TLatex* collaboration = new TLatex(0.62, 0.88, "#bf{LHCb} in progress");
     collaboration->SetNDC();
@@ -897,12 +1202,12 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     
     std::string outputFilename;
     if (normType == 0) {
-        outputFilename = OutfilePath + "FinFig_YieldSummary_" + obsTag + Seltag + corrTag + ".png";
+        outputFilename = OutfilePath + "FinFig_YieldSummary_" + obsTag + Seltag + corrTag + collSuffix + gPlotExt;
     } else if (normType == 1) {
-        outputFilename = OutfilePath + "FinFig_YieldSummary_" + obsTag + Seltag + "Norm" + corrTag + ".png";
+        outputFilename = OutfilePath + "FinFig_YieldSummary_" + obsTag + Seltag + "Norm" + corrTag + collSuffix + gPlotExt;
         titleAddon = "/d#sigma";
     } else if (normType == 2) {
-        outputFilename = OutfilePath + "FinFig_NonPromptFracSummary_" + obsTag + Seltag + corrTag + ".png";
+        outputFilename = OutfilePath + "FinFig_NonPromptFracSummary_" + obsTag + Seltag + corrTag + collSuffix + gPlotExt;
     }
     
     TCanvas* c = new TCanvas("c", "c: hist", 500*2, 450*2);
@@ -953,8 +1258,8 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     // Set y-axis labels and ranges
     if (obsTag.find("Y") != std::string::npos) {
         myBlankHisto2->SetYTitle("dN/dY");
-        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*700);
-        myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
+        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*70000);
+        myBlankHisto2->GetXaxis()->SetRangeUser(2.4, 4.0);
         if (normType == 1) {
             myBlankHisto2->GetYaxis()->SetRangeUser(1, 100000);
         }
@@ -969,7 +1274,7 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
     // Special case for Nonprompt fraction
     if (normType == 2) {
         myBlankHisto2->SetYTitle("Non-Prompt Fraction");
-        myBlankHisto2->GetYaxis()->SetRangeUser(0, 0.3);
+        myBlankHisto2->GetYaxis()->SetRangeUser(0, 0.44);
     }
     
     myBlankHisto2->Draw("E");
@@ -1340,6 +1645,8 @@ void PlotGraphsObject::demonstrateTagZCorrections() {
     std::cout << "Available tagZ correction factors:" << std::endl;
     std::cout << "  Kaon corrections: " << gTagZKaonCorr.size() << " bins" << std::endl;
     std::cout << "  Pion corrections: " << gTagZPionCorr.size() << " bins" << std::endl;
+    std::cout << "  Reco corrections: " << gTagZRecoEffCorr.size() << " bins" << std::endl;
+    std::cout << "  Acceptance corrections: " << gTagZAcceptanceCorr.size() << " bins" << std::endl;
     std::cout << "  Combined corrections: " << gTagZCombinedCorr.size() << " bins" << std::endl;
     
     
@@ -1554,7 +1861,17 @@ void PlotGraphsObject::demonstrateTagZCorrections() {
         }
         
         // Save the histogram canvas
-        std::string histOutputPath = OutfilePath + "TagZHistogramDemo_" + ptString + ".png";
+        std::string histOutputPath = OutfilePath + "TagZHistogramDemo_" + ptString + collSuffix + gPlotExt;
+        tagZHistCanvas->cd();
+        if (collsys) collsys->Draw();
+        {
+            std::string jetPtRange = ptString;
+            std::replace(jetPtRange.begin(), jetPtRange.end(), '_', '-');
+            TLatex* jetPtLabel = new TLatex(0.62, 0.78, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", jetPtRange.c_str()));
+            jetPtLabel->SetNDC();
+            jetPtLabel->SetTextSize(0.038);
+            jetPtLabel->Draw();
+        }
         tagZHistCanvas->SaveAs(histOutputPath.c_str());
         std::cout << "Saved tagZ histogram demonstration plot: " << histOutputPath << std::endl;
         
@@ -1798,7 +2115,17 @@ void PlotGraphsObject::demonstrateTagZCorrections() {
             summaryText->Draw();
             
             // Save the PID correction canvas
-            std::string pidCorrOutputPath = OutfilePath + "PIDCorrectionDemo_" + ptString + ".png";
+            std::string pidCorrOutputPath = OutfilePath + "PIDCorrectionDemo_" + ptString + collSuffix + gPlotExt;
+            pidCorrCanvas->cd();
+            if (collsys) collsys->Draw();
+            {
+                std::string jetPtRange = ptString;
+                std::replace(jetPtRange.begin(), jetPtRange.end(), '_', '-');
+                TLatex* jetPtLabel = new TLatex(0.62, 0.78, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", jetPtRange.c_str()));
+                jetPtLabel->SetNDC();
+                jetPtLabel->SetTextSize(0.038);
+                jetPtLabel->Draw();
+            }
             pidCorrCanvas->SaveAs(pidCorrOutputPath.c_str());
             std::cout << "Saved PID correction demonstration plot: " << pidCorrOutputPath << std::endl;
             
@@ -2056,12 +2383,13 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
         hmassyield = hmassyieldOrig;
     }
     
-    std::string outputFilename = OutfilePath + "FinFig_Yield_" + obsTag + "_" + ptString + corrTag + ".png";
+    std::string outputFilename = OutfilePath + "FinFig_Yield_" + obsTag + "_" + ptString + corrTag + collSuffix + gPlotExt;
     
     // Create legend
     TLegend* myLegend0;
     if (obsTag.find("Y") != std::string::npos) {
-        myLegend0 = new TLegend(0.5, 0.62, 0.7, 0.8);
+        myLegend0 = new TLegend(0.15, 0.8, 0.4, 0.9);
+        // myLegend0 = new TLegend(0.5, 0.62, 0.7, 0.8);
     } else {
         myLegend0 = new TLegend(0.15, 0.72, 0.4, 0.9);
     }
@@ -2076,7 +2404,8 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     // Legend about different contributions
     TLegend* myLegend1;
     if (obsTag.find("Y") != std::string::npos) {
-        myLegend1 = new TLegend(0.55, 0.47, 0.6, 0.59);
+        myLegend1 = new TLegend(0.2, 0.63, 0.45, 0.75);
+        // myLegend1 = new TLegend(0.55, 0.47, 0.6, 0.59);
     } else {
         myLegend1 = new TLegend(0.2, 0.59, 0.4, 0.7);
     }
@@ -2136,7 +2465,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     // Set y-axis title and range
     if (obsTag.find("Y") != std::string::npos) {
         myBlankHisto2->SetYTitle("dN/d#it{y}");
-        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*4);
+        myBlankHisto2->GetYaxis()->SetRangeUser(10, max*1000);
         myBlankHisto2->GetXaxis()->SetRangeUser(2.0, 4.0);
         // if (normType == 1) {
         //     myBlankHisto2->GetYaxis()->SetRangeUser(1, 100000);
@@ -2178,7 +2507,7 @@ void PlotGraphsObject::plotYieldResult(bool isCorrected) {
     myLegend1->AddEntry(gNpromt, " non-prompt yield", "LP");
     
     myLegend0->AddEntry(myBlankHisto2, Form("#it{p}_{T}^{jet}=%s (GeV/#it{c})", ptRange.c_str()), "");
-    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}}>2 (GeV/#it{c})", "");
+    myLegend0->AddEntry(myBlankHisto2, "#it{p}_{T}^{D^{0}} > 1 (GeV/#it{c})", "");
     
     myLegend1->Draw();
     collaboration->Draw();
@@ -2249,7 +2578,8 @@ void plotRawYields2(const std::string& ptRange = "", bool isZt = true, bool isMC
     std::cout << "is binned var" << std::endl;
     
     // std::vector<std::string> pTRangeArray = {"7_50"};
-    std::vector<std::string> pTRangeArray = {"5_10", "10_15", "15_20", "20_30", "30_50"};
+    std::vector<std::string> pTRangeArray = {"10_15", "15_20", "20_30", "30_100"};
+    // std::vector<std::string> pTRangeArray = {"5_10", "10_15", "15_20", "20_30", "30_50"};
     // std::vector<std::string> pTRangeArray = {"5_8", "8_11", "11_15", "15_20", "20_25", "25_30", "30_40", "40_60"};
     std::vector<TGraphErrors*> yieldArray;
     std::vector<TGraphErrors*> yieldArrayP;
@@ -2613,6 +2943,8 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
     // Clear existing maps
     gTagZKaonCorr.clear();
     gTagZPionCorr.clear();
+    gTagZRecoEffCorr.clear();
+    gTagZAcceptanceCorr.clear();
     gTagZCombinedCorr.clear();
     
     // Try to open the file
@@ -2651,6 +2983,8 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
             // Check if this key matches our naming pattern
             if (keyName.find("tagZKaonCorrection_" + ptString + "_bin") == 0 ||
                 keyName.find("tagZPionCorrection_" + ptString + "_bin") == 0 ||
+                keyName.find("tagZRecoEffCorrection_" + ptString + "_bin") == 0 ||
+                keyName.find("tagZAcceptanceCorrection_" + ptString + "_bin") == 0 ||
                 keyName.find("tagZCombinedCorrection_" + ptString + "_bin") == 0) {
                 
                 // Extract bin number from the key name
@@ -2673,6 +3007,16 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
                             std::cout << "  Loaded pion tagZ correction for bin " << binNumber 
                                       << " with " << graph->GetN() << " points" << std::endl;
                             loadedGraphs++;
+                        } else if (keyName.find("tagZRecoEffCorrection_") == 0) {
+                            gTagZRecoEffCorr[binNumber] = (TGraphErrors*)graph->Clone();
+                            std::cout << "  Loaded reco tagZ correction for bin " << binNumber
+                                      << " with " << graph->GetN() << " points" << std::endl;
+                            loadedGraphs++;
+                        } else if (keyName.find("tagZAcceptanceCorrection_") == 0) {
+                            gTagZAcceptanceCorr[binNumber] = (TGraphErrors*)graph->Clone();
+                            std::cout << "  Loaded acceptance tagZ correction for bin " << binNumber
+                                      << " with " << graph->GetN() << " points" << std::endl;
+                            loadedGraphs++;
                         } else if (keyName.find("tagZCombinedCorrection_") == 0) {
                             gTagZCombinedCorr[binNumber] = (TGraphErrors*)graph->Clone();
                             std::cout << "  Loaded combined tagZ correction for bin " << binNumber 
@@ -2689,6 +3033,8 @@ void PlotGraphsObject::loadTagZCorrectionFactors(const std::string& basepath, bo
         std::cout << "Successfully loaded " << loadedGraphs << " tagZ correction factor graphs" << std::endl;
         std::cout << "  Kaon corrections: " << gTagZKaonCorr.size() << " bins" << std::endl;
         std::cout << "  Pion corrections: " << gTagZPionCorr.size() << " bins" << std::endl;
+        std::cout << "  Reco corrections: " << gTagZRecoEffCorr.size() << " bins" << std::endl;
+        std::cout << "  Acceptance corrections: " << gTagZAcceptanceCorr.size() << " bins" << std::endl;
         std::cout << "  Combined corrections: " << gTagZCombinedCorr.size() << " bins" << std::endl;
         
         tagZFile->Close();
@@ -2818,6 +3164,16 @@ TGraphErrors* PlotGraphsObject::getTagZCorrectionFactor(const std::string& type,
     } else if (type == "pion") {
         auto it = gTagZPionCorr.find(bin);
         if (it != gTagZPionCorr.end()) {
+            return it->second;
+        }
+    } else if (type == "reco") {
+        auto it = gTagZRecoEffCorr.find(bin);
+        if (it != gTagZRecoEffCorr.end()) {
+            return it->second;
+        }
+    } else if (type == "acceptance") {
+        auto it = gTagZAcceptanceCorr.find(bin);
+        if (it != gTagZAcceptanceCorr.end()) {
             return it->second;
         }
     } else if (type == "combined") {
@@ -3067,17 +3423,17 @@ void PlotGraphsObject::setOptions() {
 void PlotGraphsObject::plotTagZWeightedHistogramsDemo() {
     setOptions();
     std::cout << "Plotting TagZ Weighted Histograms Demo for " << obsTag << " in pT range: " << ptString << std::endl;
-    std::string outputFilename = OutfilePath + "FinFig_TagZWeightedHistogramsDemo_" + obsTag + "_" + ptString + ".png";
+    std::string outputFilename = OutfilePath + "FinFig_TagZWeightedHistogramsDemo_" + obsTag + "_" + ptString + collSuffix + gPlotExt;
 
     TCanvas* c = new TCanvas("cTagZWeighted", "TagZ Weighted Histograms Demo", 800, 600);
     c->cd();
     TGaxis::SetMaxDigits(3);
 
     TPad* pad = new TPad("padTagZWeighted", "The pad", 0, 0, 1, 1);
-    pad->SetLeftMargin(0.15);
+    pad->SetLeftMargin(0.10);
     pad->SetTopMargin(0.05);
-    pad->SetRightMargin(0.05);
-    pad->SetBottomMargin(0.15);
+    pad->SetRightMargin(0.01);
+    pad->SetBottomMargin(0.08);
     pad->SetTicks();
     pad->Draw();
     pad->cd();
@@ -3093,7 +3449,7 @@ void PlotGraphsObject::plotTagZWeightedHistogramsDemo() {
         hTagZFullyWeighted[demoBin]->SetMarkerStyle(20);
         hTagZFullyWeighted[demoBin]->SetMarkerSize(1.2);
         hTagZFullyWeighted[demoBin]->SetLineWidth(2);
-        hTagZFullyWeighted[demoBin]->SetXTitle("tag_{Z}");
+        hTagZFullyWeighted[demoBin]->SetXTitle("#it{z}_{T}^{tag}");
         hTagZFullyWeighted[demoBin]->SetYTitle("Weighted Counts");
         hTagZFullyWeighted[demoBin]->SetTitle("");
         hTagZFullyWeighted[demoBin]->Draw("pe");
@@ -3109,7 +3465,7 @@ void PlotGraphsObject::plotTagZWeightedHistogramsDemo() {
         if( plotted) {
             hTagZAcceptanceWeighted[demoBin]->Draw("pe same");
         } else {
-            hTagZAcceptanceWeighted[demoBin]->SetXTitle("tag_{Z}");
+            hTagZAcceptanceWeighted[demoBin]->SetXTitle("#it{z}_{T}^{tag}");
             hTagZAcceptanceWeighted[demoBin]->SetYTitle("Weighted Counts");
             hTagZAcceptanceWeighted[demoBin]->SetTitle("");
             hTagZAcceptanceWeighted[demoBin]->Draw("pe");
@@ -3126,7 +3482,7 @@ void PlotGraphsObject::plotTagZWeightedHistogramsDemo() {
         if (plotted) {
             hTagZRecoWeighted[demoBin]->Draw("pe same");
         } else {
-            hTagZRecoWeighted[demoBin]->SetXTitle("tag_{Z}");
+            hTagZRecoWeighted[demoBin]->SetXTitle("#it{z}_{T}^{tag}");
             hTagZRecoWeighted[demoBin]->SetYTitle("Weighted Counts");
             hTagZRecoWeighted[demoBin]->SetTitle("");
             hTagZRecoWeighted[demoBin]->Draw("pe");
@@ -3153,6 +3509,17 @@ void PlotGraphsObject::plotTagZWeightedHistogramsDemo() {
 
         legend->Draw();
 
+        c->cd();
+        // if (collsys) collsys->Draw();
+        // bottom-right collision-system label
+        {
+            TLatex* collsysBR = new TLatex(0.83, 0.88, collLabel.c_str());
+            collsysBR->SetNDC();
+            collsysBR->SetTextAlign(31); // right aligned
+            collsysBR->SetTextSize(0.038);
+            collsysBR->SetTextFont(42);
+            collsysBR->Draw();
+        }
         c->SaveAs(outputFilename.c_str());
         std::cout << "Saved TagZ weighted histograms demo plot: " << outputFilename << std::endl;
     } else {

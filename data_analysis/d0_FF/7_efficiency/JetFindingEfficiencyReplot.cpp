@@ -88,9 +88,10 @@ static void PrintFitSummary(const TF1 *f, const PtBin &pb, const std::string &ta
 int JetFindingEfficiencyReplot()
 {
 
-    std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_fullMC_outputs_2025-10-14/jetFindingEffMinimal_fullMC.root";
-    // std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_outputs/jetFindingEffMinimal.root";
-    std::string outPrefix = "jetFindingEffMinimal_replot";
+    std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_pPb_11_12_MC_outputs_2026-05-26/jetFindingEffMinimal_pPb_11_12_MC.root";
+    std::string outPrefix = "jetFindingEffMinimal_replot_pPb_11_12";
+    // std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_Pbp_15_16_MC_outputs_2026-05-26/jetFindingEffMinimal_Pbp_15_16_MC.root";
+    // std::string outPrefix = "jetFindingEffMinimal_replot_Pbp_15_16";
     bool doRefit = true;
 
     TFile *fin = TFile::Open(inputPath.c_str(), "READ");

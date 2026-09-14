@@ -233,13 +233,17 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
     if (fitTypeName == "DGauss") {
         addParameterToLegend(paramLegend, params, "deltasigma", "Width2/Width1", "%.2f #pm %.2f");
         addParameterToLegend(paramLegend, params, "dg_frac", "Gauss2 frac", "%.2f #pm %.2f");
+    } else if (fitTypeName == "CBall" || fitTypeName == "DCB") {
+        addParameterToLegend(paramLegend, params, "deltasigma", "Width2/Width1", "%.2f #pm %.2f");
+        addParameterToLegend(paramLegend, params, "alpha1", "Alpha", "%.2f #pm %.2f");
+        addParameterToLegend(paramLegend, params, "n", "n", "%.2f #pm %.2f");
+        addParameterToLegend(paramLegend, params, "cb_frac", "CB2 frac", "%.2f #pm %.2f");
     }
     
     // Add polynomial parameters for background
     paramLegend->AddEntry((TObject*)nullptr, "Background Params:", "");
     addParameterToLegend(paramLegend, params, "pol0", "pol0", "%.2f #pm %.2f");
     addParameterToLegend(paramLegend, params, "pol1", "pol1", "%.2f #pm %.2f");
-    addParameterToLegend(paramLegend, params, "pol2", "pol2", "%.2f #pm %.2f");
     
     // Add S/B ratio
     if (fitTypeName != "noSig") {
@@ -254,6 +258,26 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
     // Add chi2/ndof
     double chi2 = frame->chiSquare("TotalFit", "datahistogram", params->getSize());
     paramLegend->AddEntry((TObject*)nullptr, Form("#chi^{2}/ndof: %.2f", chi2), "");
+
+    // Add any remaining RooRealVar parameters that were not explicitly listed above
+    {
+        std::set<std::string> shown = {"sig_yield", "mean", "sigma1", "bkg_yield",
+                           "deltasigma", "dg_frac", "alpha1", "n", "cb_frac",
+                           "pol0", "pol1"};
+        TIterator* it = params->createIterator();
+        TObject* obj = nullptr;
+        while ((obj = it->Next())) {
+            RooRealVar* rv = dynamic_cast<RooRealVar*>(obj);
+            if (!rv) continue;
+            std::string nm = rv->GetName();
+            if (shown.find(nm) == shown.end()) {
+                // default formatting
+                paramLegend->AddEntry((TObject*)nullptr, Form((nm + ": %.3f #pm %.3f").c_str(), rv->getVal(), rv->getError()), "");
+                shown.insert(nm);
+            }
+        }
+        delete it;
+    }
     
     // Save output file path
     std::string output_file = outputDir + "Bin" + std::to_string(fitBin) + "_" + 
@@ -389,6 +413,32 @@ TH1* Plotter::individualMassFitPlotMulti(RooRealVar* sigYieldParam, RooAbsPdf* e
         addParameterToLegend(leg, params, "sigma1", "Width", "%.3f #pm %.3f");
     }
     addParameterToLegend(leg, params, "bkg_yield", "Bkg yield", "%.1f #pm %.1f");
+    if (fitTypeName == "DGauss") {
+        addParameterToLegend(leg, params, "deltasigma", "Width2/Width1", "%.2f #pm %.2f");
+        addParameterToLegend(leg, params, "dg_frac", "Gauss2 frac", "%.2f #pm %.2f");
+    } else if (fitTypeName == "CBall" || fitTypeName == "DCB") {
+        addParameterToLegend(leg, params, "deltasigma", "Width2/Width1", "%.2f #pm %.2f");
+        addParameterToLegend(leg, params, "alpha1", "Alpha", "%.2f #pm %.2f");
+        addParameterToLegend(leg, params, "n", "n", "%.2f #pm %.2f");
+        addParameterToLegend(leg, params, "cb_frac", "CB2 frac", "%.2f #pm %.2f");
+    }
+    // Add any remaining parameters not explicitly listed
+    {
+        std::set<std::string> shown = {"sig_yield", "mean", "sigma1", "bkg_yield",
+                                       "deltasigma", "dg_frac", "alpha1", "n", "cb_frac"};
+        TIterator* it = params->createIterator();
+        TObject* obj = nullptr;
+        while ((obj = it->Next())) {
+            RooRealVar* rv = dynamic_cast<RooRealVar*>(obj);
+            if (!rv) continue;
+            std::string nm = rv->GetName();
+            if (shown.find(nm) == shown.end()) {
+                leg->AddEntry((TObject*)nullptr, Form((nm + ": %.3f #pm %.3f").c_str(), rv->getVal(), rv->getError()), "");
+                shown.insert(nm);
+            }
+        }
+        delete it;
+    }
     double chi2 = frame->chiSquare("TotalFit", "datahistogram", params->getSize());
     leg->AddEntry((TObject*)nullptr, Form("#chi^{2}/ndof: %.2f", chi2), "");
     leg->Draw();
@@ -410,6 +460,23 @@ TH1* Plotter::individualMassFitPlotMulti(RooRealVar* sigYieldParam, RooAbsPdf* e
     tl.DrawLatexNDC(0.15, 0.87, rangeLabel.c_str());
     //add label for d0 mass
     tl.DrawLatexNDC(0.15, 0.82, "#it{D}^{0} mass fit");
+
+    // Add beam orientation label for DGauss unbinned plots if available in the base path
+    // if (fitTypeName == "DGauss" && !isBinned) {
+    std::cout << "nameKey: " << nameKey << std::endl;
+    std::cout << "nameKey: " << nameKey << std::endl;
+    std::cout << "nameKey: " << nameKey << std::endl;
+    std::cout << "nameKey: " << nameKey << std::endl;
+    std::cout << "nameKey: " << nameKey << std::endl;
+    std::cout << "nameKey: " << nameKey << std::endl;
+        std::string beamLabel = "";
+        if (nameKey.find("_pPb") != std::string::npos || nameKey.find("_pPb") != std::string::npos) beamLabel = "pPb #sqrt{#it{s}_{NN}} = 8.16 TeV";
+        else if (nameKey.find("_Pbp") != std::string::npos || nameKey.find("_Pbp") != std::string::npos) beamLabel = "Pbp #sqrt{#it{s}_{NN}} = 8.16 TeV";
+        if (!beamLabel.empty()) {
+            tl.SetTextSize(0.03);
+            tl.DrawLatexNDC(0.15, 0.78, beamLabel.c_str());
+        }
+    // }
 
     // Add a fit-component legend (Total / Signal / Background) on the left pad
     RooCurve* totalCurve = frame->getCurve("TotalFit");
@@ -573,7 +640,7 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
     myLegend1->AddEntry(frame1, Form("Prompt frac: %.1f%%", promptFrac*100), "");
     
     // Create yield legend
-    TLegend* myLegend3 = new TLegend(0.25, 0.81, 0.45, 0.91);
+    TLegend* myLegend3 = new TLegend(0.15, 0.81, 0.35, 0.91);
     setupLegend(myLegend3, 0.03, 0.25, 42, 0, 0, 0);
     
     myLegend3->AddEntry(frame1, Form("Prompt yield: %.2f", promptVal), "");
@@ -614,6 +681,33 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
     frame1->Draw();
     myLegend1->Draw();
     myLegend3->Draw();
+
+    // Draw LHCb and beam orientation label (pPb/Pbp) if present in basepath
+    {
+        TLatex tl_beam;
+        tl_beam.SetNDC();
+        tl_beam.SetTextFont(42);
+        tl_beam.SetTextSize(0.04);
+        tl_beam.SetTextAlign(11);
+        // LHCb tag
+        tl_beam.DrawLatexNDC(0.15, 0.32, "#font[12]{LHCb} in-progress");
+
+        // Beam orientation label
+        std::string beamLabel = "";
+        std::cout << "nameKey: " << nameKey << std::endl;
+        std::cout << "nameKey: " << nameKey << std::endl;
+        std::cout << "nameKey: " << nameKey << std::endl;
+        std::cout << "nameKey: " << nameKey << std::endl;
+        std::cout << "nameKey: " << nameKey << std::endl;
+        std::cout << "nameKey: " << nameKey << std::endl;
+        std::cout << "nameKey: " << nameKey << std::endl;
+        if (nameKey.find("_pPb") != std::string::npos || nameKey.find("_pPb") != std::string::npos) beamLabel = "pPb #sqrt{#it{s}_{NN}} = 8.16 TeV";
+        else if (nameKey.find("_Pbp") != std::string::npos || nameKey.find("_Pbp") != std::string::npos) beamLabel = "Pbp #sqrt{#it{s}_{NN}} = 8.16 TeV";
+        if (!beamLabel.empty()) {
+            tl_beam.SetTextSize(0.03);
+            tl_beam.DrawLatexNDC(0.15, 0.26, beamLabel.c_str());
+        }
+    }
     
     // Second pad for zoomed region to see asymmetry better
     canvasFit->cd(2);

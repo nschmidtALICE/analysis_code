@@ -8,10 +8,10 @@
 #include "RooStats/SPlot.h"
 
 Fitter::Fitter(TTree *tree, const std::string &resonanceType, int numBins, bool zTObservable,
-               bool isMCData, const std::string &outputPath, bool update)
-    : tfilePV(nullptr), TestFilename(""),
-      outfilePath(outputPath), isMC(isMCData), nBins(numBins), isZtObservable(zTObservable),
-      resonance(resonanceType), updateStartValues(update), inTree(tree), fInFileHisto(nullptr)
+                             bool isMCData, const std::string &outputPath, bool update, const std::string &inputFile)
+        : tfilePV(nullptr), TestFilename(""),
+            outfilePath(outputPath), inputFileName(inputFile), isMC(isMCData), nBins(numBins), isZtObservable(zTObservable),
+            resonance(resonanceType), updateStartValues(update), inTree(tree), fInFileHisto(nullptr)
 {
     // Initialize dictionary
     initDictionary();
@@ -43,21 +43,27 @@ Fitter::~Fitter()
 
 void Fitter::initDictionary()
 {
+    massDict.clear();
+    ipchi2Dict.clear();
+
     // Initialize D0 mass parameters
     MassConfig d0Config;
-    d0Config.sigma1 = ParamConfig(0.008, 0.005, 0.012);
-    d0Config.deltasigma = ParamConfig(1.5, 1.1, 2.5);
+    d0Config.sigma1 = ParamConfig(0.008, 0.004, 0.009);
+    d0Config.deltasigma = ParamConfig(1.5, 1.3, 2.2);
     d0Config.mean = ParamConfig(1.865, 1.860, 1.870);
-    d0Config.n = ParamConfig(1, 0.2, 5);
+    d0Config.alpha1 = ParamConfig(4.5, 0.5, 10.0);
+    d0Config.n = ParamConfig(0.5, 0.15, 5);
     d0Config.dg_frac = ParamConfig(0.5, 0.0, 0.99999);
-    d0Config.pol1 = ParamConfig(-0.5, -10, 10);
+    d0Config.pol1 = ParamConfig(90, 40, 200);
+    // d0Config.pol1 = ParamConfig(90, -1, 100);
     d0Config.pol2 = ParamConfig(58, -2e2, 5e2);
     d0Config.massRange = std::make_pair(1.815, 1.925); // 150 MeV range
-    d0Config.sigYield = ParamConfig(100, 0, 5e6);
-    d0Config.sigYieldLim = ParamConfig(100, 0, 5e6);
-    d0Config.bkgYield = ParamConfig(1000, 0, 4e6);
-    d0Config.bkgYieldLim = ParamConfig(1000, 0, 4e6);
-    d0Config.signalRegion = std::make_pair(1.845, 1.885); // 40 MeV range
+    d0Config.sigYield = ParamConfig(100, 1, 15e6);
+    d0Config.sigYieldLim = ParamConfig(100, 0, 15e6);
+    d0Config.bkgYield = ParamConfig(1000, 0, 2e6);
+    d0Config.bkgYieldLim = ParamConfig(1000, 0, 2e6);
+    // d0Config.signalRegion = std::make_pair(1.845, 1.885); // 40 MeV range
+    d0Config.signalRegion = std::make_pair(1.830, 1.900); // 35 MeV range = 5 sigma integral
     d0Config.sbRegion = std::make_pair(1.825, 1.910);     // Sideband region
 
     massDict["D0"] = d0Config;
@@ -67,18 +73,30 @@ void Fitter::initDictionary()
     d0IPConfig.logIpchi2Range = std::make_pair(-3, 5);
 
     // Prompt component
-    d0IPConfig.xpPrompt = ParamConfig(0.0, -0.5, 1.0);
-    d0IPConfig.sigmaPrompt = ParamConfig(0.7, 0.4, 2.0);
-    d0IPConfig.xiPrompt = ParamConfig(0.0, -0.5, 0.5);
-    d0IPConfig.rho1Prompt = ParamConfig(-0.08, -0.2, -0.01);
+    d0IPConfig.xpPrompt = ParamConfig(0.3, 0.23, 0.38);
+    d0IPConfig.sigmaPrompt = ParamConfig(0.47, 0.43, 0.53);
+    d0IPConfig.xiPrompt = ParamConfig(-0.18, -0.21, -0.15);
+    d0IPConfig.rho1Prompt = ParamConfig(-0.08, -0.11, -0.05);
     d0IPConfig.rho2Prompt = ParamConfig(0.01, 0.0001, 0.98);
 
     // Non-prompt component
-    d0IPConfig.xpNonprompt = ParamConfig(1.9, 1.6, 3.0);
-    d0IPConfig.sigmaNonprompt = ParamConfig(0.4, 0.3, 0.7);
-    d0IPConfig.xiNonprompt = ParamConfig(0.1, 0.05, 0.5);
-    d0IPConfig.rho1Nonprompt = ParamConfig(-0.1, -0.95, -0.05);
+    d0IPConfig.xpNonprompt = ParamConfig(1.95, 1.87, 2.27);
+    d0IPConfig.sigmaNonprompt = ParamConfig(0.45, 0.3, 0.66);
+    d0IPConfig.xiNonprompt = ParamConfig(0.15, 0.05, 0.28);
+    d0IPConfig.rho1Nonprompt = ParamConfig(-0.95, -0.96, -0.05);
     d0IPConfig.rho2Nonprompt = ParamConfig(0.2, 0.01, 0.98);
+    // d0IPConfig.xpPrompt = ParamConfig(0.0, -0.5, 1.0);
+    // d0IPConfig.sigmaPrompt = ParamConfig(0.7, 0.4, 2.0);
+    // d0IPConfig.xiPrompt = ParamConfig(0.0, -0.5, 0.5);
+    // d0IPConfig.rho1Prompt = ParamConfig(-0.08, -0.2, -0.01);
+    // d0IPConfig.rho2Prompt = ParamConfig(0.01, 0.0001, 0.98);
+
+    // // Non-prompt component
+    // d0IPConfig.xpNonprompt = ParamConfig(1.9, 1.6, 3.0);
+    // d0IPConfig.sigmaNonprompt = ParamConfig(0.4, 0.3, 0.7);
+    // d0IPConfig.xiNonprompt = ParamConfig(0.1, 0.05, 0.5);
+    // d0IPConfig.rho1Nonprompt = ParamConfig(-0.1, -0.95, -0.05);
+    // d0IPConfig.rho2Nonprompt = ParamConfig(0.2, 0.01, 0.98);
 
     // Fraction - starting with a more central value to avoid boundary issues
     d0IPConfig.promptFrac = ParamConfig(0.95, 0.7, 0.999);
@@ -88,6 +106,197 @@ void Fitter::initDictionary()
     d0IPConfig.bkgParam2 = ParamConfig(0.5, 0, 1);
 
     ipchi2Dict["SigD0"] = d0IPConfig;
+}
+
+void Fitter::resetFitDictionaries()
+{
+    initDictionary();
+}
+
+void Fitter::applyMassPrefitConstraints(const std::string &resonance,
+                                        const std::string &fitTypeName,
+                                        const std::vector<double> &fitValues,
+                                        const std::vector<double> &fitErrors,
+                                        double yieldScale)
+{
+    auto it = massDict.find(resonance);
+    if (it == massDict.end())
+    {
+        std::cerr << "Warning: cannot apply mass pre-fit constraints for unknown resonance '"
+                  << resonance << "'" << std::endl;
+        return;
+    }
+
+    if (fitValues.size() < 10 || fitErrors.size() < 10)
+    {
+        std::cerr << "Warning: insufficient pre-fit parameters to constrain the full fit" << std::endl;
+        return;
+    }
+
+    if (!(yieldScale > 0.0) || !std::isfinite(yieldScale))
+    {
+        yieldScale = 1.0;
+    }
+
+    auto &res = it->second;
+    const bool useCrystalBall = (fitTypeName == "CBall" || fitTypeName == "DCB");
+
+    auto clampValue = [](double value, double minValue, double maxValue) {
+        return std::max(minValue, std::min(value, maxValue));
+    };
+
+    auto updateParameter = [&](ParamConfig &param, double center, double error,
+                               double relativeSpan, double absoluteSpan) {
+        if (!std::isfinite(center))
+        {
+            return;
+        }
+
+        double span = std::max(absoluteSpan, std::abs(center) * relativeSpan);
+        if (std::isfinite(error) && error > 0.0)
+        {
+            span = std::max(span, 5.0 * error);
+        }
+
+        double newMin = std::max(param.min, center - span);
+        double newMax = std::min(param.max, center + span);
+        if (newMin >= newMax)
+        {
+            newMin = param.min;
+            newMax = param.max;
+        }
+
+        param.value = clampValue(center, newMin, newMax);
+        param.min = newMin;
+        param.max = newMax;
+    };
+
+    auto updateYield = [&](ParamConfig &param, double value, double error) {
+        if (!std::isfinite(value))
+        {
+            return;
+        }
+
+        double span = std::max(25.0, std::abs(value) * 0.60);
+        if (std::isfinite(error) && error > 0.0)
+        {
+            span = std::max(span, 5.0 * error);
+        }
+
+        double newMin = std::max(param.min, value - span);
+        double newMax = std::min(param.max, value + span);
+        if (newMin >= newMax)
+        {
+            newMin = param.min;
+            newMax = param.max;
+        }
+
+        param.value = clampValue(value, newMin, newMax);
+        param.min = newMin;
+        param.max = newMax;
+    };
+
+    updateParameter(res.mean, fitValues[2], fitErrors[2], 0.001, 0.0015);
+    updateParameter(res.sigma1, fitValues[3], fitErrors[3], 0.25, 0.0005);
+    updateParameter(res.deltasigma, fitValues[4], fitErrors[4], 0.30, 0.08);
+    updateParameter(res.dg_frac, fitValues[7], fitErrors[7], 0.35, 0.05);
+    updateParameter(res.pol1, fitValues[8], fitErrors[8], 0.30, 10.0);
+    updateParameter(res.pol2, fitValues[9], fitErrors[9], 0.40, 20.0);
+
+    if (useCrystalBall)
+    {
+        updateParameter(res.alpha1, fitValues[5], fitErrors[5], 0.35, 0.25);
+        updateParameter(res.n, fitValues[6], fitErrors[6], 0.45, 0.20);
+    }
+
+    const double scaledSigYield = fitValues[0] * yieldScale;
+    const double scaledBkgYield = fitValues[1] * yieldScale;
+    const double scaledSigYieldErr = fitErrors[0] * yieldScale;
+    const double scaledBkgYieldErr = fitErrors[1] * yieldScale;
+
+    updateYield(res.sigYield, scaledSigYield, scaledSigYieldErr);
+    updateYield(res.bkgYield, scaledBkgYield, scaledBkgYieldErr);
+
+    std::cout << "Applied mass pre-fit constraints for " << resonance
+              << " using yield scale " << yieldScale << std::endl;
+    std::cout << "  Mean constrained to [" << res.mean.min << ", " << res.mean.max << "]"
+              << " around " << res.mean.value << std::endl;
+    std::cout << "  Signal yield initialized to " << res.sigYield.value
+              << " with bounds [" << res.sigYield.min << ", " << res.sigYield.max << "]" << std::endl;
+    std::cout << "  Background yield initialized to " << res.bkgYield.value
+              << " with bounds [" << res.bkgYield.min << ", " << res.bkgYield.max << "]" << std::endl;
+}
+
+void Fitter::applyIPChi2PrefitConstraints(const std::string &resonance,
+                                          const std::vector<double> &fitValues,
+                                          const std::vector<double> &fitErrors)
+{
+    const std::string key = "Sig" + resonance;
+    auto it = ipchi2Dict.find(key);
+    if (it == ipchi2Dict.end())
+    {
+        std::cerr << "Warning: cannot apply IPChi2 pre-fit constraints for unknown resonance '"
+                  << key << "'" << std::endl;
+        return;
+    }
+
+    if (fitValues.size() < 12 || fitErrors.size() < 12)
+    {
+        std::cerr << "Warning: insufficient IPChi2 pre-fit parameters to constrain the full fit" << std::endl;
+        return;
+    }
+
+    auto &cfg = it->second;
+
+    auto clampValue = [](double value, double minValue, double maxValue) {
+        return std::max(minValue, std::min(value, maxValue));
+    };
+
+    auto updateParameter = [&](ParamConfig &param, double center, double error,
+                               double relativeSpan, double absoluteSpan) {
+        if (!std::isfinite(center))
+        {
+            return;
+        }
+
+        double span = std::max(absoluteSpan, std::abs(center) * relativeSpan);
+        if (std::isfinite(error) && error > 0.0)
+        {
+            span = std::max(span, 5.0 * error);
+        }
+
+        double newMin = std::max(param.min, center - span);
+        double newMax = std::min(param.max, center + span);
+        if (newMin >= newMax)
+        {
+            newMin = param.min;
+            newMax = param.max;
+        }
+
+        param.value = clampValue(center, newMin, newMax);
+        param.min = newMin;
+        param.max = newMax;
+    };
+
+    updateParameter(cfg.promptFrac, fitValues[1], fitErrors[1], 0.15, 0.02);
+    updateParameter(cfg.xpPrompt, fitValues[2], fitErrors[2], 0.20, 0.04);
+    updateParameter(cfg.sigmaPrompt, fitValues[3], fitErrors[3], 0.20, 0.03);
+    updateParameter(cfg.xiPrompt, fitValues[4], fitErrors[4], 0.35, 0.03);
+    updateParameter(cfg.rho1Prompt, fitValues[5], fitErrors[5], 0.35, 0.03);
+    updateParameter(cfg.rho2Prompt, fitValues[6], fitErrors[6], 0.50, 0.02);
+    updateParameter(cfg.xpNonprompt, fitValues[7], fitErrors[7], 0.20, 0.05);
+    updateParameter(cfg.sigmaNonprompt, fitValues[8], fitErrors[8], 0.20, 0.04);
+    updateParameter(cfg.xiNonprompt, fitValues[9], fitErrors[9], 0.35, 0.04);
+    updateParameter(cfg.rho1Nonprompt, fitValues[10], fitErrors[10], 0.25, 0.08);
+    updateParameter(cfg.rho2Nonprompt, fitValues[11], fitErrors[11], 0.50, 0.05);
+
+    std::cout << "Applied IPChi2 pre-fit constraints for " << key << std::endl;
+    std::cout << "  prompt_frac bounds: [" << cfg.promptFrac.min << ", " << cfg.promptFrac.max
+              << "] around " << cfg.promptFrac.value << std::endl;
+    std::cout << "  xp_prompt bounds: [" << cfg.xpPrompt.min << ", " << cfg.xpPrompt.max
+              << "] around " << cfg.xpPrompt.value << std::endl;
+    std::cout << "  xp_nonprompt bounds: [" << cfg.xpNonprompt.min << ", " << cfg.xpNonprompt.max
+              << "] around " << cfg.xpNonprompt.value << std::endl;
 }
 
 void Fitter::updateDictionary(RooAbsPdf *signalPdf, RooAbsData *data, const std::string &fitFunc)
@@ -105,16 +314,21 @@ void Fitter::updateDictionary(RooAbsPdf *signalPdf, RooAbsData *data, const std:
 
     if (fitFunc == "noSig")
     {
-        keyList = {"pol1", "pol2"};
+        keyList = {"pol0", "pol1"};
     }
-    if (fitFunc == "DGauss")
+    else if (fitFunc == "DGauss")
     {
         keyList = {"mean", "sigma1", "deltasigma", "dg_frac", "sig_yield",
-                   "bkg_yield", "pol1", "pol2"};
+                   "bkg_yield", "pol0", "pol1"};
+    }
+    else if (fitFunc == "CBall" || fitFunc == "DCB")
+    {
+        keyList = {"mean", "sigma1", "deltasigma", "alpha1", "n", "cb_frac",
+                   "sig_yield", "bkg_yield", "pol0", "pol1"};
     }
     else if (fitFunc == "SGauss")
     {
-        keyList = {"mean", "sigma1", "sig_yield", "bkg_yield", "pol1", "pol2"};
+        keyList = {"mean", "sigma1", "sig_yield", "bkg_yield", "pol0", "pol1"};
     }
     else
     {
@@ -136,17 +350,21 @@ void Fitter::updateDictionary(RooAbsPdf *signalPdf, RooAbsData *data, const std:
                 res.sigma1.value = newVal;
             else if (key == "deltasigma")
                 res.deltasigma.value = newVal;
+            else if (key == "alpha1")
+                res.alpha1.value = newVal;
             else if (key == "n")
                 res.n.value = newVal;
             else if (key == "dg_frac")
+                res.dg_frac.value = newVal;
+            else if (key == "cb_frac")
                 res.dg_frac.value = newVal;
             else if (key == "sig_yield")
                 res.sigYield.value = newVal;
             else if (key == "bkg_yield")
                 res.bkgYield.value = newVal;
-            else if (key == "pol1")
+            else if (key == "pol0")
                 res.pol1.value = newVal;
-            else if (key == "pol2")
+            else if (key == "pol1")
                 res.pol2.value = newVal;
         }
     }
@@ -373,6 +591,10 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
 
     try
     {
+        const bool useCrystalBall = (fitTypeName == "CBall" || fitTypeName == "DCB");
+        const bool useDoubleGaussian = (fitTypeName == "DGauss");
+        const bool useTwoComponentSignal = useCrystalBall || useDoubleGaussian;
+
         // Get mass parameters
         auto res = massDict[resonance];
         std::pair<double, double> fullRange = res.massRange;
@@ -399,16 +621,21 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
                                                   RooArgList(*sigma1, *deltasigma));
         RooRealVar *mean = new RooRealVar("mean", "mean",
                                           res.mean.value, res.mean.min, res.mean.max);
+        RooRealVar *alpha1 = new RooRealVar("alpha1", "alpha1",
+                                            res.alpha1.value, res.alpha1.min, res.alpha1.max);
+        RooFormulaVar *alpha2 = new RooFormulaVar("alpha2", "alpha2", "-1.0*alpha1",
+                                                  RooArgList(*alpha1));
         RooRealVar *n = new RooRealVar("n", "n",
                                        res.n.value, res.n.min, res.n.max);
-        RooRealVar *dg_frac = new RooRealVar("dg_frac", "dg_frac",
-                                             res.dg_frac.value, res.dg_frac.min, res.dg_frac.max);
+        const std::string fractionName = useCrystalBall ? "cb_frac" : "dg_frac";
+        RooRealVar *component_frac = new RooRealVar(fractionName.c_str(), fractionName.c_str(),
+                                                    res.dg_frac.value, res.dg_frac.min, res.dg_frac.max);
         RooRealVar *sig_yield = new RooRealVar("sig_yield", "sig_yield",
                                                res.sigYield.value, res.sigYield.min, res.sigYield.max);
 
         // Create signal PDF
         RooAbsPdf *sig_pdf = nullptr;
-        if (fitTypeName == "DGauss")
+        if (useDoubleGaussian)
         {
             // Double Gaussian
             RooGaussian *Gauss1_pdf = new RooGaussian("Sig1_pdf", "Sig1_pdf",
@@ -416,8 +643,18 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
             RooGaussian *Gauss2_pdf = new RooGaussian("Sig2_pdf", "Sig2_pdf",
                                                       *mass_tag_measured, *mean, *sigma2);
             sig_pdf = new RooAddPdf("sig_pdf", "Signal",
-                                    RooArgList(*Gauss2_pdf, *Gauss1_pdf), RooArgList(*dg_frac));
+                                    RooArgList(*Gauss2_pdf, *Gauss1_pdf), RooArgList(*component_frac));
             std::cout << "  Using Double Gaussian PDF" << std::endl;
+        }
+        else if (useCrystalBall)
+        {
+            RooCBShape *CB1_pdf = new RooCBShape("Sig1_pdf", "Sig1_pdf",
+                                                 *mass_tag_measured, *mean, *sigma1, *alpha1, *n);
+            RooCBShape *CB2_pdf = new RooCBShape("Sig2_pdf", "Sig2_pdf",
+                                                 *mass_tag_measured, *mean, *sigma2, *alpha2, *n);
+            sig_pdf = new RooAddPdf("sig_pdf", "Signal",
+                                    RooArgList(*CB2_pdf, *CB1_pdf), RooArgList(*component_frac));
+            std::cout << "  Using mirrored Crystal Ball PDF" << std::endl;
         }
         else if (fitTypeName == "SGauss" || fitTypeName == "noSig")
         {
@@ -460,21 +697,117 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
             extended_pdf = new RooAddPdf("model", "model", RooArgList(*sig_pdf_ext, *bkg_pdf_ext));
         }
 
-        // Fit the data
-        RooFitResult *fit_result = nullptr;
+        // First: perform a binned fit to a histogram representation of the data.
+        // This provides robust starting values for the shape parameters.
+        std::cout << "  Performing binned fit (" << nBins << " bins) to determine shape parameters..." << std::endl;
+
+        // Ensure variable binning is set and create a binned dataset
+        // Use a larger number of bins for diagnostics if nBins is small
+        int binnedN = nBins > 10 ? nBins : 50;
+        mass_tag_measured->setBins(binnedN);
+        RooDataHist *binnedData = new RooDataHist("binnedData", "binnedData", RooArgSet(*mass_tag_measured), *data);
+
+        RooFitResult *binnedFitResult = nullptr;
         if (fitTypeName == "noSig")
         {
-            std::cout << "  Fitting in sideband regions only" << std::endl;
-            fit_result = extended_pdf->fitTo(*data, RooFit::Save(true),
-                                             RooFit::PrintLevel(0),
-                                             RooFit::Range("SBleft,SBright"));
+            binnedFitResult = extended_pdf->fitTo(*binnedData, RooFit::Save(),
+                                                 RooFit::PrintLevel(0),
+                                                 RooFit::Extended(true),
+                                                 RooFit::NumCPU(8),
+                                                 RooFit::Strategy(1),
+                                                 RooFit::Range("SBleft,SBright"),
+                                                 RooFit::DataError(RooAbsData::SumW2));
         }
         else
         {
-            std::cout << "  Fitting in full range" << std::endl;
-            fit_result = extended_pdf->fitTo(*data, RooFit::Save(true),
-                                             RooFit::PrintLevel(0),
-                                             RooFit::Range("fullRange"));
+            binnedFitResult = extended_pdf->fitTo(*binnedData, RooFit::Save(),
+                                                 RooFit::PrintLevel(0),
+                                                 RooFit::Extended(true),
+                                                 RooFit::NumCPU(8),
+                                                 RooFit::Strategy(1),
+                                                 RooFit::Range("fullRange"),
+                                                 RooFit::DataError(RooAbsData::SumW2));
+        }
+
+        // Create a binned TH1 for plotting (returned and/or used by plotter)
+        TH1 *binnedHist = data->createHistogram("mass_hist_binned", *mass_tag_measured, RooFit::Binning(binnedN));
+
+        // Quick diagnostic plot: binned data and fit overlay
+        {
+            std::string binstr = (bin >= 0) ? std::to_string(bin) : std::string("all");
+
+            RooPlot *frame_binned = mass_tag_measured->frame(RooFit::Title("Binned mass fit"));
+            binnedData->plotOn(frame_binned, RooFit::DataError(RooAbsData::SumW2));
+
+            // Draw the fitted PDF on top
+            extended_pdf->plotOn(frame_binned, RooFit::LineColor(kRed));
+            if (binnedFitResult)
+            {
+                extended_pdf->plotOn(frame_binned, RooFit::VisualizeError(*binnedFitResult, 1), RooFit::DrawOption("F"), RooFit::FillColor(kOrange), RooFit::LineColor(kOrange));
+            }
+
+            TCanvas *c_binned = new TCanvas("c_binned", "Binned fit", 800, 600);
+            frame_binned->Draw();
+
+            std::string outdir = outfilePath;
+            if (!outdir.empty() && outdir.back() != '/')
+                outdir.push_back('/');
+            std::string outpng = outdir + "mass_binned_fit_bin" + binstr + ".png";
+            c_binned->SaveAs(outpng.c_str());
+
+            if (sFile)
+            {
+                sFile->cd();
+                c_binned->Write(("mass_binned_fit_bin" + binstr).c_str());
+            }
+
+            // keep the canvas in memory if user wants to view; don't delete immediately
+        }
+
+        // After binned fit, fix shape parameters and leave only yields free for the unbinned fit
+        std::cout << "  Fixing shape parameters from binned fit and performing unbinned fit for yields..." << std::endl;
+
+        // Depending on model type, set shape parameters constant
+        mean->setConstant(true);
+        sigma1->setConstant(true);
+        deltasigma->setConstant(true);
+        if (useCrystalBall)
+        {
+            alpha1->setConstant(true);
+            n->setConstant(true);
+        }
+        if (useTwoComponentSignal)
+        {
+            component_frac->setConstant(true);
+        }
+        poly0->setConstant(true);
+        poly1->setConstant(true);
+
+        // Ensure yields are free to vary in the unbinned fit
+        if (sig_yield)
+            sig_yield->setConstant(false);
+        if (bkg_yield)
+            bkg_yield->setConstant(false);
+
+        // Now perform the unbinned fit only varying yields (and any remaining free params)
+        RooFitResult *fit_result = nullptr;
+        if (fitTypeName == "noSig")
+        {
+            fit_result = extended_pdf->fitTo(*data, RooFit::Save(),
+                                            RooFit::PrintLevel(0),
+                                            RooFit::Extended(true),
+                                            RooFit::NumCPU(8),
+                                            RooFit::Strategy(1),
+                                            RooFit::Range("SBleft,SBright"));
+        }
+        else
+        {
+            fit_result = extended_pdf->fitTo(*data, RooFit::Save(),
+                                            RooFit::PrintLevel(0),
+                                            RooFit::Extended(true),
+                                            RooFit::NumCPU(8),
+                                            RooFit::Strategy(1),
+                                            RooFit::Range("fullRange"));
         }
 
         // Update dictionary if requested
@@ -529,8 +862,8 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
             NevtS_SignalRange = SfactorS * integral_sigS->getVal();
         }
 
-        // Create plot of the fit using the Plotter class
-        Plotter plotter(resonance, outfilePath, bin, false, zRange);
+        // Create plot of the fit using the Plotter class (pass input file name for beam tagging)
+        Plotter plotter(resonance, outfilePath, bin, false, zRange, inputFileName);
         histogram = plotter.individualMassFitPlotMulti(sig_yield, extended_pdf, mass_tag_measured, data, fitTypeName, isZtObservable);
 
         // Perform sPlot analysis if requested
@@ -671,8 +1004,9 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
         parameterArr[2] = mean->getVal();
         parameterArr[3] = sigma1->getVal();
         parameterArr[4] = deltasigma->getVal();
-        parameterArr[6] = n->getVal();
-        parameterArr[7] = dg_frac->getVal();
+        parameterArr[5] = useCrystalBall ? alpha1->getVal() : 0.0;
+        parameterArr[6] = useCrystalBall ? n->getVal() : 0.0;
+        parameterArr[7] = useTwoComponentSignal ? component_frac->getVal() : 0.0;
         parameterArr[8] = poly0->getVal();
         parameterArr[9] = poly1->getVal();
         parameterArr[10] = NevtS_SignalRange;
@@ -687,8 +1021,9 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
         parameterErrArr[2] = mean->getError();
         parameterErrArr[3] = sigma1->getError();
         parameterErrArr[4] = deltasigma->getError();
-        parameterErrArr[6] = n->getError();
-        parameterErrArr[7] = dg_frac->getError();
+        parameterErrArr[5] = useCrystalBall ? alpha1->getError() : 0.0;
+        parameterErrArr[6] = useCrystalBall ? n->getError() : 0.0;
+        parameterErrArr[7] = useTwoComponentSignal ? component_frac->getError() : 0.0;
         parameterErrArr[8] = poly0->getError();
         parameterErrArr[9] = poly1->getError();
 
@@ -723,6 +1058,7 @@ Fitter::massFit(const std::string &resonance, RooDataSet *data, const std::strin
 std::tuple<TH1 *, std::vector<double>, std::vector<double>, RooAbsPdf *, RooRealVar *, RooRealVar *>
 Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooDataSet *background,
                             const std::string &figKey, int bin, const std::string &zRange,
+                            double massSigYield, double massSigYieldErr,
                             bool enableSPlot, TFile *splotFile)
 {
     std::cout << "\n==== Starting IP chi2 fit with yields for sPlot (bin " << bin << ") ====" << std::endl;
@@ -763,9 +1099,9 @@ Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooD
                                                mass_params.sigYield.max);
 
         RooRealVar *sig_yieldLim = new RooRealVar("sig_yieldLim", "sig_yieldLim",
-                                                  mass_params.sigYieldLim.value,
-                                                  mass_params.sigYieldLim.min,
-                                                  mass_params.sigYieldLim.max);
+                              mass_params.sigYieldLim.value,
+                              mass_params.sigYieldLim.min,
+                              mass_params.sigYieldLim.max);
 
         RooRealVar *bkg_yieldLim = new RooRealVar("bkg_yieldLim", "bkg_yieldLim",
                                                   mass_params.bkgYieldLim.value,
@@ -874,10 +1210,82 @@ Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooD
                   << prompt_frac->getMin() << " - " << prompt_frac->getMax() << ")" << std::endl;
         std::cout << "  Initial sig_yieldLim: " << sig_yieldLim->getVal() << std::endl;
 
+        // If a mass-fit signal yield was provided, use it to constrain the IP chi2 fit.
+        // Implement constraint by allowing only ±10% variation around the mass-fit yield.
+        if (massSigYield >= 0.0) {
+            // Initialize to mass-fit value and set ±10% bounds
+            sig_yieldLim->setVal(massSigYield);
+            double lower = std::max(0.0, massSigYield * 0.90);
+            double upper = massSigYield * 1.10;
+            sig_yieldLim->setMin(lower);
+            sig_yieldLim->setMax(upper);
+            // Ensure the variable is free to vary within the ±10% window
+            sig_yieldLim->setConstant(false);
+            std::cout << "  Using mass-fit signal yield to initialize sig_yieldLim: " << massSigYield
+                      << " (allowed range: " << lower << " - " << upper << ")" << std::endl;
+        }
+
+        // First: perform a binned fit on log_ipchi2 to determine shape parameters
+        int binnedN_ip = nBins > 10 ? nBins : 50;
+        std::cout << "  Performing binned IP chi2 fit (" << binnedN_ip << " bins) to determine shape parameters..." << std::endl;
+        log_ipchi2->setBins(binnedN_ip);
+        RooDataHist *binnedIPData = new RooDataHist("ip_binnedData", "ip_binnedData", RooArgSet(*log_ipchi2), *data);
+
+        RooFitResult *binnedIPFitResult = nullptr;
+        binnedIPFitResult = total_pdf->fitTo(*binnedIPData, RooFit::Save(),
+                            RooFit::PrintLevel(0),
+                            RooFit::Extended(true),
+                            RooFit::NumCPU(8),
+                            RooFit::Strategy(1),
+                            RooFit::SumW2Error(true));
+
+        // Diagnostic plot for binned IP chi2 fit
+        {
+            RooPlot *frame_ip_binned = log_ipchi2->frame(RooFit::Title("Binned IP chi2 fit"));
+            binnedIPData->plotOn(frame_ip_binned, RooFit::DataError(RooAbsData::SumW2));
+            total_pdf->plotOn(frame_ip_binned, RooFit::LineColor(kRed));
+            if (binnedIPFitResult)
+            {
+                total_pdf->plotOn(frame_ip_binned, RooFit::VisualizeError(*binnedIPFitResult, 1), RooFit::DrawOption("F"), RooFit::FillColor(kOrange), RooFit::LineColor(kOrange));
+            }
+            TCanvas *c_ip_binned = new TCanvas("c_ip_binned", "IP binned fit", 800, 600);
+            frame_ip_binned->Draw();
+            std::string binstr = (bin >= 0) ? std::to_string(bin) : std::string("all");
+            std::string outdir = outfilePath;
+            if (!outdir.empty() && outdir.back() != '/') outdir.push_back('/');
+            std::string outpng = outdir + "ipchi2_binned_fit_bin" + binstr + ".png";
+            c_ip_binned->SaveAs(outpng.c_str());
+            if (splotFile)
+            {
+                splotFile->cd();
+                c_ip_binned->Write(("ipchi2_binned_fit_bin" + binstr).c_str());
+            }
+        }
+
+        // Fix shape parameters from binned fit, leave yields/fractions free
+        xp_prompt->setConstant(true);
+        sigma_prompt->setConstant(true);
+        xi_prompt->setConstant(true);
+        rho1_prompt->setConstant(true);
+        rho2_prompt->setConstant(true);
+
+        xp_nonprompt->setConstant(true);
+        sigma_nonprompt->setConstant(true);
+        xi_nonprompt->setConstant(true);
+        rho1_nonprompt->setConstant(true);
+        rho2_nonprompt->setConstant(true);
+
+        // Ensure sig_yieldLim and prompt_frac are free to vary for unbinned fit
+        sig_yieldLim->setConstant(false);
+        prompt_frac->setConstant(true);
+
+        // Now perform the unbinned fit only varying yields/fraction
         RooFitResult *result = total_pdf->fitTo(*data, RooFit::Save(true),
                                                 RooFit::PrintLevel(0),
                                                 RooFit::SumW2Error(true),
                                                 RooFit::Strategy(2),
+            RooFit::Extended(true),
+            RooFit::NumCPU(8),
                                                 RooFit::Minos(false),
                                                 RooFit::Hesse(true));
 
@@ -888,7 +1296,7 @@ Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooD
 
         // Create plot
         std::cout << "  Creating IP chi2 fit plot..." << std::endl;
-        Plotter plotter(resonance, outfilePath, bin, false, zRange, figKey);
+        Plotter plotter(resonance, outfilePath, bin, false, zRange, inputFileName);
         histogram = plotter.ipchi2FitPlot(resonance, log_ipchi2, data, total_pdf,
                                           nonprompt_pdf, prompt_pdf, nullptr,
                                           prompt_yield, nonprompt_yield);
@@ -918,10 +1326,14 @@ Fitter::ipchi2FitWithYields(const std::string &resonance, RooDataSet *data, RooD
         parameterErrArr[2] = xp_prompt->getError();
         parameterErrArr[3] = sigma_prompt->getError();
         parameterErrArr[4] = xi_prompt->getError();
+        parameterErrArr[5] = rho1_prompt->getError();
+        parameterErrArr[6] = rho2_prompt->getError();
 
         parameterErrArr[7] = xp_nonprompt->getError();
         parameterErrArr[8] = sigma_nonprompt->getError();
         parameterErrArr[9] = xi_nonprompt->getError();
+        parameterErrArr[10] = rho1_nonprompt->getError();
+        parameterErrArr[11] = rho2_nonprompt->getError();
 
         std::cout << "  IP chi2 fit with yields completed successfully" << std::endl;
         std::cout << "  Results - Prompt fraction: " << prompt_frac->getVal() << " ± " << prompt_frac->getError() 
@@ -1311,6 +1723,7 @@ RooDataSet *Fitter::createWeightedDataset(RooDataSet *originalData,
         // Create weight variable for the dataset
         RooRealVar datasetWeight("datasetWeight", "Dataset weight", 0.0);
 
+        std::cout << "Creating weighted dataset: " << datasetName << std::endl;
         // Create argument set that includes weight variable
         RooArgSet datasetVars(*originalData->get());
         datasetVars.add(datasetWeight);
@@ -1320,41 +1733,45 @@ RooDataSet *Fitter::createWeightedDataset(RooDataSet *originalData,
                                                   ("Weighted dataset: " + datasetName).c_str(),
                                                   datasetVars,
                                                   RooFit::WeightVar(datasetWeight));
+        std::cout << "Initialized weighted dataset with weight variable" << std::endl;
 
         // Apply weights to the dataset
         int matchedEntries = 0;
         double totalWeight = 0.0;
 
-        for (int i = 0; i < originalData->numEntries(); i++)
-        {
-            const RooArgSet *row = originalData->get(i);
-            RooRealVar *massVar = (RooRealVar *)row->find("tagMass");
-
-            if (massVar)
+        const double matchTolerance = 1e-6; // matching tolerance for mass values
+        if (!massToWeight.empty()) {
+            for (int i = 0; i < originalData->numEntries(); ++i)
             {
+                const RooArgSet *row = originalData->get(i);
+                RooRealVar *massVar = (RooRealVar *)row->find("tagMass");
+                if (!massVar) continue;
+
                 double mass = massVar->getVal();
 
-                // Find the closest mass value in the weight map (with tolerance)
-                double closestMass = -1;
-                double minDiff = 1e6;
-                for (const auto &pair : massToWeight)
-                {
-                    double diff = std::abs(pair.first - mass);
-                    if (diff < minDiff)
-                    {
-                        minDiff = diff;
-                        closestMass = pair.first;
-                    }
+                // Use lower_bound to find nearest mass key in O(log N)
+                auto it = massToWeight.lower_bound(mass);
+                double closestMass = 0.0;
+                double minDiff = std::numeric_limits<double>::infinity();
+
+                if (it != massToWeight.end()) {
+                    double diff = std::abs(it->first - mass);
+                    if (diff < minDiff) { minDiff = diff; closestMass = it->first; }
+                }
+                if (it != massToWeight.begin()) {
+                    auto pit = std::prev(it);
+                    double diff = std::abs(pit->first - mass);
+                    if (diff < minDiff) { minDiff = diff; closestMass = pit->first; }
                 }
 
-                if (closestMass > 0 && minDiff < 1e-6)
-                { // Tolerance for floating point comparison
+                // Accept match only if within tolerance
+                if (minDiff <= matchTolerance)
+                {
                     double weight = massToWeight[closestMass];
 
                     // Only add entries with positive weights
                     if (weight > 0)
                     {
-                        // Create a copy of the row and add the weight
                         RooArgSet weightedRow(*row);
                         datasetWeight.setVal(weight);
                         weightedRow.add(datasetWeight);

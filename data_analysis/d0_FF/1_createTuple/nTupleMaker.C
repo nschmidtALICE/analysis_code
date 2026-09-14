@@ -8,19 +8,93 @@
 #include <vector>
 #include <cmath>
 #include <TH2D.h>
+#include <TH1.h>
 #include <fstream>
 #include <string>
+// Progress helper for the response matrix loop (reuse same style)
+auto printProgress = [](Long64_t current, Long64_t total)
+{
+    const int barWidth = 50;
+    double fraction = total > 0 ? double(current + 1) / double(total) : 1.0;
+    int pos = static_cast<int>(barWidth * fraction);
+    std::cout << "\r[";
+    for (int i = 0; i < barWidth; ++i)
+    {
+        if (i < pos)
+            std::cout << "=";
+        else if (i == pos)
+            std::cout << ">";
+        else
+            std::cout << " ";
+    }
+    std::cout << "] " << static_cast<int>(fraction * 100.0) << "% (" << (current + 1) << "/" << total << ")" << std::flush;
+    if (current + 1 == total)
+        std::cout << std::endl;
+};
 
-void createResponseMatrix(const char *inputFile, const char *outputFile);
+auto calcRapidityFromEnergyPz = [](float energy, float pz)
+{
+    if (energy <= std::fabs(pz))
+        return -999.f;
+
+    double numerator = static_cast<double>(energy + pz);
+    double denominator = static_cast<double>(energy - pz);
+    if (numerator <= 0.0 || denominator <= 0.0)
+        return -999.f;
+
+    return static_cast<float>(0.5 * std::log(numerator / denominator));
+};
+
+auto calcRapidityFromPtEtaMass = [](float pt, float eta, float mass)
+{
+    double ptD = static_cast<double>(pt);
+    double etaD = static_cast<double>(eta);
+    double massD = static_cast<double>(mass);
+    double pz = ptD * std::sinh(etaD);
+    double momentum = ptD * std::cosh(etaD);
+    double energySquared = momentum * momentum + massD * massD;
+    if (energySquared <= 0.0)
+        return eta;
+
+    double energy = std::sqrt(energySquared);
+    return calcRapidityFromEnergyPz(static_cast<float>(energy), static_cast<float>(pz));
+};
+
+void createResponseMatrix(const char *inputFile, const char *outputFile, int jetMode, bool useWeights=false, const char* multweightsfile = nullptr, bool useJetPtWeights=false);
 
 // doJet/doJetMode semantics:
 // - doJet=false or doJetMode=0: No jet requirements; do not read or write jet-related branches.
 // - doJet=true  or doJetMode=1: Require a D0-associated jet; apply jet pT/eta cuts to the associated jet; write jet/D0-jet branches.
 // - doJetMode=2: Require at least one jet in the EVENT passing pT/eta cuts (no D0-jet association required); do not write D0-jet branches.
-void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true, bool doJet = true, int doJetMode = -1)
+void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true, bool doJet = true, int doJetMode = -1, int systematicVariation = 0, bool useMultiplicityWeights = true, bool useJetPtWeights = false)
 {
-    std::cout << "Starting D0 FF Analysis with minimal ntuple maker" << std::endl;
+    //print all function arguments for debugging
+    std::cout << "nTupleMaker called with arguments:" << std::endl;
+    std::cout << "  inputFile: " << inputFile << std::endl;
+    std::cout << "  pPbORPbp: " << pPbORPbp << std::endl;
+    std::cout << "  inputMC: " << inputMC << std::endl;
+    std::cout << "  responseOnly: " << responseOnly << std::endl;
+    std::cout << "  buildResponse: " << buildResponse << std::endl;
+    std::cout << "  doJet: " << doJet << std::boolalpha << doJet << std::endl;
+    std::cout << "  doJetMode: " << doJetMode << std::endl;
+    std::cout << "  systematicVariation: " << systematicVariation << std::endl;
+    std::cout << "  useMultiplicityWeights: " << useMultiplicityWeights << std::endl;
+    std::cout << "  useJetPtWeights: " << useJetPtWeights << std::endl;
 
+    std::cout << "Starting D0 FF Analysis with minimal ntuple maker" << std::endl;
+    TString multweightsfile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/1_createTuple/outputs/2026-05-28/multiplicity_weights_Pbp/multiplicity_weights_Pbp_smoothed.root";
+    // TString multweightsfile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/1_createTuple/outputs/2026-05-28/multiplicity_weights_pPb/multiplicity_weights_pPb_smoothed.root";
+    std::cout << "Using multiplicity weights file: " << multweightsfile << std::endl;
+    // Derive a default jet-pt weights file path from the multiplicity weights file
+    TString jetptweightsfile = multweightsfile;
+    jetptweightsfile.ReplaceAll("_smoothed.root", "_jetpt_weights.root");
+    std::cout << "Looking for jet-pt weights file: " << jetptweightsfile << std::endl;
+
+    // Enforce mutual exclusion between weight modes
+    if (useMultiplicityWeights && useJetPtWeights) {
+        std::cerr << "ERROR: Both multiplicity and jet-pt weights requested. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
     // Use default files if empty string provided
     TString fInputFileName = inputFile;
 
@@ -31,6 +105,11 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         fOutputFileName.ReplaceAll(".root", "_filtered.root");
     } else {
         fOutputFileName.ReplaceAll(".txt", "_filtered.root");
+    }
+
+    // Append systematic variation tag to output file name, e.g. _sysvar0, _sysvar1, ...
+    if (systematicVariation >= 0) {
+        fOutputFileName.ReplaceAll(".root", Form("_sysvar%d.root", systematicVariation));
     }
 
     std::cout << "Input file: " << fInputFileName << std::endl;
@@ -48,8 +127,11 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         } else {
             respOut.ReplaceAll(".txt", "_response.root");
         }
+        if (systematicVariation >= 0) {
+            respOut.ReplaceAll(".root", Form("_sysvar%d.root", systematicVariation));
+        }
         std::cout << "[responseOnly] Generating response matrix from original file -> " << respOut << std::endl;
-        createResponseMatrix(fInputFileName, respOut);
+        createResponseMatrix(fInputFileName, respOut, doJetMode, useMultiplicityWeights, multweightsfile, useJetPtWeights);
         std::cout << "[responseOnly] Done." << std::endl;
         return;
     }
@@ -125,26 +207,86 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
 
 
     //load efficiency maps for pions and kaons
-    TFile* effFile_kaon;
-    if(pPbORPbp == "Pbp")
-        effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_Ap_09_pEta_k/effhists-ApTurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
-    else
-        effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_pA_09_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    TH2D* effMapKaon = nullptr;
 
+    TFile* effFile_kaon;
+    if(pPbORPbp == "Pbp"){
+        if(systematicVariation==0)
+            effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/lol/pidcalib_output_Ap_09_pEta_k/effhists-ApTurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<4-P.ETA-binning.root");
+        else if(systematicVariation==1)
+            effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_Ap_095_pEta_k/effhists-ApTurbo16-down-K-MC15TuneV1_ProbNNk>0.95&MC15TuneV1_ProbNNghost<0.2&TRCHI2NDOF<3-P.ETA.root");
+        else if(systematicVariation==2)
+            effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_Ap_085_pEta_k/effhists-ApTurbo16-down-K-MC15TuneV1_ProbNNk>0.85&MC15TuneV1_ProbNNghost<0.4&TRCHI2NDOF<5-P.ETA.root");
+        else{
+            std::cerr << "Warning: invalid systematic variation index for kaon PID efficiency map: " << systematicVariation << std::endl;
+            return;
+        }
+
+    } else if (pPbORPbp == "pPb" || pPbORPbp == "pp") { //TODO fix
+        if(systematicVariation==0)
+            effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/lol/pidcalib_output_pA_09_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<4-P.ETA-binning.root");
+        else if(systematicVariation==1)
+            effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_pA_095_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.95&MC15TuneV1_ProbNNghost<0.2&TRCHI2NDOF<3-P.ETA.root");
+        else if(systematicVariation==2)
+            effFile_kaon = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_pA_085_pEta_k/effhists-pATurbo16-down-K-MC15TuneV1_ProbNNk>0.85&MC15TuneV1_ProbNNghost<0.4&TRCHI2NDOF<5-P.ETA.root");
+        else{
+            std::cerr << "Warning: invalid systematic variation index for kaon PID efficiency map: " << systematicVariation << std::endl;
+            return;
+        }
+    } else {
+        std::cerr << "no correction for pp for kaon PID efficiency map" << std::endl;
+        return;
+    }
     if (!effFile_kaon || effFile_kaon->IsZombie())
     {
         std::cerr << "Error: Could not open kaon pid efficiency map file" << std::endl;
         return;
     }
+    if(systematicVariation==0){
+        effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<4"));
+    } else if(systematicVariation==1){
+        effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.95&MC15TuneV1_ProbNNghost<0.2&TRCHI2NDOF<3"));
+    } else if(systematicVariation==2){
+        effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.85&MC15TuneV1_ProbNNghost<0.4&TRCHI2NDOF<5"));
+    }
 
+    TH2D* effMapPion = nullptr;
     TFile* effFile_Pion;
-    if(pPbORPbp == "Pbp")
-        effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_Ap_09_pEta_pi/effhists-ApTurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
-    else
-        effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_output_pA_09_pEta_pi/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3-P.ETA.root");
+    if(pPbORPbp == "Pbp"){
+        if(systematicVariation==0)
+            effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/lol/pidcalib_output_Ap_09_pEta_pi/effhists-ApTurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<4-P.ETA-binning.root");
+        else if(systematicVariation==1)
+            effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_Ap_095_pEta_pi/effhists-ApTurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.95&MC15TuneV1_ProbNNghost<0.2&TRCHI2NDOF<3-P.ETA.root");
+        else if(systematicVariation==2)
+            effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_Ap_085_pEta_pi/effhists-ApTurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.85&MC15TuneV1_ProbNNghost<0.4&TRCHI2NDOF<5-P.ETA.root");
+        else{
+            std::cerr << "Warning: invalid systematic variation index for pion PID efficiency map: " << systematicVariation << std::endl;
+            return;
+        }
+    } else if(pPbORPbp == "pPb" || pPbORPbp == "pp") { //TODO fix
+        if(systematicVariation==0)
+            effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/lol/pidcalib_output_pA_09_pEta_pi/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<4-P.ETA-binning.root");
+        else if(systematicVariation==1)
+            effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_pA_095_pEta_pi/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.95&MC15TuneV1_ProbNNghost<0.2&TRCHI2NDOF<3-P.ETA.root");
+        else if(systematicVariation==2)
+            effFile_Pion = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/8_pidcalib/pidcalib_sysvar/pidcalib_output_pA_085_pEta_pi/effhists-pATurbo16-down-Pi-MC15TuneV1_ProbNNpi>0.85&MC15TuneV1_ProbNNghost<0.4&TRCHI2NDOF<5-P.ETA.root");
+        else{
+            std::cerr << "Warning: invalid systematic variation index for pion PID efficiency map: " << systematicVariation << std::endl;
+            return;
+        }
+    } else {
+        std::cerr << "no correction for pp for pion PID efficiency map" << std::endl;
+        return;
+    }
 
-    TH2D* effMapKaon = dynamic_cast<TH2D*>(effFile_kaon->Get("eff_MC15TuneV1_ProbNNk>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
-    TH2D* effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<3"));
+    if(systematicVariation==0){
+        effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.9&MC15TuneV1_ProbNNghost<0.3&TRCHI2NDOF<4"));
+    } else if(systematicVariation==1){
+        effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.95&MC15TuneV1_ProbNNghost<0.2&TRCHI2NDOF<3"));
+    } else if(systematicVariation==2){
+        effMapPion = dynamic_cast<TH2D*>(effFile_Pion->Get("eff_MC15TuneV1_ProbNNpi>0.85&MC15TuneV1_ProbNNghost<0.4&TRCHI2NDOF<5"));
+    }
+
     if (!effMapKaon || !effMapPion)
     {
         std::cerr << "Error: Could not find efficiency maps in file" << std::endl;
@@ -155,12 +297,17 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
 
     TFile* effFile_Reconstruction;
     if(pPbORPbp == "Pbp"){
-        // effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/D0RecoEffi_Pbp_20251014/output_reco_standalone_full_Pbp.root");
-        std::cout << "No Pbp reconstruction efficiency file defined... returning" << std::endl;
+        effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_15_16_Pbp_rerun_2026-09-08/output_reco_standalone_15_16_Pbp_rerun.root");
+        // effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_15_16_Pbp_2026-05-26/output_reco_standalone_15_16_Pbp.root");
+    } else if(pPbORPbp == "pPb"){
+        effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_11_12_pPb_rerun_2026-09-08/output_reco_standalone_11_12_pPb_rerun.root");
+        // effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_11_12_pPb_2026-05-26/output_reco_standalone_11_12_pPb.root");
+    } else if(pPbORPbp == "pp"){
+        effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_full_pp_2026-04-30/output_reco_standalone_full_pp.root");
+    } else {
+        std::cerr << "no correction for pp for reconstruction efficiency map" << std::endl;
         return;
-    } else
-        effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_54_pPb_2026-01-06/output_reco_standalone_54_pPb.root");
-        // effFile_Reconstruction = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/output_reco_standalone_full_pPb_2025-10-14/output_reco_standalone_full_pPb.root");
+    }
     if(!effFile_Reconstruction || effFile_Reconstruction->IsZombie())
     {
         std::cerr << "Error: Could not open reconstruction efficiency file" << std::endl;
@@ -177,10 +324,15 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
 
     TFile* acceptanceFile;
     if(pPbORPbp == "Pbp")
-        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_Pbp_2025-10-14/D0AcceptanceMap_Pbp.root");
-    else
-        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_pPb_54_2026-01-06/D0AcceptanceMap_pPb_54.root");
-        // acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_pPb_2025-10-14/D0AcceptanceMap_pPb.root");
+        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_Pbp_74_75_2026-04-08/D0AcceptanceMap_Pbp_74_75.root");
+    else if (pPbORPbp == "pPb")
+        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_pPb_54plus73_2026-03-31/D0AcceptanceMap_pPb_54plus73.root");
+    else if (pPbORPbp == "pp")
+        acceptanceFile = TFile::Open("/media/niviths/local/analysis_code/data_analysis/d0_FF/9_acceptance/D0AcceptanceMap_pp_1_full_2026-04-30/D0AcceptanceMap_pp_1_full.root");
+    else {
+        std::cerr << "no correction for pp for acceptance map" << std::endl;
+        return;
+    }
     if (!acceptanceFile || acceptanceFile->IsZombie())
     {
         std::cerr << "Error: Could not open acceptance map file" << std::endl;
@@ -214,6 +366,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     // Jet info vectors
     std::vector<float> *jet_pt = nullptr;
     std::vector<float> *jet_eta = nullptr;
+    std::vector<float> *jet_rapidity = nullptr;
     std::vector<float> *jet_phi = nullptr;
     std::vector<float> *jet_mass = nullptr;
     std::vector<int> *jet_n_const = nullptr;
@@ -226,6 +379,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     std::vector<float> *d0_pz = nullptr;
     std::vector<float> *d0_e = nullptr;
     std::vector<float> *d0_eta = nullptr;
+    std::vector<float> *d0_rapidity = nullptr;
     std::vector<float> *d0_phi = nullptr;
     std::vector<float> *d0_mass = nullptr;
     std::vector<float> *d0_vtx_chi2 = nullptr;
@@ -260,16 +414,28 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     std::vector<int> *mc_d0_origin = nullptr;
     std::vector<int> *mc_d0_matched = nullptr;
 
+    const bool hasJetRapidityBranch = inputTree->GetBranch("jet_rapidity");
+    const bool hasD0RapidityBranch = inputTree->GetBranch("d0_rapidity");
+
     // Set branch addresses for input tree
     inputTree->SetBranchAddress("evt_num", &evt_num);
     inputTree->SetBranchAddress("run_num", &run_num);
     inputTree->SetBranchAddress("n_pvs", &n_pvs);
+    // Try to read event multiplicity branch if present
+    int event_multiplicity = 0;
+    bool has_event_multiplicity = false;
+    if (inputTree->GetBranch("event_multiplicity")) {
+        inputTree->SetBranchAddress("event_multiplicity", &event_multiplicity);
+        has_event_multiplicity = true;
+    }
 
     // Read jet collections when any jet requirement is enabled (mode 1 or 2)
     if(jetMode != 0)
     {
         inputTree->SetBranchAddress("jet_pt", &jet_pt);
         inputTree->SetBranchAddress("jet_eta", &jet_eta);
+        if (hasJetRapidityBranch)
+            inputTree->SetBranchAddress("jet_rapidity", &jet_rapidity);
         inputTree->SetBranchAddress("jet_phi", &jet_phi);
         inputTree->SetBranchAddress("jet_mass", &jet_mass);
         inputTree->SetBranchAddress("jet_n_const", &jet_n_const);
@@ -281,6 +447,8 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     inputTree->SetBranchAddress("d0_pz", &d0_pz);
     inputTree->SetBranchAddress("d0_e", &d0_e);
     inputTree->SetBranchAddress("d0_eta", &d0_eta);
+    if (hasD0RapidityBranch)
+        inputTree->SetBranchAddress("d0_rapidity", &d0_rapidity);
     inputTree->SetBranchAddress("d0_phi", &d0_phi);
     inputTree->SetBranchAddress("d0_mass", &d0_mass);
     inputTree->SetBranchAddress("d0_vtx_chi2", &d0_vtx_chi2);
@@ -320,16 +488,38 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         inputTree->SetBranchAddress("mc_d0_matched", &mc_d0_matched);
     }
 
+    auto getJetRapidity = [&](size_t idx) -> float
+    {
+        if (hasJetRapidityBranch && jet_rapidity && idx < jet_rapidity->size())
+            return (*jet_rapidity)[idx];
+        if (jet_pt && jet_eta && jet_mass && idx < jet_pt->size() && idx < jet_eta->size() && idx < jet_mass->size())
+            return calcRapidityFromPtEtaMass((*jet_pt)[idx], (*jet_eta)[idx], (*jet_mass)[idx]);
+        if (jet_eta && idx < jet_eta->size())
+            return (*jet_eta)[idx];
+        return -999.f;
+    };
+
+    auto getD0Rapidity = [&](size_t idx) -> float
+    {
+        if (hasD0RapidityBranch && d0_rapidity && idx < d0_rapidity->size())
+            return (*d0_rapidity)[idx];
+        if (d0_e && d0_pz && idx < d0_e->size() && idx < d0_pz->size())
+            return calcRapidityFromEnergyPz((*d0_e)[idx], (*d0_pz)[idx]);
+        return -999.f;
+    };
+
     // Variables for output tree
     float v_tagdR = 0;
     float v_tagMass = 0;
     float v_tagPt = 0;
     float v_tagEta = 0;
+    float v_tagY = 0;
     float v_tag_idx_jet = 0;
     float v_tag_decVtxChi2 = 0;
     float v_tag_logdecVtxChi2 = 0;
     float v_jetPt = 0;
     float v_jetEta = 0;
+    float v_jetY = 0;
     float v_jetnConst = 0;
     float v_tagZ = 0;
     float v_isPrimary = 0;
@@ -341,7 +531,6 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     float v_piPTrckChi2 = 0;
     float v_decayVtxChi2 = 0;
     float v_Dist1 = 0; // Will use d0_DOCA
-    float v_tagY = 0;
     float v_kaon_efficiency = 0;
     float v_pion_efficiency = 0;
     float v_reconstruction_efficiency = 0;
@@ -353,6 +542,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     int   v_evtNJets = 0;
     float v_evtLeadJetPt = 0;
     float v_evtLeadJetEta = 0;
+    float v_evtLeadJetY = 0;
     float v_evtLeadJetPhi = 0;
     float v_evtLeadJetNConst = 0;
 
@@ -360,6 +550,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     outputTree->Branch("tagMass", &v_tagMass, "tagMass/F");
     outputTree->Branch("tagPt", &v_tagPt, "tagPt/F");
     outputTree->Branch("tagEta", &v_tagEta, "tagEta/F");
+    outputTree->Branch("tagY", &v_tagY, "tagY/F");
     outputTree->Branch("tag_ip_chi2", &v_tag_decVtxChi2, "tag_ip_chi2/F");
     outputTree->Branch("log_tag_ipchi2", &v_tag_logdecVtxChi2, "log_tag_ipchi2/F");
     if(jetMode == 1)
@@ -368,6 +559,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         outputTree->Branch("tagidxjet", &v_tag_idx_jet, "tagidxjet/F");
         outputTree->Branch("jetPt", &v_jetPt, "jetPt/F");
         outputTree->Branch("jetEta", &v_jetEta, "jetEta/F");
+        outputTree->Branch("jetY", &v_jetY, "jetY/F");
         outputTree->Branch("jetnConst", &v_jetnConst, "jetnConst/F");
         outputTree->Branch("tagZ", &v_tagZ, "tagZ/F");
     }
@@ -376,6 +568,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         outputTree->Branch("evtNJets", &v_evtNJets, "evtNJets/I");
         outputTree->Branch("evtLeadJetPt", &v_evtLeadJetPt, "evtLeadJetPt/F");
         outputTree->Branch("evtLeadJetEta", &v_evtLeadJetEta, "evtLeadJetEta/F");
+        outputTree->Branch("evtLeadJetY", &v_evtLeadJetY, "evtLeadJetY/F");
         outputTree->Branch("evtLeadJetPhi", &v_evtLeadJetPhi, "evtLeadJetPhi/F");
         outputTree->Branch("evtLeadJetNConst", &v_evtLeadJetNConst, "evtLeadJetNConst/F");
     }
@@ -388,7 +581,6 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     outputTree->Branch("decayVtxChi2", &v_decayVtxChi2, "decayVtxChi2/F");
     outputTree->Branch("Distance1", &v_Dist1, "Distance1/F");
     outputTree->Branch("isPrimary", &v_isPrimary, "isPrimary/F");
-    outputTree->Branch("tagY", &v_tagY, "tagY/F");
     outputTree->Branch("kaon_efficiency", &v_kaon_efficiency, "kaon_efficiency/F");
     outputTree->Branch("pion_efficiency", &v_pion_efficiency, "pion_efficiency/F");
     outputTree->Branch("reconstruction_efficiency", &v_reconstruction_efficiency, "reconstruction_efficiency/F");
@@ -403,25 +595,71 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         outputTree->Branch("isPrimary", &v_isPrimary, "isPrimary/F");
     }
 
+    // Load multiplicity weights (if available). This allows reweighting pp MC to match pPb.
+    std::map<int, double> multiplicityWeights;
+    // Load jet-pt weights histogram if present
+    TH1 *h_jet_weights = nullptr;
+    TFile *jwfile = nullptr;
+    if (inputMC && pPbORPbp == "pp") {
+        if (useMultiplicityWeights) {
+            TFile *wfile = TFile::Open(multweightsfile, "READ");
+            if (wfile && !wfile->IsZombie()) {
+                TTree *wtree = (TTree*)wfile->Get("multiplicity_weights");
+                if (wtree) {
+                    Int_t mult = 0; Double_t w = 1.0;
+                    wtree->SetBranchAddress("multiplicity", &mult);
+                    wtree->SetBranchAddress("weight", &w);
+                    for (Long64_t iw = 0; iw < wtree->GetEntries(); ++iw) {
+                        wtree->GetEntry(iw);
+                        multiplicityWeights[(int)mult] = (double)w;
+                    }
+                }
+                wfile->Close();
+            }
+        }
+        // Load jet-pt weights only when requested
+        if (useJetPtWeights) {
+            jwfile = TFile::Open(jetptweightsfile, "READ");
+            if (jwfile && !jwfile->IsZombie()) {
+                h_jet_weights = dynamic_cast<TH1*>(jwfile->Get("h_jet_weights"));
+                if (h_jet_weights) {
+                    h_jet_weights->SetDirectory(0); // detach from file so we can close it
+                    std::cout << "Loaded jet-pt weights histogram from: " << jetptweightsfile << std::endl;
+                } else {
+                    std::cerr << "[WARN] Could not find 'h_jet_weights' in " << jetptweightsfile << std::endl;
+                }
+                jwfile->Close();
+            }
+        }
+    }
+
+    // Add event weight branch to output tree (default 1.0)
+    float v_event_weight = 1.0f;
+    outputTree->Branch("event_weight", &v_event_weight, "event_weight/F");
+
     // Process events
     Long64_t nEntries = inputTree->GetEntries();
-    std::cout << "Processing " << nEntries << " events" << std::endl;
+    std::cout << "Processing " << nEntries << " events for filtered output" << std::endl;
 
     int events_processed = 0;
     int d0_accepted = 0;
+
+
+    Long64_t updateInterval = nEntries / 200; // ~200 updates (0.5% increments)
+    if (updateInterval < 1) updateInterval = 1;
 
     for (Long64_t iEntry = 0; iEntry < nEntries; iEntry++)
     {
         inputTree->GetEntry(iEntry);
 
-        if (iEntry % 100000 == 0)
+        if (iEntry % updateInterval == 0 || iEntry + 1 == nEntries)
         {
-            std::cout << "Processing event " << iEntry << " of " << nEntries << std::endl;
+            printProgress(iEntry, nEntries);
         }
 
         events_processed++;
 
-        if(n_pvs > 1) // Only process events with less than 1 primary vertex 
+        if(n_pvs > 1) // Only process events with 1 primary vertex
         //TODO VALIDATE THIS IS CORRECT
         //TODO VALIDATE THIS IS CORRECT
         //TODO VALIDATE THIS IS CORRECT
@@ -434,6 +672,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         int evtLeadIdx = -1;
         float evtLeadPt = -1.f;
         float evtLeadEta = 0.f;
+        float evtLeadY = 0.f;
         float evtLeadPhi = 0.f;
         float evtLeadNConst = 0.f;
         if (jetMode == 2)
@@ -442,7 +681,8 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
             {
                 for (size_t ij = 0; ij < jet_pt->size(); ++ij)
                 {
-                    if ((*jet_pt)[ij] >= 5.0 && (*jet_eta)[ij] >= 2.5 && (*jet_eta)[ij] <= 4.0)
+                    float jetY = getJetRapidity(ij);
+                    if ((*jet_pt)[ij] >= 5.0 && jetY >= 2.5 && jetY <= 4.0)
                     {
                         evtNJets_pass++;
                         if ((*jet_pt)[ij] > evtLeadPt)
@@ -460,6 +700,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
             if (evtLeadIdx >= 0)
             {
                 evtLeadEta = (jet_eta && evtLeadIdx < (int)jet_eta->size()) ? (*jet_eta)[evtLeadIdx] : 0.f;
+                evtLeadY = getJetRapidity(evtLeadIdx);
                 evtLeadPhi = (jet_phi && evtLeadIdx < (int)jet_phi->size()) ? (*jet_phi)[evtLeadIdx] : 0.f;
                 evtLeadNConst = (jet_n_const && evtLeadIdx < (int)jet_n_const->size()) ? (*jet_n_const)[evtLeadIdx] : 0.f;
             }
@@ -472,8 +713,11 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
             // Basic D0 selection cuts
             if ((*d0_pt)[i_d0] < 1.0) //TODO is change from 2 removing possible bias?
                 continue; // Minimum pT
-            if ((*d0_eta)[i_d0] < 2.0 || (*d0_eta)[i_d0] > 4.5)
-                continue; // Eta acceptance
+            // if ((*d0_eta)[i_d0] < 2.0 || (*d0_eta)[i_d0] > 4.5)
+            //     continue; // Eta acceptance
+            float d0Y = getD0Rapidity(i_d0);
+            if (d0Y < 2.0 || d0Y > 4.5)
+                continue; // Rapidity acceptance
 
             // D0 mass window cut
             if (std::abs((*d0_mass)[i_d0] - 1.865) > 0.07)
@@ -489,8 +733,9 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
                 // Jet selection cuts for the associated jet
                 if ((*jet_pt)[jet_idx] < 5.0)
                     continue; // Minimum jet pT
-                if ((*jet_eta)[jet_idx] < 2.5 || (*jet_eta)[jet_idx] > 4.0)
-                    continue; // Jet eta range
+                float jetY = getJetRapidity(jet_idx);
+                if (jetY < 2.5 || jetY > 4.0)
+                    continue; // Jet rapidity range
             }
             // D0 vertex quality
             if ((*d0_vtx_chi2)[i_d0] > 10.0)
@@ -509,7 +754,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
 
             for (size_t i_dau = 0; i_dau < dau_pid->size(); i_dau++)
             {
-                if ((*dau_d0_idx)[i_dau] != i_d0)
+                if ((*dau_d0_idx)[i_dau] != static_cast<int>(i_d0))
                     continue; // Only daughters of this D0
 
                 if (std::abs((*dau_pid)[i_dau]) == 321)
@@ -565,22 +810,45 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
                 continue; // Minimum momentum cut
 
             // PID quality cuts - now applied after the acceptance cuts
-            if (kaon_pnn_k < 0.9)
-                continue; // Loose kaon ID
-            if (pion_pnn_pi < 0.9)
-                continue; // Loose pion ID
-            if (kaon_ghost_prob > 0.3 || pion_ghost_prob > 0.3)
-                continue; // Ghost probability cut
-            if (kaon_chi2 > 4.0 || pion_chi2 > 4.0)
-                continue; // Track chi2 cut
-
+            if(systematicVariation==0){ //default
+                if (kaon_pnn_k < 0.9)
+                    continue; // Loose kaon ID
+                if (pion_pnn_pi < 0.9)
+                    continue; // Loose pion ID
+                if (kaon_ghost_prob > 0.3 || pion_ghost_prob > 0.3)
+                    continue; // Ghost probability cut
+                if (kaon_chi2 > 4.0 || pion_chi2 > 4.0)
+                    continue; // Track chi2 cut
+            } else if (systematicVariation == 1) {
+                // Tighter PID cuts for systematic variation
+                if (kaon_pnn_k < 0.95)
+                    continue; // Tighter kaon ID
+                if (pion_pnn_pi < 0.95)
+                    continue; // Tighter pion ID
+                if (kaon_ghost_prob > 0.2 || pion_ghost_prob > 0.2)
+                    continue; // Tighter ghost probability cut
+                if (kaon_chi2 > 3.0 || pion_chi2 > 3.0)
+                    continue; // Tighter track chi2 cut
+            } else if (systematicVariation == 2) {
+                // Looser PID cuts for systematic variation
+                if (kaon_pnn_k < 0.85)
+                    continue; // Looser kaon ID
+                if (pion_pnn_pi < 0.85)
+                    continue; // Looser pion ID
+                if (kaon_ghost_prob > 0.4 || pion_ghost_prob > 0.4)
+                    continue; // Looser ghost probability cut
+                if (kaon_chi2 > 5.0 || pion_chi2 > 5.0)
+                    continue; // Looser track chi2 cut
+            }
             // get efficiencies for kaon and pion
             float kaon_efficiency = effMapKaon->GetBinContent(
                 effMapKaon->GetXaxis()->FindBin(kaon_p*1000),
                 effMapKaon->GetYaxis()->FindBin(kaon_eta));
+                if(kaon_efficiency>1) kaon_efficiency = 1;
             float pion_efficiency = effMapPion->GetBinContent(
                 effMapPion->GetXaxis()->FindBin(pion_p*1000),
                 effMapPion->GetYaxis()->FindBin(pion_eta));
+                if(pion_efficiency>1) pion_efficiency = 1;
             float combined_PID_efficiency = kaon_efficiency * pion_efficiency;
 
             float reconstruction_efficiency = effMapReco->GetBinContent(
@@ -596,6 +864,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
             v_tagMass = (*d0_mass)[i_d0];
             v_tagPt = (*d0_pt)[i_d0];
             v_tagEta = (*d0_eta)[i_d0];
+            v_tagY = d0Y;
             v_tag_logdecVtxChi2 = (*d0_ip_chi2)[i_d0] > 0 ? std::log10((*d0_ip_chi2)[i_d0]) : -999;
             v_tag_decVtxChi2 = (*d0_ip_chi2)[i_d0];
             if(jetMode == 1){
@@ -603,8 +872,12 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
                 v_tag_idx_jet = jet_idx;
                 v_jetPt = (*jet_pt)[jet_idx];
                 v_jetEta = (*jet_eta)[jet_idx];
+                v_jetY = getJetRapidity(jet_idx);
                 v_jetnConst = (*jet_n_const)[jet_idx];
-                v_tagZ = (*d0_z)[i_d0];
+                if((*d0_in_jet)[i_d0]==1 && (*d0_z)[i_d0] > 1) // Sanity check for z variable, which should be between 0 and 1 for D0's inside jets. If it fails, set to -1 to indicate an issue.
+                    v_tagZ = (*d0_z)[i_d0]/1000;
+                else
+                    v_tagZ = (*d0_z)[i_d0];
             }
             else if (jetMode == 2)
             {
@@ -612,6 +885,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
                 v_evtNJets = evtNJets_pass;
                 v_evtLeadJetPt = evtLeadPt > 0 ? evtLeadPt : 0.f;
                 v_evtLeadJetEta = evtLeadEta;
+                v_evtLeadJetY = evtLeadY;
                 v_evtLeadJetPhi = evtLeadPhi;
                 v_evtLeadJetNConst = evtLeadNConst;
             }
@@ -641,12 +915,30 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
                 v_isPrimary = -1; // Unknown for data
             }
 
-            // Calculate rapidity
-            if ((*d0_e)[i_d0] > (*d0_pz)[i_d0]) {
-                v_tagY = 0.5 * log(((*d0_e)[i_d0] + (*d0_pz)[i_d0]) / ((*d0_e)[i_d0] - (*d0_pz)[i_d0]));
-            } else {
-                v_tagY = -999; // Assign an invalid value if rapidity cannot be calculated
+            // // Calculate rapidity
+            // if ((*d0_e)[i_d0] > (*d0_pz)[i_d0]) {
+            //     v_tagY = 0.5 * log(((*d0_e)[i_d0] + (*d0_pz)[i_d0]) / ((*d0_e)[i_d0] - (*d0_pz)[i_d0]));
+            // } else {
+            //     v_tagY = -999; // Assign an invalid value if rapidity cannot be calculated
+            // }
+            // Fill event weight only for pp MC when weights were loaded
+            // Decide which weight to apply (mutually exclusive)
+            v_event_weight = 1.0f;
+            if (inputMC && pPbORPbp == "pp") {
+                if (useMultiplicityWeights && has_event_multiplicity) {
+                    auto it = multiplicityWeights.find(event_multiplicity);
+                    if (it != multiplicityWeights.end()) v_event_weight = static_cast<float>(it->second);
+                    else v_event_weight = 1.0f;
+                } else if (useJetPtWeights) {
+                    if (h_jet_weights && jetMode == 1 && jet_idx >= 0 && jet_pt && jet_idx < (int)jet_pt->size()) {
+                        double jpt = static_cast<double>((*jet_pt)[jet_idx]);
+                        int bin = h_jet_weights->FindBin(jpt);
+                        double wj = h_jet_weights->GetBinContent(bin);
+                        if (wj > 0) v_event_weight = static_cast<float>(wj);
+                    }
+                }
             }
+
             // Fill the output tree
             outputTree->Fill();
             d0_accepted++;
@@ -669,22 +961,40 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     std::cout << "Output saved to: " << fOutputFileName << std::endl;
 
     // Create response matrix tree if requested and processing MC
-    if (inputMC && buildResponse && (jetMode == 1))
-    {
-        std::cout << "Creating response matrix tree..." << std::endl;
-        createResponseMatrix(fInputFileName, fOutputFileName.ReplaceAll("_filtered.root", "_response.root"));
-    } else if (inputMC && !buildResponse) {
+        if (inputMC && buildResponse && (jetMode == 1))
+        {
+            std::cout << "Creating response matrix tree..." << std::endl;
+            // Construct response filename from the original input and append systematic tag
+            TString respName = fInputFileName;
+            if (respName.EndsWith(".root")) {
+                respName.ReplaceAll(".root", "_response.root");
+            } else {
+                respName.ReplaceAll(".txt", "_response.root");
+            }
+            if (systematicVariation >= 0) {
+                respName.ReplaceAll(".root", Form("_sysvar%d.root", systematicVariation));
+            }
+            std::cout << "useMultiplicityWeights for response matrix: " << (useMultiplicityWeights ? "Yes" : "No") << std::endl;
+            std::cout << "useJetPtWeights for response matrix: " << (useJetPtWeights ? "Yes" : "No") << std::endl;
+            createResponseMatrix(fInputFileName, respName, jetMode, useMultiplicityWeights, multweightsfile, useJetPtWeights);
+        } else if (inputMC && !buildResponse) {
         std::cout << "[INFO] Skipping response matrix creation (buildResponse=false)." << std::endl;
     }
 }
 
 // Function to create response matrix
-void createResponseMatrix(const char *inputFile, const char *outputFile)
+void createResponseMatrix(const char *inputFile, const char *outputFile, int jetMode, bool useWeights, const char* multweightsfile, bool useJetPtWeights)
 {
     // Accept either a single ROOT file or a text file list to build a TChain
     TFile *inputRoot = nullptr;
     TChain *inputChain = nullptr;
     TTree *inputTree = nullptr;
+    std::cout << "Creating response matrix from input: " << inputFile << std::endl;
+    std::cout << "Output response matrix file: " << outputFile << std::endl;
+    std::cout << "Jet mode for response matrix: " << jetMode << std::endl;
+    std::cout << "Use multiplicity weights in response matrix: " << (useWeights ? "Yes" : "No") << std::endl;
+    std::cout << "Use jet-pt weights in response matrix: " << (useJetPtWeights ? "Yes" : "No") << std::endl;
+    // useWeights = false; // Force disable weights for response matrix, as they should not be applied to the response itself
 
     TString inPath(inputFile);
     auto isListPath = [&](const TString &path) {
@@ -750,10 +1060,12 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     // Variables for response matrix tree
     float r_jet_pt_det = 0;
     float r_jet_eta_det = 0;
+    float r_jet_rapidity_det = 0;
     float r_jet_phi_det = 0;
     float r_jet_nconst_det = 0;
     float r_d0_pt_det = 0;
     float r_d0_eta_det = 0;
+    float r_d0_rapidity_det = 0;
     float r_d0_y_det = 0;
     float r_d0_phi_det = 0;
     float r_d0_mass_det = 0;
@@ -761,10 +1073,12 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
 
     float r_jet_pt_mc = 0;
     float r_jet_eta_mc = 0;
+    float r_jet_rapidity_mc = 0;
     float r_jet_phi_mc = 0;
     float r_jet_nconst_mc = 0;
     float r_d0_pt_mc = 0;
     float r_d0_eta_mc = 0;
+    float r_d0_rapidity_mc = 0;
     float r_d0_y_mc = 0;
     float r_d0_phi_mc = 0;
     float r_d0_mass_mc = 0;
@@ -779,10 +1093,12 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     // Create branches
     responseTree->Branch("jet_pt_det", &r_jet_pt_det, "jet_pt_det/F");
     responseTree->Branch("jet_eta_det", &r_jet_eta_det, "jet_eta_det/F");
+    responseTree->Branch("jet_rapidity_det", &r_jet_rapidity_det, "jet_rapidity_det/F");
     responseTree->Branch("jet_phi_det", &r_jet_phi_det, "jet_phi_det/F");
     responseTree->Branch("jet_nconst_det", &r_jet_nconst_det, "jet_nconst_det/F");
     responseTree->Branch("d0_pt_det", &r_d0_pt_det, "d0_pt_det/F");
     responseTree->Branch("d0_eta_det", &r_d0_eta_det, "d0_eta_det/F");
+    responseTree->Branch("d0_rapidity_det", &r_d0_rapidity_det, "d0_rapidity_det/F");
     responseTree->Branch("d0_y_det", &r_d0_y_det, "d0_y_det/F");
     responseTree->Branch("d0_phi_det", &r_d0_phi_det, "d0_phi_det/F");
     responseTree->Branch("d0_mass_det", &r_d0_mass_det, "d0_mass_det/F");
@@ -790,10 +1106,12 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
 
     responseTree->Branch("jet_pt_mc", &r_jet_pt_mc, "jet_pt_mc/F");
     responseTree->Branch("jet_eta_mc", &r_jet_eta_mc, "jet_eta_mc/F");
+    responseTree->Branch("jet_rapidity_mc", &r_jet_rapidity_mc, "jet_rapidity_mc/F");
     responseTree->Branch("jet_phi_mc", &r_jet_phi_mc, "jet_phi_mc/F");
     responseTree->Branch("jet_nconst_mc", &r_jet_nconst_mc, "jet_nconst_mc/F");
     responseTree->Branch("d0_pt_mc", &r_d0_pt_mc, "d0_pt_mc/F");
     responseTree->Branch("d0_eta_mc", &r_d0_eta_mc, "d0_eta_mc/F");
+    responseTree->Branch("d0_rapidity_mc", &r_d0_rapidity_mc, "d0_rapidity_mc/F");
     responseTree->Branch("d0_y_mc", &r_d0_y_mc, "d0_y_mc/F");
     responseTree->Branch("d0_phi_mc", &r_d0_phi_mc, "d0_phi_mc/F");
     responseTree->Branch("d0_mass_mc", &r_d0_mass_mc, "d0_mass_mc/F");
@@ -808,12 +1126,15 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     // Set up input branches
     std::vector<float> *jet_pt = nullptr;
     std::vector<float> *jet_eta = nullptr;
+    std::vector<float> *jet_rapidity = nullptr;
     std::vector<float> *jet_phi = nullptr;
+    std::vector<float> *jet_mass = nullptr;
     std::vector<int> *jet_n_const = nullptr;
     std::vector<int> *jet_n_d0 = nullptr;
 
     std::vector<float> *d0_pt = nullptr;
     std::vector<float> *d0_eta = nullptr;
+    std::vector<float> *d0_rapidity = nullptr;
     std::vector<float> *d0_e = nullptr;
     std::vector<float> *d0_pz = nullptr;
     std::vector<float> *d0_phi = nullptr;
@@ -832,6 +1153,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     std::vector<int> *mc_d0_pid = nullptr;
     std::vector<float> *mc_d0_pt = nullptr;
     std::vector<float> *mc_d0_eta = nullptr;
+    std::vector<float> *mc_d0_rapidity = nullptr;
     std::vector<float> *mc_d0_e = nullptr;
     std::vector<float> *mc_d0_pz = nullptr;
     std::vector<float> *mc_d0_phi = nullptr;
@@ -847,6 +1169,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     // New: direct kinematic branches (preferred)
     std::vector<float> *mc_jet_pt = nullptr;
     std::vector<float> *mc_jet_eta = nullptr;
+    std::vector<float> *mc_jet_rapidity = nullptr;
     std::vector<float> *mc_jet_phi = nullptr;
     std::vector<int> *mc_jet_n_const = nullptr;
     std::vector<int> *mc_jet_n_chr = nullptr;
@@ -858,15 +1181,27 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     std::vector<float> *mc_dau_e = nullptr;
     std::vector<int> *mc_dau_d0_idx = nullptr;
 
+    const bool hasRespMcD0RapidityBranch = inputTree->GetBranch("mc_d0_rapidity");
+    const bool hasRespMcJetRapidityBranch = inputTree->GetBranch("mc_jet_rapidity");
+
+    const bool hasRespJetRapidityBranch = inputTree->GetBranch("jet_rapidity");
+    const bool hasRespD0RapidityBranch = inputTree->GetBranch("d0_rapidity");
+
     // Set branch addresses
     inputTree->SetBranchAddress("jet_pt", &jet_pt);
     inputTree->SetBranchAddress("jet_eta", &jet_eta);
+    if (hasRespJetRapidityBranch)
+        inputTree->SetBranchAddress("jet_rapidity", &jet_rapidity);
     inputTree->SetBranchAddress("jet_phi", &jet_phi);
+    if (inputTree->GetBranch("jet_mass"))
+        inputTree->SetBranchAddress("jet_mass", &jet_mass);
     inputTree->SetBranchAddress("jet_n_const", &jet_n_const);
     inputTree->SetBranchAddress("jet_n_d0", &jet_n_d0);
 
     inputTree->SetBranchAddress("d0_pt", &d0_pt);
     inputTree->SetBranchAddress("d0_eta", &d0_eta);
+    if (hasRespD0RapidityBranch)
+        inputTree->SetBranchAddress("d0_rapidity", &d0_rapidity);
     inputTree->SetBranchAddress("d0_e", &d0_e);
     inputTree->SetBranchAddress("d0_pz", &d0_pz);
     inputTree->SetBranchAddress("d0_phi", &d0_phi);
@@ -885,6 +1220,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     inputTree->SetBranchAddress("mc_d0_pid", &mc_d0_pid);
     inputTree->SetBranchAddress("mc_d0_pt", &mc_d0_pt);
     inputTree->SetBranchAddress("mc_d0_eta", &mc_d0_eta);
+    if (hasRespMcD0RapidityBranch)
+        inputTree->SetBranchAddress("mc_d0_rapidity", &mc_d0_rapidity);
     inputTree->SetBranchAddress("mc_d0_e", &mc_d0_e);
     inputTree->SetBranchAddress("mc_d0_pz", &mc_d0_pz);
     inputTree->SetBranchAddress("mc_d0_phi", &mc_d0_phi);
@@ -900,6 +1237,8 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     // Set branch addresses for direct jet kinematics if available
     if (inputTree->GetBranch("mc_jet_pt")) inputTree->SetBranchAddress("mc_jet_pt", &mc_jet_pt);
     if (inputTree->GetBranch("mc_jet_eta")) inputTree->SetBranchAddress("mc_jet_eta", &mc_jet_eta);
+    if (hasRespMcJetRapidityBranch)
+        inputTree->SetBranchAddress("mc_jet_rapidity", &mc_jet_rapidity);
     if (inputTree->GetBranch("mc_jet_phi")) inputTree->SetBranchAddress("mc_jet_phi", &mc_jet_phi);
     inputTree->SetBranchAddress("mc_jet_n_const", &mc_jet_n_const);
     inputTree->SetBranchAddress("mc_jet_n_charged", &mc_jet_n_chr);
@@ -911,28 +1250,137 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
     inputTree->SetBranchAddress("mc_dau_e", &mc_dau_e);
     inputTree->SetBranchAddress("mc_dau_d0_idx", &mc_dau_d0_idx);
 
-    // Define a function to calculate dR between two eta,phi points
-    auto deltaR = [](float eta1, float phi1, float eta2, float phi2)
+    auto getRespJetRapidity = [&](size_t idx) -> float
     {
-        float deta = eta1 - eta2;
+        if (hasRespJetRapidityBranch && jet_rapidity && idx < jet_rapidity->size())
+            return (*jet_rapidity)[idx];
+        if (jet_pt && jet_eta && jet_mass && idx < jet_pt->size() && idx < jet_eta->size() && idx < jet_mass->size())
+            return calcRapidityFromPtEtaMass((*jet_pt)[idx], (*jet_eta)[idx], (*jet_mass)[idx]);
+        if (jet_eta && idx < jet_eta->size())
+            return (*jet_eta)[idx];
+        return -999.f;
+    };
+
+    auto getRespD0Rapidity = [&](size_t idx) -> float
+    {
+        if (hasRespD0RapidityBranch && d0_rapidity && idx < d0_rapidity->size())
+            return (*d0_rapidity)[idx];
+        if (d0_e && d0_pz && idx < d0_e->size() && idx < d0_pz->size())
+            return calcRapidityFromEnergyPz((*d0_e)[idx], (*d0_pz)[idx]);
+        return -999.f;
+    };
+
+    auto getRespMcD0Rapidity = [&](size_t idx) -> float
+    {
+        if (hasRespMcD0RapidityBranch && mc_d0_rapidity && idx < mc_d0_rapidity->size())
+            return (*mc_d0_rapidity)[idx];
+        if (mc_d0_e && mc_d0_pz && idx < mc_d0_e->size() && idx < mc_d0_pz->size())
+            return calcRapidityFromEnergyPz((*mc_d0_e)[idx], (*mc_d0_pz)[idx]);
+        return -999.f;
+    };
+
+    auto getRespMcJetRapidity = [&](size_t idx) -> float
+    {
+        if (hasRespMcJetRapidityBranch && mc_jet_rapidity && idx < mc_jet_rapidity->size())
+            return (*mc_jet_rapidity)[idx];
+        if (mc_jet_eta && idx < mc_jet_eta->size())
+            return (*mc_jet_eta)[idx];
+        return -999.f;
+    };
+
+    // Optionally read event multiplicity branch and load multiplicity weights when requested
+    int event_multiplicity = 0;
+    bool has_event_multiplicity = false;
+    std::map<int, double> multiplicityWeights;
+    // Jet-pt weights histogram for response (if available)
+    TH1 *h_jet_weights = nullptr;
+    TFile *jwfile = nullptr;
+    if (useWeights && useJetPtWeights) {
+        std::cerr << "ERROR: Both multiplicity and jet-pt weights requested for response creation. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
+    if (useWeights) {
+        std::cout << "Loading multiplicity weights for pp MC..." << std::endl;
+        if (inputTree->GetBranch("event_multiplicity")) {
+            inputTree->SetBranchAddress("event_multiplicity", &event_multiplicity);
+            has_event_multiplicity = true;
+        }
+        TFile *wfile = TFile::Open(multweightsfile, "READ");
+        if (wfile && !wfile->IsZombie()) {
+            TTree *wtree = (TTree*)wfile->Get("multiplicity_weights");
+            if (wtree) {
+                Int_t mult = 0; Double_t w = 1.0;
+                wtree->SetBranchAddress("multiplicity", &mult);
+                wtree->SetBranchAddress("weight", &w);
+                for (Long64_t iw = 0; iw < wtree->GetEntries(); ++iw) {
+                    wtree->GetEntry(iw);
+                    multiplicityWeights[(int)mult] = (double)w;
+                }
+                std::cout << "Loaded " << multiplicityWeights.size() << " multiplicity weights." << std::endl;
+            }
+            wfile->Close();
+        }
+    }
+    // Load jet-pt weights only when requested (and not using multiplicity weights)
+    if (useJetPtWeights) {
+        if (multweightsfile) {
+            TString jpw(multweightsfile);
+            jpw.ReplaceAll("_smoothed.root", "_jetpt_weights.root");
+            jwfile = TFile::Open(jpw, "READ");
+            if (jwfile && !jwfile->IsZombie()) {
+                h_jet_weights = dynamic_cast<TH1*>(jwfile->Get("h_jet_weights"));
+                if (h_jet_weights) {
+                    h_jet_weights->SetDirectory(0);
+                    std::cout << "Loaded jet-pt weights histogram from: " << jpw << std::endl;
+                } else {
+                    std::cerr << "[WARN] Could not find 'h_jet_weights' in " << jpw << std::endl;
+                }
+                jwfile->Close();
+            }
+        }
+    }
+
+    // Add event weight branch to response tree (always present, default 1.0)
+    float r_event_weight = 1.0f;
+    responseTree->Branch("event_weight", &r_event_weight, "event_weight/F");
+
+    // Define a function to calculate dR between two y,phi points
+    auto deltaR = [](float y1, float phi1, float y2, float phi2)
+    {
+        float dy = y1 - y2;
         float dphi = phi1 - phi2;
         while (dphi > M_PI)
             dphi -= 2 * M_PI;
         while (dphi < -M_PI)
             dphi += 2 * M_PI;
-        return sqrt(deta * deta + dphi * dphi);
+        return sqrt(dy * dy + dphi * dphi);
     };
+    // // Define a function to calculate dR between two eta,phi points
+    // auto deltaR = [](float eta1, float phi1, float eta2, float phi2)
+    // {
+    //     float deta = eta1 - eta2;
+    //     float dphi = phi1 - phi2;
+    //     while (dphi > M_PI)
+    //         dphi -= 2 * M_PI;
+    //     while (dphi < -M_PI)
+    //         dphi += 2 * M_PI;
+    //     return sqrt(deta * deta + dphi * dphi);
+    // };
 
     // Process events
     Long64_t nEntries = inputTree->GetEntries();
     int matches_found = 0;
 
+    Long64_t updateIntervalResp = nEntries / 200; // ~200 updates
+    if (updateIntervalResp < 1) updateIntervalResp = 1;
+
+    std::cout << "Processing " << nEntries << " events for response matrix" << std::endl;
+
     for (Long64_t iEntry = 0; iEntry < nEntries; iEntry++)
     {
-        if (iEntry % 100000 == 0)
+        if (iEntry % updateIntervalResp == 0 || iEntry + 1 == nEntries)
         {
-            std::cout << "Processing event " << iEntry << " of " << nEntries
-                      << " for response matrix" << std::endl;
+            printProgress(iEntry, nEntries);
         }
 
         inputTree->GetEntry(iEntry);
@@ -980,6 +1428,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             // MC truth info
             r_d0_pt_mc = (*mc_d0_pt)[iMC];
             r_d0_eta_mc = (*mc_d0_eta)[iMC];
+            r_d0_rapidity_mc = getRespMcD0Rapidity(iMC);
             float d0_mc_rapidity = 0;
             if ((*mc_d0_e)[iMC] > (*mc_d0_pz)[iMC]) {
                 d0_mc_rapidity = 0.5 * log(((*mc_d0_e)[iMC] + (*mc_d0_pz)[iMC]) / ((*mc_d0_e)[iMC] - (*mc_d0_pz)[iMC]));
@@ -1001,6 +1450,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             {
                 r_jet_pt_mc = (*mc_jet_pt)[mc_jet_idx];
                 r_jet_eta_mc = (*mc_jet_eta)[mc_jet_idx];
+                r_jet_rapidity_mc = getRespMcJetRapidity(mc_jet_idx);
                 r_jet_phi_mc = (*mc_jet_phi)[mc_jet_idx];
             }
             else if (mc_jet_idx >= 0 && mc_jet_px && mc_jet_idx < static_cast<int>(mc_jet_px->size()))
@@ -1013,6 +1463,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
                     (*mc_jet_e)[mc_jet_idx]);
                 r_jet_pt_mc = mc_jet_tmp.Pt();
                 r_jet_eta_mc = mc_jet_tmp.Eta();
+                r_jet_rapidity_mc = mc_jet_tmp.Rapidity();
                 r_jet_phi_mc = mc_jet_tmp.Phi();
             }
             else
@@ -1020,6 +1471,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
                 // Final fallback if index invalid
                 r_jet_pt_mc = (r_d0_z_mc != 0 ? r_d0_pt_mc / r_d0_z_mc : 0);
                 r_jet_eta_mc = r_d0_eta_mc;
+                r_jet_rapidity_mc = r_d0_rapidity_mc;
                 r_jet_phi_mc = r_d0_phi_mc;
             }
 
@@ -1052,9 +1504,13 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             // Reconstructed info
             r_d0_pt_det = (*d0_pt)[matched_d0_idx];
             r_d0_eta_det = (*d0_eta)[matched_d0_idx];
+            r_d0_rapidity_det = getRespD0Rapidity(matched_d0_idx);
             r_d0_phi_det = (*d0_phi)[matched_d0_idx];
             r_d0_mass_det = (*d0_mass)[matched_d0_idx];
-            r_d0_z_det = (*d0_z)[matched_d0_idx];
+            if((*d0_in_jet)[matched_d0_idx] == 1 && (*d0_z)[matched_d0_idx] > 1) // Only apply z scaling if D0 is in jet and z is non-zero to avoid division by zero
+                r_d0_z_det = (*d0_z)[matched_d0_idx]/1000.0;
+            else
+                r_d0_z_det = (*d0_z)[matched_d0_idx];
             float d0_det_rapidity = 0;
             if ((*d0_e)[matched_d0_idx] > (*d0_pz)[matched_d0_idx]) {
                 d0_det_rapidity = 0.5 * log(((*d0_e)[matched_d0_idx] + (*d0_pz)[matched_d0_idx]) / ((*d0_e)[matched_d0_idx] - (*d0_pz)[matched_d0_idx]));
@@ -1068,6 +1524,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             {
                 r_jet_pt_det = (*jet_pt)[reco_jet_idx];
                 r_jet_eta_det = (*jet_eta)[reco_jet_idx];
+                r_jet_rapidity_det = getRespJetRapidity(reco_jet_idx);
                 r_jet_phi_det = (*jet_phi)[reco_jet_idx];
                 r_jet_nconst_det = (*jet_n_const)[reco_jet_idx];
                 r_jet_ntags_det = (*jet_n_d0)[reco_jet_idx];
@@ -1077,9 +1534,25 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
                 continue; // Skip if jet index out of bounds
             }
 
+            // --- Apply the same analysis-level cuts used in the tuple maker where possible ---
+            // D0-level cuts
+            if (r_d0_pt_det < 1.0) continue; // pT cut
+            // if (r_d0_eta_det < 2.0 || r_d0_eta_det > 4.5) continue; // eta acceptance
+            if (r_d0_rapidity_det < 2.0 || r_d0_rapidity_det > 4.5) continue; // rapidity acceptance
+            if (std::fabs(r_d0_mass_det - 1.865) > 0.07) continue; // mass window
+            // Vertex chi2 cut not available here (branch not read). If present, consider adding it.
+
+            // Jet-level cuts: when response is created only for jetMode==1, require same jet kinematics
+            if (jetMode == 1)
+            {
+                if (r_jet_pt_det < 5.0) continue; // jet pT cut
+                // if (r_jet_eta_det < 2.5 || r_jet_eta_det > 4.0) continue; // jet eta range
+                if (r_jet_rapidity_det < 2.5 || r_jet_rapidity_det > 4.0) continue; // jet rapidity range
+            }
+
             // Calculate distances
-            r_d0_dr = deltaR(r_d0_eta_mc, r_d0_phi_mc, r_d0_eta_det, r_d0_phi_det);
-            r_jet_dr = deltaR(r_jet_eta_mc, r_jet_phi_mc, r_jet_eta_det, r_jet_phi_det);
+            r_d0_dr = deltaR(r_d0_rapidity_mc, r_d0_phi_mc, r_d0_rapidity_det, r_d0_phi_det);
+            r_jet_dr = deltaR(r_jet_rapidity_mc, r_jet_phi_mc, r_jet_rapidity_det, r_jet_phi_det);
 
             // Skip matches with too large distance
             if (r_jet_dr > 0.4)
@@ -1162,7 +1635,7 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
                 for (size_t i = 0; i < mc_dau_pid->size(); i++)
                 {
                     // Only look at daughters of this MC D0
-                    if ((*mc_dau_d0_idx)[i] != iMC)
+                    if ((*mc_dau_d0_idx)[i] != static_cast<int>(iMC))
                         continue;
 
                     if (std::abs((*mc_dau_pid)[i]) == 321)
@@ -1217,6 +1690,21 @@ void createResponseMatrix(const char *inputFile, const char *outputFile)
             }
 
             // If we've reached here, both reconstructed and MC daughters are in acceptance
+            // Fill event weight only when requested (useWeights==true) and multiplicity info exists
+            // Apply either multiplicity weights or jet-pt weights (mutually exclusive)
+            r_event_weight = 1.0f;
+            if (useWeights && has_event_multiplicity && (event_multiplicity<600)) {
+                auto itw = multiplicityWeights.find(event_multiplicity);
+                if (itw != multiplicityWeights.end()) r_event_weight = static_cast<float>(itw->second);
+                else r_event_weight = 1.0f;
+            } else if (useJetPtWeights) {
+                if (h_jet_weights && r_jet_pt_det > 0) {
+                    int bin = h_jet_weights->FindBin(static_cast<double>(r_jet_pt_det));
+                    double wj = h_jet_weights->GetBinContent(bin);
+                    if (wj > 0) r_event_weight = r_event_weight * static_cast<float>(wj);
+                    // std::cout << "Applied jet-pt weight: " << wj << " for jet pT: " << r_jet_pt_det << std::endl;
+                }
+            }
             responseTree->Fill();
             matches_found++;
         }

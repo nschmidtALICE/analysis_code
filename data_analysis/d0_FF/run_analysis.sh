@@ -105,9 +105,11 @@ run_stage1() {
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/54/54.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/55/55.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/56/56.root"
-        "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/57_FF_pPb_DATA.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/57_FF_pPb_DATA_rename.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/59_FF_Pbp_DATA.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1123981.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665.root"
+        # "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/54_FF_pPb_EPOS_rename.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_17_MC_output_D0FF/20250514_Pbp_MC_output_D0FF.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_18_20_MC_output_D0FF/20250514_Pbp_18_20_MC_output_D0FF.root"
         # "/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF/20250514_Pbp_21_MC_output_D0FF_1.root"
@@ -156,14 +158,17 @@ run_stage2() {
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/54_filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/55_filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/56_filtered.root"
-        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/53to56_filtered.root"
+        inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/75_EPOS_Fix1_Pbp.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/2025_53_61_outputs/53to56_filtered.root"
+        # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/70_72_filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250609_Pbp_MC_output/1122665/1122665_filtered.root"
         # inputFileMassFit="/media/niviths/SSD2/lhcb_analysis_SSD/20250514_Pbp_21_MC_output_D0FF_filterV1_bunew.root"
         isMCswitch="true"
     fi
-    root -x -l -b -q MassFitter.C'+("'$inputFileMassFit'",'$isMCswitch')'
+    root -x -l -b -q MassFitter.C'+("'$inputFileMassFit'",'$isMCswitch',false,false,true,"DGauss")'
+    # root -x -l -b -q MassFitter.C'+("'$inputFileMassFit'",'$isMCswitch',false,false,true,"CBall")'
     #void MassFitter(TString inputFile = "", bool isMC = false, bool isFitSingleBin = false, bool isZtObservable = false, bool enableSPlot = true)
     # python3 MassFitterScript_TestReduce.py -m "$MC_MODE"
     if [ $? -ne 0 ]; then

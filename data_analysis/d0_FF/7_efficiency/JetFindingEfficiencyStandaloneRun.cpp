@@ -14,6 +14,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "TLegend.h"
+#include "TChain.h"
+#include <fstream>
+#include <sstream>
+#include <algorithm>
 
 // Standalone Jet Finding Efficiency Calculator
 // This class calculates jet finding efficiency using reconstructed and MC jets/D0s from a ROOT TTree.
@@ -36,10 +40,10 @@ public:
         m_minJetPt = minPt;
         m_maxJetPt = maxPt;
     }
-    void SetJetEtaRange(double minEta, double maxEta)
+    void SetJetRapRange(double minEta, double maxEta)
     {
-        m_minJetEta = minEta;
-        m_maxJetEta = maxEta;
+        m_minJetRap = minEta;
+        m_maxJetRap = maxEta;
     }
     void SetD0PtRange(double minPt, double maxPt = 1000.0)
     {
@@ -52,7 +56,7 @@ public:
         m_maxD0Eta = maxEta;
     }
     void SetJetPtBins(const std::vector<double> &bins) { m_jetPtBins = bins; }
-    void SetJetEtaBins(const std::vector<double> &bins) { m_jetEtaBins = bins; }
+    void SetJetRapBins(const std::vector<double> &bins) { m_JetRapBins = bins; }
     void SetD0PtBins(const std::vector<double> &bins) { m_d0PtBins = bins; }
 
     // Add getter for efficiency maps
@@ -69,13 +73,15 @@ private:
     TFile *m_inputFile;
     TFile *m_outputFile;
     TTree *m_tree;
+    TChain *m_chain;
+    TString m_inputName;
 
     // Configuration parameters
     double m_jetRadius;
     double m_minJetPt;
     double m_maxJetPt;
-    double m_minJetEta;
-    double m_maxJetEta;
+    double m_minJetRap;
+    double m_maxJetRap;
     double m_minD0Pt;
     double m_maxD0Pt;
     double m_minD0Eta;
@@ -83,7 +89,7 @@ private:
 
     // Binning
     std::vector<double> m_jetPtBins;
-    std::vector<double> m_jetEtaBins;
+    std::vector<double> m_JetRapBins;
     std::vector<double> m_d0PtBins;
 
     // Histograms and efficiency objects
@@ -95,6 +101,7 @@ private:
     std::vector<float> *jet_eta;
     std::vector<float> *jet_phi;
     std::vector<int> *jet_n_d0;
+    std::vector<float> *jet_rapidity;
 
     // Tree branches - Reconstructed D0s
     std::vector<float> *d0_pt;
@@ -110,6 +117,7 @@ private:
     std::vector<float> *mc_jet_pt;
     std::vector<float> *mc_jet_eta;
     std::vector<float> *mc_jet_phi;
+    std::vector<float> *mc_jet_rapidity;
 
     // Tree branches - MC truth D0s
     std::vector<int> *mc_d0_pid;
@@ -135,18 +143,77 @@ private:
 
 JetFindingEfficiencyStandalone::JetFindingEfficiencyStandalone(TString inputFileName, TString outputFileName)
     : m_inputFile(nullptr), m_outputFile(nullptr), m_tree(nullptr),
-      m_jetRadius(0.4), m_minJetPt(5.0), m_maxJetPt(1000.0),
-      m_minJetEta(2.0), m_maxJetEta(4.5),
+      m_chain(nullptr), m_inputName(inputFileName), m_jetRadius(0.4), m_minJetPt(5.0), m_maxJetPt(1000.0),
+      m_minJetRap(2.0), m_maxJetRap(4.5),
       m_minD0Pt(2.0), m_maxD0Pt(1000.0),
       m_minD0Eta(2.0), m_maxD0Eta(4.5)
 {
-    // Open input ROOT file containing the TTree with jets and D0s
-    m_inputFile = TFile::Open(inputFileName, "READ");
-    if (!m_inputFile || m_inputFile->IsZombie())
+    // Support two input modes:
+    //  - single ROOT file containing the tree 'd0jets'
+    //  - a .txt file listing multiple .root files (one per line)
+    std::string inName = std::string(inputFileName.Data());
+    auto ends_with = [](const std::string &s, const std::string &ending) {
+        if (s.length() >= ending.length())
+            return (0 == s.compare(s.length() - ending.length(), ending.length(), ending));
+        else
+            return false;
+    };
+
+    if (ends_with(inName, ".txt") || ends_with(inName, ".list"))
     {
-        std::cerr << "Error: Could not open input file " << inputFileName << std::endl;
-        return;
+        // Read file list and build a TChain
+        m_chain = new TChain("d0jets");
+        std::ifstream infile(inName);
+        if (!infile.is_open())
+        {
+            std::cerr << "Error: Could not open list file " << inName << std::endl;
+            delete m_chain;
+            m_chain = nullptr;
+            return;
+        }
+        std::string line;
+        int filesAdded = 0;
+        while (std::getline(infile, line))
+        {
+            // trim leading/trailing whitespace
+            auto l = line.find_first_not_of(" \t\r\n");
+            if (l == std::string::npos)
+                continue;
+            auto r = line.find_last_not_of(" \t\r\n");
+            std::string file = line.substr(l, r - l + 1);
+            if (file.empty() || file[0] == '#')
+                continue;
+            m_chain->Add(file.c_str());
+            ++filesAdded;
+        }
+        infile.close();
+        if (filesAdded == 0)
+        {
+            std::cerr << "Error: No ROOT files listed in " << inName << std::endl;
+            delete m_chain;
+            m_chain = nullptr;
+            return;
+        }
+        m_tree = (TTree *)m_chain;
     }
+    else
+    {
+        // Single ROOT input file
+        m_inputFile = TFile::Open(inputFileName, "READ");
+        if (!m_inputFile || m_inputFile->IsZombie())
+        {
+            std::cerr << "Error: Could not open input file " << inputFileName << std::endl;
+            return;
+        }
+        // Get analysis tree from input file
+        m_tree = (TTree *)m_inputFile->Get("d0jets");
+        if (!m_tree)
+        {
+            std::cerr << "Error: Could not find tree 'd0jets' in input file" << std::endl;
+            return;
+        }
+    }
+
     // Create output ROOT file for results
     m_outputFile = new TFile(outputFileName, "RECREATE");
     if (!m_outputFile || m_outputFile->IsZombie())
@@ -154,18 +221,12 @@ JetFindingEfficiencyStandalone::JetFindingEfficiencyStandalone(TString inputFile
         std::cerr << "Error: Could not create output file " << outputFileName << std::endl;
         return;
     }
-    // Get analysis tree from input file
-    m_tree = (TTree *)m_inputFile->Get("d0jets");
-    if (!m_tree)
-    {
-        std::cerr << "Error: Could not find tree 'd0jets' in input file" << std::endl;
-        return;
-    }
     // Initialize pointers to branch vectors
     jet_pt = nullptr;
     jet_eta = nullptr;
     jet_phi = nullptr;
     jet_n_d0 = nullptr;
+    jet_rapidity = nullptr;
     d0_pt = nullptr;
     d0_eta = nullptr;
     d0_phi = nullptr;
@@ -177,6 +238,7 @@ JetFindingEfficiencyStandalone::JetFindingEfficiencyStandalone(TString inputFile
     mc_jet_pt = nullptr;
     mc_jet_eta = nullptr;
     mc_jet_phi = nullptr;
+    mc_jet_rapidity = nullptr;
     mc_d0_pid = nullptr;
     mc_d0_pt = nullptr;
     mc_d0_eta = nullptr;
@@ -191,9 +253,9 @@ JetFindingEfficiencyStandalone::JetFindingEfficiencyStandalone(TString inputFile
     m_jetPtBins.clear();
     for (double pt = 0.0; pt <= 60.0; pt += 2.5)
         m_jetPtBins.push_back(pt);
-    m_jetEtaBins.clear();
+    m_JetRapBins.clear();
     for (double eta = 2.0; eta <= 4.5; eta += 0.2)
-        m_jetEtaBins.push_back(eta);
+        m_JetRapBins.push_back(eta);
     m_d0PtBins = m_jetPtBins;
 }
 
@@ -230,11 +292,16 @@ void JetFindingEfficiencyStandalone::CleanUp()
         m_inputFile->Close();
         m_inputFile = nullptr;
     }
+    if (m_chain)
+    {
+        delete m_chain;
+        m_chain = nullptr;
+    }
 }
 
 bool JetFindingEfficiencyStandalone::Initialize()
 {
-    if (!m_inputFile || !m_outputFile || !m_tree)
+    if (!m_tree || !m_outputFile)
     {
         std::cerr << "Error: Files or tree not properly initialized" << std::endl;
         return false;
@@ -244,7 +311,7 @@ bool JetFindingEfficiencyStandalone::Initialize()
     CreateHistograms();
 
     std::cout << "JetFindingEfficiencyStandalone initialized successfully" << std::endl;
-    std::cout << "Input file: " << m_inputFile->GetName() << std::endl;
+    std::cout << "Input: " << m_inputName << std::endl;
     std::cout << "Output file: " << m_outputFile->GetName() << std::endl;
     std::cout << "Tree entries: " << m_tree->GetEntries() << std::endl;
     std::cout << "Jet radius: " << m_jetRadius << std::endl;
@@ -259,6 +326,8 @@ void JetFindingEfficiencyStandalone::InitializeBranches()
     m_tree->SetBranchAddress("jet_eta", &jet_eta);
     m_tree->SetBranchAddress("jet_phi", &jet_phi);
     m_tree->SetBranchAddress("jet_n_d0", &jet_n_d0);
+    // Optional reconstructed jet rapidity branch
+    m_tree->SetBranchAddress("jet_rapidity", &jet_rapidity);
     // Set branch addresses for reconstructed D0s
     m_tree->SetBranchAddress("d0_pt", &d0_pt);
     m_tree->SetBranchAddress("d0_eta", &d0_eta);
@@ -272,6 +341,8 @@ void JetFindingEfficiencyStandalone::InitializeBranches()
     m_tree->SetBranchAddress("mc_jet_pt", &mc_jet_pt);
     m_tree->SetBranchAddress("mc_jet_eta", &mc_jet_eta);
     m_tree->SetBranchAddress("mc_jet_phi", &mc_jet_phi);
+    // Optional rapidity branch (preferred for acceptance cuts)
+    m_tree->SetBranchAddress("mc_jet_rapidity", &mc_jet_rapidity);
     // Set branch addresses for MC truth D0s
     m_tree->SetBranchAddress("mc_d0_pid", &mc_d0_pid);
     m_tree->SetBranchAddress("mc_d0_pt", &mc_d0_pt);
@@ -289,35 +360,35 @@ void JetFindingEfficiencyStandalone::CreateHistograms()
 {
     int nZTbins = 20; // You can adjust this binning as needed
     double zTmin = 0.0, zTmax = 1.0;
-    // Create jet finding efficiency histograms (jet pT vs jet eta)
-    m_efficiencyMaps["jet_numerator"] = new TH2F("jet_numerator", "Jet Finding Efficiency Numerator;Jet p_{T} [GeV];Jet #eta",
+    // Create jet finding efficiency histograms (jet pT vs jet rapidity)
+    m_efficiencyMaps["jet_numerator"] = new TH2F("jet_numerator", "Jet Finding Efficiency Numerator;Jet p_{T} [GeV];Jet y",
                                                  m_jetPtBins.size() - 1, &m_jetPtBins[0],
-                                                 m_jetEtaBins.size() - 1, &m_jetEtaBins[0]);
-    m_efficiencyMaps["jet_denominator"] = new TH2F("jet_denominator", "Jet Finding Efficiency Denominator;Jet p_{T} [GeV];Jet #eta",
+                                                 m_JetRapBins.size() - 1, &m_JetRapBins[0]);
+    m_efficiencyMaps["jet_denominator"] = new TH2F("jet_denominator", "Jet Finding Efficiency Denominator;Jet p_{T} [GeV];Jet y",
                                                    m_jetPtBins.size() - 1, &m_jetPtBins[0],
-                                                   m_jetEtaBins.size() - 1, &m_jetEtaBins[0]);
+                                                   m_JetRapBins.size() - 1, &m_JetRapBins[0]);
     m_efficiencyMaps["reco_zT_vs_jetPt"] = new TH2F("reco_zT_vs_jetPt", "Reco z_{T} vs Jet p_{T};z_{T};Jet p_{T} [GeV]", nZTbins, zTmin, zTmax, m_jetPtBins.size() - 1, &m_jetPtBins[0]);
     // Add MC yield histogram: mcPt vs mczT for generator-level jets with reconstructed tag
     m_efficiencyMaps["mc_genYield_mcPt_mczT"] = new TH2F("mc_genYield_mcPt_mczT", "MC Gen Yield (Tag Reco);z_{T}^{MC};Jet p_{T}^{MC} [GeV]", nZTbins, zTmin, zTmax, m_jetPtBins.size() - 1, &m_jetPtBins[0]);
 
     // Create TEfficiency object for proper error handling
     m_efficiencyObjects["jet_finding_efficiency"] = new TEfficiency("jet_finding_efficiency",
-                                                                    "Jet Finding Efficiency;Jet p_{T} [GeV];Jet #eta",
+                                                                    "Jet Finding Efficiency;Jet p_{T} [GeV];Jet y",
                                                                     m_jetPtBins.size() - 1, &m_jetPtBins[0],
-                                                                    m_jetEtaBins.size() - 1, &m_jetEtaBins[0]);
+                                                                    m_JetRapBins.size() - 1, &m_JetRapBins[0]);
 
     // Create D0 pT-based histograms
-    m_efficiencyMaps["jet_numerator_d0pt"] = new TH2F("jet_numerator_d0pt", "Jet Finding Efficiency vs D0 pT;D0 p_{T} [GeV];Jet #eta",
+    m_efficiencyMaps["jet_numerator_d0pt"] = new TH2F("jet_numerator_d0pt", "Jet Finding Efficiency vs D0 pT;D0 p_{T} [GeV];Jet y",
                                                       m_d0PtBins.size() - 1, &m_d0PtBins[0],
-                                                      m_jetEtaBins.size() - 1, &m_jetEtaBins[0]);
-    m_efficiencyMaps["jet_denominator_d0pt"] = new TH2F("jet_denominator_d0pt", "Jet Finding Efficiency vs D0 pT;D0 p_{T} [GeV];Jet #eta",
+                                                      m_JetRapBins.size() - 1, &m_JetRapBins[0]);
+    m_efficiencyMaps["jet_denominator_d0pt"] = new TH2F("jet_denominator_d0pt", "Jet Finding Efficiency vs D0 pT;D0 p_{T} [GeV];Jet y",
                                                         m_d0PtBins.size() - 1, &m_d0PtBins[0],
-                                                        m_jetEtaBins.size() - 1, &m_jetEtaBins[0]);
+                                                        m_JetRapBins.size() - 1, &m_JetRapBins[0]);
 
     m_efficiencyObjects["jet_finding_efficiency_d0pt"] = new TEfficiency("jet_finding_efficiency_d0pt",
-                                                                         "Jet Finding Efficiency vs D0 pT;D0 p_{T} [GeV];Jet #eta",
+                                                                         "Jet Finding Efficiency vs D0 pT;D0 p_{T} [GeV];Jet y",
                                                                          m_d0PtBins.size() - 1, &m_d0PtBins[0],
-                                                                         m_jetEtaBins.size() - 1, &m_jetEtaBins[0]);
+                                                                         m_JetRapBins.size() - 1, &m_JetRapBins[0]);
 
     // Add zT vs jet pT efficiency histograms
     int nJetPtBins = m_jetPtBins.size() - 1;
@@ -329,7 +400,7 @@ void JetFindingEfficiencyStandalone::CreateHistograms()
 
     std::cout << "Created efficiency histograms with:" << std::endl;
     std::cout << "  Jet pT bins: " << m_jetPtBins.size() - 1 << " (" << m_jetPtBins.front() << " - " << m_jetPtBins.back() << " GeV)" << std::endl;
-    std::cout << "  Jet eta bins: " << m_jetEtaBins.size() - 1 << " (" << m_jetEtaBins.front() << " - " << m_jetEtaBins.back() << ")" << std::endl;
+    std::cout << "  Jet eta bins: " << m_JetRapBins.size() - 1 << " (" << m_JetRapBins.front() << " - " << m_JetRapBins.back() << ")" << std::endl;
     std::cout << "  D0 pT bins: " << m_d0PtBins.size() - 1 << " (" << m_d0PtBins.front() << " - " << m_d0PtBins.back() << " GeV)" << std::endl;
 }
 
@@ -381,20 +452,24 @@ bool JetFindingEfficiencyStandalone::PassesJetSelection(int jet_idx, bool isMC)
     if (isMC)
     {
         // For MC jets, use direct branches
-        if (!mc_jet_pt || !mc_jet_eta || !mc_jet_phi || jet_idx < 0 ||
-            jet_idx >= (int)mc_jet_pt->size() || jet_idx >= (int)mc_jet_eta->size() ||
-            jet_idx >= (int)mc_jet_phi->size())
+        if (!mc_jet_pt || !mc_jet_phi || jet_idx < 0 ||
+            jet_idx >= (int)mc_jet_pt->size() || jet_idx >= (int)mc_jet_phi->size())
         {
             return false;
         }
         double pt = mc_jet_pt->at(jet_idx);
-        double eta = mc_jet_eta->at(jet_idx);
+        // Prefer rapidity branch if available, fall back to eta
+        double rap = -999.0;
+        if (mc_jet_rapidity && jet_idx < (int)mc_jet_rapidity->size())
+            rap = mc_jet_rapidity->at(jet_idx);
+        else if (mc_jet_eta && jet_idx < (int)mc_jet_eta->size())
+            rap = mc_jet_eta->at(jet_idx);
         // Basic kinematic and acceptance cuts
-        if (pt < 0 || eta < -900)
+        if (pt < 0 || rap < -900)
             return false; // Invalid kinematics
         if (pt < m_minJetPt || pt > m_maxJetPt)
             return false;
-        if (eta < m_minJetEta || eta > m_maxJetEta)
+        if (rap < m_minJetRap || rap > m_maxJetRap)
             return false;
     }
     else
@@ -406,10 +481,15 @@ bool JetFindingEfficiencyStandalone::PassesJetSelection(int jet_idx, bool isMC)
             return false;
         }
         double pt = jet_pt->at(jet_idx);
-        double eta = jet_eta->at(jet_idx);
+        // Prefer reconstructed rapidity if available
+        double rap = -999.0;
+        if (jet_rapidity && jet_idx < (int)jet_rapidity->size())
+            rap = jet_rapidity->at(jet_idx);
+        else
+            rap = jet_eta->at(jet_idx);
         if (pt < m_minJetPt || pt > m_maxJetPt)
             return false;
-        if (eta < m_minJetEta || eta > m_maxJetEta)
+        if (rap < m_minJetRap || rap > m_maxJetRap)
             return false;
     }
     return true;
@@ -500,9 +580,13 @@ void JetFindingEfficiencyStandalone::CalculateJetFindingEfficiency()
         for (size_t mc_jet_idx = 0; mc_jet_idx < nMCJets; ++mc_jet_idx)
         {
             double mcJetPt = mc_jet_pt ? mc_jet_pt->at(mc_jet_idx) : -1.0;
-            double mcJetEta = mc_jet_eta ? mc_jet_eta->at(mc_jet_idx) : -999.0;
+            double mcJetRap = -999.0;
+            if (mc_jet_rapidity && mc_jet_idx < (int)mc_jet_rapidity->size())
+                mcJetRap = mc_jet_rapidity->at(mc_jet_idx);
+            else if (mc_jet_eta && mc_jet_idx < (int)mc_jet_eta->size())
+                mcJetRap = mc_jet_eta->at(mc_jet_idx);
             double mcJetPhi = mc_jet_phi ? mc_jet_phi->at(mc_jet_idx) : -999.0;
-            if (mcJetPt < 0 || mcJetEta < -900)
+            if (mcJetPt < 0 || mcJetRap < -900)
                 continue;
             if (!PassesJetSelection(mc_jet_idx, true))
                 continue;
@@ -511,8 +595,8 @@ void JetFindingEfficiencyStandalone::CalculateJetFindingEfficiency()
             if (!hasGenD0InMCJetDen)
                 continue;
             // Fill denominator histograms
-            h_den->Fill(mcJetPt, mcJetEta);
-            h_den_d0pt->Fill(maxD0Pt, mcJetEta);
+            h_den->Fill(mcJetPt, mcJetRap);
+            h_den_d0pt->Fill(maxD0Pt, mcJetRap);
             double zT = maxD0Pt / mcJetPt;
             if (zT > 0 && zT < 2.0)
                 m_efficiencyMaps["jet_denominator_zT"]->Fill(zT, mcJetPt);
@@ -546,8 +630,8 @@ void JetFindingEfficiencyStandalone::CalculateJetFindingEfficiency()
                     }
                 }
             }
-            eff_obj->Fill(passesReco, mcJetPt, mcJetEta);
-            eff_obj_d0pt->Fill(passesReco, maxD0Pt, mcJetEta);
+            eff_obj->Fill(passesReco, mcJetPt, mcJetRap);
+            eff_obj_d0pt->Fill(passesReco, maxD0Pt, mcJetRap);
             totalMCJetsWithD0++;
         }
         // === NUMERATOR: Loop over reconstructed jets with reconstructed D0 ===
@@ -558,7 +642,11 @@ void JetFindingEfficiencyStandalone::CalculateJetFindingEfficiency()
             if (!PassesJetSelection(reco_jet_idx, false))
                 continue;
             double reco_jet_pt = jet_pt->at(reco_jet_idx);
-            double reco_jet_eta = jet_eta->at(reco_jet_idx);
+            double reco_jet_rap = -999.0;
+            if (jet_rapidity && reco_jet_idx < (int)jet_rapidity->size())
+                reco_jet_rap = jet_rapidity->at(reco_jet_idx);
+            else if (jet_eta && reco_jet_idx < (int)jet_eta->size())
+                reco_jet_rap = jet_eta->at(reco_jet_idx);
             double reco_jet_phi = jet_phi->at(reco_jet_idx);
             if (recoJet_maxD0Pt[reco_jet_idx] <= 0)
                 continue;
@@ -593,7 +681,11 @@ void JetFindingEfficiencyStandalone::CalculateJetFindingEfficiency()
             if (!foundMatch || mc_match_idx < 0)
                 continue;
             double mcJetPt = mc_jet_pt ? mc_jet_pt->at(mc_match_idx) : -1.0;
-            double mcJetEta = mc_jet_eta ? mc_jet_eta->at(mc_match_idx) : -999.0;
+            double mcJetRap = -999.0;
+            if (mc_jet_rapidity && mc_match_idx < (int)mc_jet_rapidity->size())
+                mcJetRap = mc_jet_rapidity->at(mc_match_idx);
+            else if (mc_jet_eta && mc_match_idx < (int)mc_jet_eta->size())
+                mcJetRap = mc_jet_eta->at(mc_match_idx);
             double mcJetPhi = mc_jet_phi ? mc_jet_phi->at(mc_match_idx) : -999.0;
             double maxMCD0Pt = mcJet_maxD0Pt_hasRecoTag[mc_match_idx].first;
             bool hasGenD0InMCJet = maxMCD0Pt > 0;
@@ -602,8 +694,8 @@ void JetFindingEfficiencyStandalone::CalculateJetFindingEfficiency()
             // Fill numerator histograms, but avoid counting the same MC jet multiple times in one event
             if (mc_match_idx >= 0 && mc_match_idx < (int)mcJetAlreadyCounted.size() && !mcJetAlreadyCounted[mc_match_idx])
             {
-                h_num->Fill(mcJetPt, mcJetEta);
-                h_num_d0pt->Fill(maxMCD0Pt, mcJetEta);
+                h_num->Fill(mcJetPt, mcJetRap);
+                h_num_d0pt->Fill(maxMCD0Pt, mcJetRap);
                 double zT = maxMCD0Pt / mcJetPt;
                 if (zT > 0 && zT < 2.0)
                     m_efficiencyMaps["jet_numerator_zT"]->Fill(zT, mcJetPt);
@@ -863,10 +955,13 @@ void JetFindingEfficiencyStandalone::PlotEfficiency(const std::string &histName)
 }
 
 // Main function for the standalone jet finding efficiency calculation
-int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root",
-                                      TString outputFile = "output_jet_finding_efficiency.root",
+// int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root",
+int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/11_12_pPb_EPOS_Fix1a3.txt",
+                                      TString outputFile = "output_jet_finding_efficiency_pPb_11_12.root",
+// int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/15_16_Pbp_EPOS_Fix1a4.txt",
+//                                       TString outputFile = "output_jet_finding_efficiency_Pbp_15_16.root",
                                       double jetRadius = 0.4, double minJetPt = 5.0, double maxJetPt = 60.0,
-                                      double minJetEta = 2.5, double maxJetEta = 4.0,
+                                      double minJetRap = 2.5, double maxJetRap = 4.0,
                                       double minD0Pt = 1.0, double maxD0Pt = 50.0,
                                       double minD0Eta = 2.0, double maxD0Eta = 4.5,
                                       bool makePlots = true)
@@ -878,7 +973,7 @@ int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/l
     std::cout << "Configuration:" << std::endl;
     std::cout << "  Jet radius: " << jetRadius << std::endl;
     std::cout << "  Jet pT range: " << minJetPt << " - " << maxJetPt << " GeV" << std::endl;
-    std::cout << "  Jet eta range: " << minJetEta << " - " << maxJetEta << std::endl;
+    std::cout << "  Jet eta range: " << minJetRap << " - " << maxJetRap << std::endl;
     std::cout << "  D0 pT range: " << minD0Pt << " - " << maxD0Pt << " GeV" << std::endl;
     std::cout << "  D0 eta range: " << minD0Eta << " - " << maxD0Eta << std::endl;
     std::cout << "  Generate plots: " << (makePlots ? "Yes" : "No") << std::endl;
@@ -897,7 +992,7 @@ int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/l
         // Configure parameters
         calculator.SetJetRadius(jetRadius);
         calculator.SetJetPtRange(minJetPt, maxJetPt);
-        calculator.SetJetEtaRange(minJetEta, maxJetEta);
+        calculator.SetJetRapRange(minJetRap, maxJetRap);
         calculator.SetD0PtRange(minD0Pt, maxD0Pt);
         calculator.SetD0EtaRange(minD0Eta, maxD0Eta);
 
@@ -906,16 +1001,16 @@ int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/l
         // for (double pt = 5.0; pt < 10.0; pt += 1.0)
         //     customJetPtBins.push_back(pt);
 
-        // std::vector<double> customJetEtaBins;
+        // std::vector<double> customJetRapBins;
         // for (double eta = 2.0; eta <= 4.5; eta += 0.25)
-        //     customJetEtaBins.push_back(eta);
+        //     customJetRapBins.push_back(eta);
 
         // std::vector<double> customD0PtBins;
         // for (double pt = 2.0; pt < 10.0; pt += 1.0)
         //     customD0PtBins.push_back(pt);
 
         // calculator.SetJetPtBins(customJetPtBins);
-        // calculator.SetJetEtaBins(customJetEtaBins);
+        // calculator.SetJetRapBins(customJetRapBins);
         // calculator.SetD0PtBins(customD0PtBins);
 
         // Initialize
