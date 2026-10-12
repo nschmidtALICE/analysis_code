@@ -60,13 +60,13 @@ auto calcRapidityFromPtEtaMass = [](float pt, float eta, float mass)
     return calcRapidityFromEnergyPz(static_cast<float>(energy), static_cast<float>(pz));
 };
 
-void createResponseMatrix(const char *inputFile, const char *outputFile, int jetMode, bool useWeights=false, const char* multweightsfile = nullptr, bool useJetPtWeights=false);
+void createResponseMatrix(const char *inputFile, const char *outputFile, int jetMode, bool useWeights=false, const char* multweightsfile = nullptr, bool useJetPtWeights=false, bool useD0PtWeights=false, bool useJetD0Weights=false, const char* jetd0weightsfile = nullptr);
 
 // doJet/doJetMode semantics:
 // - doJet=false or doJetMode=0: No jet requirements; do not read or write jet-related branches.
 // - doJet=true  or doJetMode=1: Require a D0-associated jet; apply jet pT/eta cuts to the associated jet; write jet/D0-jet branches.
 // - doJetMode=2: Require at least one jet in the EVENT passing pT/eta cuts (no D0-jet association required); do not write D0-jet branches.
-void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true, bool doJet = true, int doJetMode = -1, int systematicVariation = 0, bool useMultiplicityWeights = true, bool useJetPtWeights = false)
+void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC = 1, bool responseOnly = true, bool buildResponse = true, bool doJet = true, int doJetMode = -1, int systematicVariation = 0, bool useMultiplicityWeights = true, bool useJetPtWeights = false, bool useD0PtWeights = false, bool useJetD0Weights = false)
 {
     //print all function arguments for debugging
     std::cout << "nTupleMaker called with arguments:" << std::endl;
@@ -80,19 +80,55 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     std::cout << "  systematicVariation: " << systematicVariation << std::endl;
     std::cout << "  useMultiplicityWeights: " << useMultiplicityWeights << std::endl;
     std::cout << "  useJetPtWeights: " << useJetPtWeights << std::endl;
+    std::cout << "  useD0PtWeights: " << useD0PtWeights << std::endl;
+    std::cout << "  useJetD0Weights: " << useJetD0Weights << std::endl;
 
     std::cout << "Starting D0 FF Analysis with minimal ntuple maker" << std::endl;
-    TString multweightsfile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/1_createTuple/outputs/2026-05-28/multiplicity_weights_Pbp/multiplicity_weights_Pbp_smoothed.root";
-    // TString multweightsfile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/1_createTuple/outputs/2026-05-28/multiplicity_weights_pPb/multiplicity_weights_pPb_smoothed.root";
+    TString multweightsfile = "";
+    if(pPbORPbp == "pPb"){
+        multweightsfile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/1_createTuple/outputs/2026-10-06/RM_weights_pPb/RM_weights_pPb_smoothed.root";
+    } else if(pPbORPbp == "Pbp"){
+        multweightsfile = "/media/niviths/local/analysis_code/data_analysis/d0_FF/1_createTuple/outputs/2026-10-06/RM_weights_Pbp/RM_weights_Pbp_smoothed.root";
+    } else {
+        std::cerr << "ERROR: Unknown pPbORPbp value to load weights for RM: " << pPbORPbp << std::endl;
+    }
     std::cout << "Using multiplicity weights file: " << multweightsfile << std::endl;
     // Derive a default jet-pt weights file path from the multiplicity weights file
     TString jetptweightsfile = multweightsfile;
     jetptweightsfile.ReplaceAll("_smoothed.root", "_jetpt_weights.root");
     std::cout << "Looking for jet-pt weights file: " << jetptweightsfile << std::endl;
 
+    TString d0ptweightsfile = multweightsfile;
+    d0ptweightsfile.ReplaceAll("_smoothed.root", "_d0pt_weights.root");
+    std::cout << "Looking for D0-pt weights file: " << d0ptweightsfile << std::endl;
+
+    TString jetd0weightsfile = multweightsfile;
+    jetd0weightsfile.ReplaceAll("_smoothed.root", "_jetd0pt_weights.root");
+    std::cout << "Looking for jet-D0 weights file: " << jetd0weightsfile << std::endl;
+
     // Enforce mutual exclusion between weight modes
     if (useMultiplicityWeights && useJetPtWeights) {
         std::cerr << "ERROR: Both multiplicity and jet-pt weights requested. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
+    if (useMultiplicityWeights && useD0PtWeights) {
+        std::cerr << "ERROR: Both multiplicity and D0-pt weights requested. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
+    if (useMultiplicityWeights && useJetD0Weights) {
+        std::cerr << "ERROR: Both multiplicity and jet-D0 weights requested. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
+    if (useJetPtWeights && useD0PtWeights) {
+        std::cerr << "ERROR: Both jet-pt and D0-pt weights requested. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
+    if (useJetPtWeights && useJetD0Weights) {
+        std::cerr << "ERROR: Both jet-pt and jet-D0 weights requested. They are mutually exclusive. Aborting." << std::endl;
+        return;
+    }
+    if (useD0PtWeights && useJetD0Weights) {
+        std::cerr << "ERROR: Both D0-pt and jet-D0 weights requested. They are mutually exclusive. Aborting." << std::endl;
         return;
     }
     // Use default files if empty string provided
@@ -131,7 +167,7 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
             respOut.ReplaceAll(".root", Form("_sysvar%d.root", systematicVariation));
         }
         std::cout << "[responseOnly] Generating response matrix from original file -> " << respOut << std::endl;
-        createResponseMatrix(fInputFileName, respOut, doJetMode, useMultiplicityWeights, multweightsfile, useJetPtWeights);
+        createResponseMatrix(fInputFileName, respOut, doJetMode, useMultiplicityWeights, multweightsfile, useJetPtWeights, useD0PtWeights, useJetD0Weights, jetd0weightsfile);
         std::cout << "[responseOnly] Done." << std::endl;
         return;
     }
@@ -600,6 +636,8 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
     // Load jet-pt weights histogram if present
     TH1 *h_jet_weights = nullptr;
     TFile *jwfile = nullptr;
+    TH2D *h_jet_d0_weights = nullptr;
+    TFile *jdwfile = nullptr;
     if (inputMC && pPbORPbp == "pp") {
         if (useMultiplicityWeights) {
             TFile *wfile = TFile::Open(multweightsfile, "READ");
@@ -621,14 +659,27 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
         if (useJetPtWeights) {
             jwfile = TFile::Open(jetptweightsfile, "READ");
             if (jwfile && !jwfile->IsZombie()) {
-                h_jet_weights = dynamic_cast<TH1*>(jwfile->Get("h_jet_weights"));
+                h_jet_weights = dynamic_cast<TH1D*>(jwfile->Get("h_jet_weights"));
                 if (h_jet_weights) {
                     h_jet_weights->SetDirectory(0); // detach from file so we can close it
                     std::cout << "Loaded jet-pt weights histogram from: " << jetptweightsfile << std::endl;
                 } else {
-                    std::cerr << "[WARN] Could not find 'h_jet_weights' in " << jetptweightsfile << std::endl;
+                    std::cerr << __LINE__ << " [WARN] Could not find 'h_jet_weights' in " << jetptweightsfile << std::endl;
                 }
                 jwfile->Close();
+            }
+        }
+        if (useJetD0Weights) {
+            TFile *jdwfile = TFile::Open(jetd0weightsfile, "READ");
+            if (jdwfile && !jdwfile->IsZombie()) {
+                h_jet_d0_weights = dynamic_cast<TH2D*>(jdwfile->Get("h_jet_d0_weights"));
+                if (h_jet_d0_weights) {
+                    h_jet_d0_weights->SetDirectory(0); // detach from file so we can close it
+                    std::cout << "Loaded jet-D0 weights histogram from: " << jetd0weightsfile << std::endl;
+                } else {
+                    std::cerr << __LINE__ << " [WARN] Could not find 'h_jet_d0_weights' in " << jetd0weightsfile << std::endl;
+                }
+                jdwfile->Close();
             }
         }
     }
@@ -936,6 +987,15 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
                         double wj = h_jet_weights->GetBinContent(bin);
                         if (wj > 0) v_event_weight = static_cast<float>(wj);
                     }
+                } else if (useJetD0Weights) {
+                    if (h_jet_d0_weights && jetMode == 1 && jet_idx >= 0 && jet_pt && jet_idx < (int)jet_pt->size() && i_d0 < (int)d0_pt->size()) {
+                        double jpt = static_cast<double>((*jet_pt)[jet_idx]);
+                        double d0pt = static_cast<double>((*d0_pt)[i_d0]);
+                        int bin = h_jet_d0_weights->FindBin(jpt, d0pt);
+                        double wjd0 = h_jet_d0_weights->GetBinContent(bin);
+                        std::cout << "Jet pt: " << jpt << ", D0 pt: " << d0pt << ", Weight: " << wjd0 << std::endl;
+                        if (wjd0 > 0) v_event_weight = static_cast<float>(wjd0);
+                    }
                 }
             }
 
@@ -976,14 +1036,15 @@ void nTupleMaker(const char *inputFile = "", TString pPbORPbp = "", int inputMC 
             }
             std::cout << "useMultiplicityWeights for response matrix: " << (useMultiplicityWeights ? "Yes" : "No") << std::endl;
             std::cout << "useJetPtWeights for response matrix: " << (useJetPtWeights ? "Yes" : "No") << std::endl;
-            createResponseMatrix(fInputFileName, respName, jetMode, useMultiplicityWeights, multweightsfile, useJetPtWeights);
+            std::cout << "useD0PtWeights for response matrix: " << (useD0PtWeights ? "Yes" : "No") << std::endl;
+            createResponseMatrix(fInputFileName, respName, jetMode, useMultiplicityWeights, multweightsfile, useJetPtWeights, useD0PtWeights, useJetD0Weights, jetd0weightsfile);
         } else if (inputMC && !buildResponse) {
         std::cout << "[INFO] Skipping response matrix creation (buildResponse=false)." << std::endl;
     }
 }
 
 // Function to create response matrix
-void createResponseMatrix(const char *inputFile, const char *outputFile, int jetMode, bool useWeights, const char* multweightsfile, bool useJetPtWeights)
+void createResponseMatrix(const char *inputFile, const char *outputFile, int jetMode, bool useWeights, const char* multweightsfile, bool useJetPtWeights, bool useD0PtWeights, bool useJetD0Weights, const char* jetd0weightsfile)
 {
     // Accept either a single ROOT file or a text file list to build a TChain
     TFile *inputRoot = nullptr;
@@ -994,6 +1055,11 @@ void createResponseMatrix(const char *inputFile, const char *outputFile, int jet
     std::cout << "Jet mode for response matrix: " << jetMode << std::endl;
     std::cout << "Use multiplicity weights in response matrix: " << (useWeights ? "Yes" : "No") << std::endl;
     std::cout << "Use jet-pt weights in response matrix: " << (useJetPtWeights ? "Yes" : "No") << std::endl;
+    std::cout << "Use D0-pt weights in response matrix: " << (useD0PtWeights ? "Yes" : "No") << std::endl;
+    std::cout << "Use jet-D0 weights in response matrix: " << (useJetD0Weights ? "Yes" : "No") << std::endl;
+    if (useJetD0Weights) {
+        std::cout << "Jet-D0 weights file: " << jetd0weightsfile << std::endl;
+    }
     // useWeights = false; // Force disable weights for response matrix, as they should not be applied to the response itself
 
     TString inPath(inputFile);
@@ -1293,10 +1359,14 @@ void createResponseMatrix(const char *inputFile, const char *outputFile, int jet
     bool has_event_multiplicity = false;
     std::map<int, double> multiplicityWeights;
     // Jet-pt weights histogram for response (if available)
-    TH1 *h_jet_weights = nullptr;
+    TH1D *h_jet_weights = nullptr;
+    TH1D *h_d0pt_weights = nullptr;
+    TH2D *h_jet_d0_weights = nullptr;
     TFile *jwfile = nullptr;
-    if (useWeights && useJetPtWeights) {
-        std::cerr << "ERROR: Both multiplicity and jet-pt weights requested for response creation. They are mutually exclusive. Aborting." << std::endl;
+    TFile *d0wfile = nullptr;
+    TFile *jdwfile = nullptr;
+    if (useWeights && (useJetPtWeights || useD0PtWeights)) {
+        std::cerr << "ERROR: Multiplicity weights cannot be combined with jet-pt or D0-pt weights for response creation. Aborting." << std::endl;
         return;
     }
     if (useWeights) {
@@ -1328,14 +1398,50 @@ void createResponseMatrix(const char *inputFile, const char *outputFile, int jet
             jpw.ReplaceAll("_smoothed.root", "_jetpt_weights.root");
             jwfile = TFile::Open(jpw, "READ");
             if (jwfile && !jwfile->IsZombie()) {
-                h_jet_weights = dynamic_cast<TH1*>(jwfile->Get("h_jet_weights"));
+                h_jet_weights = dynamic_cast<TH1D*>(jwfile->Get("jetpt_weights_histo"));
+                if (!h_jet_weights) h_jet_weights = dynamic_cast<TH1D*>(jwfile->Get("h_jet_weights"));
                 if (h_jet_weights) {
                     h_jet_weights->SetDirectory(0);
                     std::cout << "Loaded jet-pt weights histogram from: " << jpw << std::endl;
                 } else {
-                    std::cerr << "[WARN] Could not find 'h_jet_weights' in " << jpw << std::endl;
+                    std::cerr << __LINE__ << " [WARN] Could not find 'jetpt_weights_histo' in " << jpw << std::endl;
                 }
                 jwfile->Close();
+            }
+        }
+    }
+    if (useD0PtWeights) {
+        if (multweightsfile) {
+            TString d0pw(multweightsfile);
+            d0pw.ReplaceAll("_smoothed.root", "_d0pt_weights.root");
+            d0wfile = TFile::Open(d0pw, "READ");
+            if (d0wfile && !d0wfile->IsZombie()) {
+                h_d0pt_weights = dynamic_cast<TH1D*>(d0wfile->Get("d0pt_weights_histo"));
+                if (!h_d0pt_weights) h_d0pt_weights = dynamic_cast<TH1D*>(d0wfile->Get("h_d0pt_weights"));
+                if (h_d0pt_weights) {
+                    h_d0pt_weights->SetDirectory(0);
+                    std::cout << "Loaded D0-pt weights histogram from: " << d0pw << std::endl;
+                } else {
+                    std::cerr << __LINE__ << " [WARN] Could not find 'd0pt_weights_histo' in " << d0pw << std::endl;
+                }
+                d0wfile->Close();
+            }
+        }
+    }
+    if (useJetD0Weights) {
+        if (jetd0weightsfile) {
+            TString jdw(jetd0weightsfile);
+            jdw.ReplaceAll("_smoothed.root", "_jetd0_weights.root");
+            jdwfile = TFile::Open(jdw, "READ");
+            if (jdwfile && !jdwfile->IsZombie()) {
+                h_jet_d0_weights = dynamic_cast<TH2D*>(jdwfile->Get("h_jet_d0_weights"));
+                if (h_jet_d0_weights) {
+                    h_jet_d0_weights->SetDirectory(0);
+                    std::cout << "Loaded jet-D0 weights histogram from: " << jdw << std::endl;
+                } else {
+                    std::cerr << __LINE__ << " [WARN] Could not find 'h_jet_d0_weights' in " << jdw << std::endl;
+                }
+                jdwfile->Close();
             }
         }
     }
@@ -1703,6 +1809,19 @@ void createResponseMatrix(const char *inputFile, const char *outputFile, int jet
                     double wj = h_jet_weights->GetBinContent(bin);
                     if (wj > 0) r_event_weight = r_event_weight * static_cast<float>(wj);
                     // std::cout << "Applied jet-pt weight: " << wj << " for jet pT: " << r_jet_pt_det << std::endl;
+                }
+            } else if (useD0PtWeights) {
+                if (h_d0pt_weights && r_d0_pt_det > 0) {
+                    int bin = h_d0pt_weights->FindBin(static_cast<double>(r_d0_pt_det));
+                    double wd0 = h_d0pt_weights->GetBinContent(bin);
+                    if (wd0 > 0) r_event_weight = r_event_weight * static_cast<float>(wd0);
+                }
+            } else if (useJetD0Weights) {
+                if (h_jet_d0_weights && r_jet_pt_det > 0 && r_d0_pt_det > 0) {
+                    int bin = h_jet_d0_weights->FindBin(static_cast<double>(r_jet_pt_det), static_cast<double>(r_d0_pt_det));
+                    double wjd0 = h_jet_d0_weights->GetBinContent(bin);
+                    if (wjd0 > 0) r_event_weight = r_event_weight * static_cast<float>(wjd0);
+                    // std::cout << "Applied jet-D0 weight: " << wjd0 << " for jet pT: " << r_jet_pt_det << " and D0 pT: " << r_d0_pt_det << std::endl;
                 }
             }
             responseTree->Fill();

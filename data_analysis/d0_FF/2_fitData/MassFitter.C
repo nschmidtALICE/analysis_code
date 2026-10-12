@@ -2061,7 +2061,7 @@ void FitSpectraObject::processFitsByBin(Fitter* fitter, RooDataSet* dataMaster,
                                     double recoEffVal = recoEff ? recoEff->getVal() : 1.0;
                                     double acceptanceVal = acceptance ? acceptance->getVal() : 1.0;
                                     double combinedPIDEffVal = combinedPIDEff ? combinedPIDEff->getVal() : kaonEffVal * pionEffVal;
-                                    
+                                    if(combinedPIDEffVal<20e-6) continue;
                                     // Only use events with valid efficiency values
                                     if (kaonEffVal > 0 && kaonEffVal <= 1.0 && 
                                         pionEffVal > 0 && pionEffVal <= 1.0 &&
@@ -3255,7 +3255,7 @@ void MassFitter(TString inputFile = "", bool isMC = false,
                 bool isZtObservable = false, bool enableSPlot = true,
                 TString massFitModel = "DGauss", TString outputTag = "",
                 double fracEvents = 1.0, bool doLowStatParamConstrain = false,
-                int tagZHistBins = 10)
+                int tagZHistBins = 16)
 {
     std::cout << "Using tagZHistBins = " << tagZHistBins << std::endl;
 

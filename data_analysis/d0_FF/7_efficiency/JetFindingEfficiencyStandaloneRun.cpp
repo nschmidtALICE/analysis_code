@@ -956,10 +956,12 @@ void JetFindingEfficiencyStandalone::PlotEfficiency(const std::string &histName)
 
 // Main function for the standalone jet finding efficiency calculation
 // int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/20250728_pPb_MC_output/20250728_pPb_MC_output.root",
-int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/11_12_pPb_EPOS_Fix1a3.txt",
-                                      TString outputFile = "output_jet_finding_efficiency_pPb_11_12.root",
+// int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/11_12_pPb_EPOS_Fix1a3.txt",
+//                                       TString outputFile = "output_jet_finding_efficiency_pPb_11_12.root",
 // int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/15_16_Pbp_EPOS_Fix1a4.txt",
 //                                       TString outputFile = "output_jet_finding_efficiency_Pbp_15_16.root",
+int JetFindingEfficiencyStandaloneRun(TString inputFile = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38.txt",
+                                      TString outputFile = "output_jet_finding_efficiency_pp_full_2016-2018.root",
                                       double jetRadius = 0.4, double minJetPt = 5.0, double maxJetPt = 60.0,
                                       double minJetRap = 2.5, double maxJetRap = 4.0,
                                       double minD0Pt = 1.0, double maxD0Pt = 50.0,

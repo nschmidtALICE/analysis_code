@@ -1,10 +1,24 @@
 #include "PlotHelpers.h"
 #include "Plotter.h"
+#include "TGraphAsymmErrors.h"
 #include <sys/stat.h>
 #include <ctime>
 #include <cstdlib>
 #include <random>
 #include <sstream>
+#include "TGraphAsymmErrors.h"
+
+namespace
+{
+template <typename TObjectType>
+void writeObjectIfPresent(TFile &file, const TObjectType *object, const std::string &name)
+{
+    if (object)
+    {
+        file.WriteTObject(object, name.c_str());
+    }
+}
+} // namespace
 
 // Constructor implementation
 Plotter::Plotter(const std::string& resonanceType, const std::string& basepath, 
@@ -291,6 +305,11 @@ TH1* Plotter::individualMassFitPlot(RooRealVar* sigYieldParam, RooAbsPdf* extend
         hpull = dataHist->makePullHist(*totalFitCurve, true);
     }
     
+    TGraphAsymmErrors* pullGraph = nullptr;
+    if (hpull) {
+        pullGraph = dynamic_cast<TGraphAsymmErrors*>(hpull->Clone(("pullGraph_" + uniqueId).c_str()));
+    }
+
     RooPlot* pullFrame = massVar->frame(RooFit::Bins(40));
     // Remove automatic frame title so margins can be reduced and set explicit y-axis label
     pullFrame->SetTitle("");
@@ -376,6 +395,11 @@ TH1* Plotter::individualMassFitPlotMulti(RooRealVar* sigYieldParam, RooAbsPdf* e
     RooHist* hpull = nullptr;
     if (dataHist && totalFitCurve) {
         hpull = dataHist->makePullHist(*totalFitCurve, true);
+    }
+
+    TGraphAsymmErrors* pullGraph = nullptr;
+    if (hpull) {
+        pullGraph = dynamic_cast<TGraphAsymmErrors*>(hpull->Clone(("pullGraph_" + uniqueId).c_str()));
     }
 
     RooPlot* pullFrame = massVar->frame(RooFit::Title("Pull Distribution"), RooFit::Bins(100));
@@ -508,6 +532,23 @@ TH1* Plotter::individualMassFitPlotMulti(RooRealVar* sigYieldParam, RooAbsPdf* e
     std::string histName = "h_MassSignal" + std::to_string(fitBin) + "_" + fitTypeName + "_" + uniqueId + "_data";
     TH1* h_data = data->createHistogram(histName.c_str(), *massVar);
 
+    std::string rootOutName = outName + ".root";
+    TFile fitRootFile(rootOutName.c_str(), "RECREATE");
+    if (fitRootFile.IsZombie())
+    {
+        std::cerr << "  WARNING: could not create ROOT output file " << rootOutName << std::endl;
+    }
+    else
+    {
+        writeObjectIfPresent(fitRootFile, h_data, "mass_distribution");
+        writeObjectIfPresent(fitRootFile, frame, "mass_fit_frame");
+        writeObjectIfPresent(fitRootFile, hpull, "mass_pull_hist");
+        writeObjectIfPresent(fitRootFile, pullFrame, "mass_pull_frame");
+        writeObjectIfPresent(fitRootFile, pullGraph, "mass_pull_graph");
+        fitRootFile.WriteTObject(cMulti, "mass_fit_canvas");
+        fitRootFile.Write();
+    }
+
     // Cleanup
     delete cMulti;
     delete leg;
@@ -600,24 +641,28 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
                RooFit::MarkerSize(0.5), RooFit::MarkerStyle(20));
     
     // Plot models
-    totalPdf->plotOn(frame1, RooFit::LineColor(kGreen+1), 
+    totalPdf->plotOn(frame1, RooFit::Name("TotalFit"),
+                    RooFit::LineColor(kGreen+1), 
                     RooFit::LineStyle(1), RooFit::LineWidth(2));
     
     // Plot prompt component
     totalPdf->plotOn(frame1, RooFit::Components("prompt_pdf"), 
+                    RooFit::Name("PromptFit"),
                     RooFit::LineColor(kBlue), 
                     RooFit::LineStyle(1), RooFit::LineWidth(2));
     
     // Plot non-prompt component
     totalPdf->plotOn(frame1, RooFit::Components("nonprompt_pdf"), 
+                    RooFit::Name("NonpromptFit"),
                     RooFit::LineColor(kRed), 
                     RooFit::LineStyle(2), RooFit::LineWidth(2));
     
     // Plot background if available
     if (backgroundPdf) {
         totalPdf->plotOn(frame1, RooFit::Components("bkg_pdf"), 
-                        RooFit::LineColor(kBlack), 
-                        RooFit::LineStyle(4), RooFit::LineWidth(2));
+                RooFit::Name("BackgroundFit"),
+                RooFit::LineColor(kBlack), 
+                RooFit::LineStyle(4), RooFit::LineWidth(2));
     }
     
     // Create legend with fit parameters
@@ -717,14 +762,17 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
                RooFit::LineColor(kGray+2), RooFit::LineWidth(1), 
                RooFit::MarkerSize(0.5), RooFit::MarkerStyle(20));
     
-    totalPdf->plotOn(frame_zoom, RooFit::LineColor(kGreen+1), 
+    totalPdf->plotOn(frame_zoom, RooFit::Name("TotalFitZoom"),
+                    RooFit::LineColor(kGreen+1), 
                     RooFit::LineStyle(1), RooFit::LineWidth(2));
     
     totalPdf->plotOn(frame_zoom, RooFit::Components("prompt_pdf"), 
+                    RooFit::Name("PromptFitZoom"),
                     RooFit::LineColor(kBlue), 
                     RooFit::LineStyle(1), RooFit::LineWidth(2));
     
     totalPdf->plotOn(frame_zoom, RooFit::Components("nonprompt_pdf"), 
+                    RooFit::Name("NonpromptFitZoom"),
                     RooFit::LineColor(kRed), 
                     RooFit::LineStyle(2), RooFit::LineWidth(2));
     
@@ -758,6 +806,23 @@ TH1* Plotter::ipchi2FitPlot(const std::string& resonance, RooRealVar* logIpchi2,
         double min = logIpchi2->getMin();
         double max = logIpchi2->getMax();
         h_data->GetXaxis()->SetRangeUser(min, max);
+    }
+
+    std::string rootOutName = output_dir + "IPChi2Fit_SingleBukin_" + std::to_string(fitBin) + ".root";
+    TFile fitRootFile(rootOutName.c_str(), "RECREATE");
+    if (fitRootFile.IsZombie())
+    {
+        std::cerr << "  WARNING: could not create ROOT output file " << rootOutName << std::endl;
+    }
+    else
+    {
+        writeObjectIfPresent(fitRootFile, h_data, "ipchi2_distribution");
+        writeObjectIfPresent(fitRootFile, frame1, "ipchi2_fit_frame");
+        writeObjectIfPresent(fitRootFile, frame2, "ipchi2_pull_frame");
+        writeObjectIfPresent(fitRootFile, frame_zoom, "ipchi2_zoom_frame");
+        fitRootFile.WriteTObject(canvasFit, "ipchi2_fit_canvas");
+        fitRootFile.WriteTObject(canvasPull, "ipchi2_pull_canvas");
+        fitRootFile.Write();
     }
     
     // Clean up

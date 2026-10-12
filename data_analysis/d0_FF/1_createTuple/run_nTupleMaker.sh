@@ -12,11 +12,9 @@ JET_MODE=1
 MC_INT=0
 
 pPbORPbp="pPb"  # Change to "Pbp" for Pbp data
-# inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_pPb_11273plus.root"
 # inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/57_FF_pPb_DATA.root"
 inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/9_pPb_data.txt"
-# inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/17_pPb_data_fixedassoc.txt"
-root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE})"
+# root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE})"
 DO_JET=1
 JET_MODE=2
 # inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/20251022_pPb_Data_allD0_rerun/20251022_pPb_Data_allD0_rerun.root"
@@ -26,10 +24,9 @@ JET_MODE=2
 DO_JET=1
 JET_MODE=1
 pPbORPbp="Pbp"  # Change to "Pbp" for Pbp data
-# inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/20250616_newGanga_DATA/merged_Pbp_1127plus.root"
 # inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/59_FF_Pbp_DATA.root"
 inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/8_Pbp_data.txt"
-root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE})"
+# root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE})"
 DO_JET=1
 JET_MODE=2
 inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/20251023_Pbp_Data_allD0_rerun/20251023_Pbp_Data_allD0_rerun.root"
@@ -125,7 +122,11 @@ pPbORPbp="pp"
 inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38.txt"
 # inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_magup_2016-2018_MB_MB.txt"
 # inputFile="/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/1_pp_MC.txt"
-# root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE}, 0, false, true)"
+# root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE}, 0, false, true)" #jetptweights
+useJetPtWeights=1
+useD0Weights=0
+useJetD0Weights=0
+root -x -l -b -q "nTupleMaker.C+(\"${inputFile}\", \"${pPbORPbp}\", ${MC_INT}, ${RESPONLY_INT}, ${DORESP_INT}, ${DO_JET}, ${JET_MODE}, 0, false, ${useJetPtWeights}, ${useD0Weights}, ${useJetD0Weights})" #2d jetpt vs d0 weights
 
 
 

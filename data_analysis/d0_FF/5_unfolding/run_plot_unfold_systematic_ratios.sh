@@ -38,12 +38,20 @@ infilevar2="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/u
 infiledefaultPbp="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/unfolded_output_zt_lhcb_Pbp_withppresponse_plots_2026-06-02_jetptweights_addMC/unfolded_output_zt_lhcb_Pbp_withppresponse.root"
 infilevar1="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/unfolded_output_zt_lhcb_Pbp_withppresponse_plots_2026-06-04_jetptweights_addMC/unfolded_output_zt_lhcb_Pbp_withppresponse.root"
 infilevar2="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/unfolded_output_zt_lhcb_Pbp_withppresponse_plots_2026-06-04/unfolded_output_zt_lhcb_Pbp_withppresponse.root"
-root -l -b -q 'plot_unfold_systematic_ratios.cpp+("'$infiledefaultPbp','$infilevar1','$infilevar2'","def,firstchange,kinemeff","CodeChangesandKinematicEffPbp")'
+#root -l -b -q 'plot_unfold_systematic_ratios.cpp+("'$infiledefaultPbp','$infilevar1','$infilevar2'","def,firstchange,kinemeff","CodeChangesandKinematicEffPbp")'
 
 
 
 infiledefaultpPb="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/unfolded_output_zt_lhcb_pPb_withppresponse_plots_2026-06-02_jetptweights_addMC/unfolded_output_zt_lhcb_pPb_withppresponse.root"
 infilevar1="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/unfolded_output_zt_lhcb_pPb_withppresponse_plots_2026-06-04_jetptweights_addMC/unfolded_output_zt_lhcb_pPb_withppresponse.root"
 infilevar2="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/unfolded_output_zt_lhcb_pPb_withppresponse_plots_2026-06-04/unfolded_output_zt_lhcb_pPb_withppresponse.root"
-root -l -b -q 'plot_unfold_systematic_ratios.cpp+("'$infiledefaultpPb','$infilevar1','$infilevar2'","def,firstchange,kinemeff","CodeChangesandKinematicEffpPb")'
+#root -l -b -q 'plot_unfold_systematic_ratios.cpp+("'$infiledefaultpPb','$infilevar1','$infilevar2'","def,firstchange,kinemeff","CodeChangesandKinematicEffpPb")'
+
+
+
+
+infiledefaultpPb="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/SYSTEMATIC_OUTPUTS/unfolded_output_zt_lhcb_pPb_ppResponse_2Dweights_plots_2026-10-06/unfolded_output_zt_lhcb_pPb_ppResponse_2Dweights.root"
+infilevar1="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/SYSTEMATIC_OUTPUTS/unfolded_output_zt_lhcb_pPb_ppResponse_D0Ptweights_plots_2026-10-06/unfolded_output_zt_lhcb_pPb_ppResponse_D0Ptweights.root"
+infilevar2="/media/niviths/local/analysis_code/data_analysis/d0_FF/5_unfolding/SYSTEMATIC_OUTPUTS/unfolded_output_zt_lhcb_pPb_ppResponse_jetptweights_plots_2026-10-06/unfolded_output_zt_lhcb_pPb_ppResponse_jetptweights.root"
+root -l -b -q 'plot_unfold_systematic_ratios.cpp+("'$infiledefaultpPb','$infilevar1','$infilevar2'","RM2Dweights,RMD0Ptweights,RMJetPtweights","RMVariationspPb")'
 

@@ -30,8 +30,8 @@ std::string collLabel = "";
 
 // Global plot output extension. Set to ".pdf" or ".png" here.
 // Edit this variable to change output format for all plots.
-static std::string gPlotExt = ".png";
-// static std::string gPlotExt = ".pdf";
+// static std::string gPlotExt = ".png";
+static std::string gPlotExt = ".pdf";
 
 
 // Check if a graph is valid
@@ -132,6 +132,7 @@ public:
     TGraphErrors* extrapolateIfNecessary(TGraphErrors* graph);
     void setHisto(TGraphErrors* histo, double MarkerScale, int color);
     void normalize(TGraphErrors* graph);
+    void fixGraphUncertainties(TGraphErrors* graph);
     TGraphErrors* applyAccCorrection(TGraphErrors* graph, TGraphErrors* gAccCorrInput = nullptr);
     TGraphErrors* applyTagZCorrection(TGraphErrors* graph, const std::string& correctionType, int bin);
     TGraphErrors* applyAllCorrections(TGraphErrors* graph, const std::vector<int>& binIndices,
@@ -1294,6 +1295,8 @@ void PlotGraphsObject::plotYieldSummary(std::vector<TGraphErrors*> yieldArray,
         if (normType == 1) {
             normalize(yieldArray[i]);
         }
+        //fix uncertainties on the graphs
+        fixGraphUncertainties(yieldArray[i]);
         
         yieldArray[i]->Draw("same EP");
     }
@@ -1380,6 +1383,23 @@ void PlotGraphsObject::normalize(TGraphErrors* graph) {
     }
 }
 
+
+void PlotGraphsObject::fixGraphUncertainties(TGraphErrors* graph) {
+    if (!is_valid_graph(graph)) {
+        std::cout << "Cannot fix uncertainties for invalid graph" << std::endl;
+        return;
+    }
+    
+    int nPoints = graph->GetN();
+    for (int bin = 0; bin < nPoints; bin++) {
+        double x, y;
+        graph->GetPoint(bin, x, y);
+        double yerr = graph->GetErrorY(bin);
+        if (yerr/y > 0.1) {
+            graph->SetPointError(bin, graph->GetErrorX(bin), y*0.1);
+        }
+    }
+}
 // Implementation of applyAccCorrection method
 TGraphErrors* PlotGraphsObject::applyAccCorrection(TGraphErrors* graph, TGraphErrors* gAccCorrInput) {
     std::cout << "Divide GRAPHS" << std::endl;

@@ -119,14 +119,15 @@ RMplotter::RMplotter() {
     
     // Setup binning
     // pTBinning = {0, 5, 10, 15, 20, 30, 200};
-    pTBinning = {5, 10, 15, 20, 30, 100};
+    pTBinning = {5, 10, 15, 20, 30, 100, 150};
     // zTBinArray = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
     zTBinArray = {
-            0.0, 0.05, 0.1, 0.15, 0.2, 
-            0.25, 0.3, 0.35, 0.4, 0.45, 
-            0.5, 0.55, 0.6, 0.65, 0.7, 
-            0.75, 0.8, 0.85, 0.9, 0.95, 
-            1.0};
+            0.0, 0.065, 0.13, 0.195, 0.26, 0.325, 0.39, 0.455, 0.52, 0.585, 0.65, 0.715, 0.78, 0.845, 0.91, 0.975, 1.0};
+            // 0.0, 0.05, 0.1, 0.15, 0.2, 
+            // 0.25, 0.3, 0.35, 0.4, 0.45, 
+            // 0.5, 0.55, 0.6, 0.65, 0.7, 
+            // 0.75, 0.8, 0.85, 0.9, 0.95, 
+            // 1.0};
     // zTBinArray = {0.2, 0.5, 0.65, 0.75, 0.85, 0.95, 1};
     
     // Setup input/output
@@ -184,7 +185,9 @@ std::pair<std::string, std::string> RMplotter::setupInputOutput() {
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/69to72_response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/69-72/70_72_response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/73_EPOS_Pbp_response.root";
-    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38_response_sysvar0.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38_response_sysvar0.root";
+    std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38_response_Pbp_JetPtD0Pt2DWeights.root";
+    // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38_response_pPb_JetPtD0Pt2DWeights.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/68/ntuple_test-12757408_response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250708_newMC_fixedTrueAssociation/response.root";
     // std::string fFileName = "/media/niviths/SSD2/lhcb_analysis_SSD/20250609_merged/1122665_response.root";
@@ -240,6 +243,7 @@ RooDataSet* RMplotter::createDataSet() {
     RooRealVar nConstDet("jet_nconst_det", "Detector-level jet constituent count", 0, 50);
     RooRealVar nConstPart("jet_nconst_mc", "Particle-level jet constituent count", 0, 50);
     RooRealVar dR("jet_dr", "ΔR between matched jets", -1, 1);
+    RooRealVar eventWeight("event_weight", "Event weight", 0, 10);
     
     RooArgSet cutVars;
     cutVars.add(pt_jetDet);
@@ -255,6 +259,7 @@ RooDataSet* RMplotter::createDataSet() {
     cutVars.add(nConstPart);
     cutVars.add(d0EtaDet);
     cutVars.add(d0EtaPart);
+    cutVars.add(eventWeight);
     
     // Define cuts
     double massCutMin = 1.81;
@@ -267,7 +272,7 @@ RooDataSet* RMplotter::createDataSet() {
     std::cout << "Creating dataset with cuts: " << cutString << std::endl;
     
     // Create dataset
-    RooDataSet* data = new RooDataSet("Test1Corr", "Test1Corr", inTreeRM, cutVars, cutString.c_str());
+    RooDataSet* data = new RooDataSet("Test1Corr", "Test1Corr", inTreeRM, cutVars, cutString.c_str(), "event_weight");
     std::cout << "Dataset created with " << data->numEntries() << " entries" << std::endl;
     
     return data;

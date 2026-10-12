@@ -1,0 +1,2 @@
+root -x -l -b -q 'make_D0mass_plots.cpp("/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2026-09-22_Pbp_DGaussDefault")'
+root -x -l -b -q 'make_D0mass_plots.cpp("/media/niviths/local/analysis_code/data_analysis/d0_FF/2_fitData/D0_FF_DATA_2026-09-22_pPb_DGaussDefault")'

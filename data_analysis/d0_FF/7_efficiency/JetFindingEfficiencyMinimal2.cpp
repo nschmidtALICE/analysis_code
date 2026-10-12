@@ -75,8 +75,10 @@ int JetFindingEfficiencyMinimal2() {
     // std::string outPrefix = "jetFindingEffMinimal_pPb_11_12_MC";
     // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/15_16_Pbp_EPOS_Fix1a4.txt";
     // std::string outPrefix = "jetFindingEffMinimal_Pbp_15_16_MC";
-    std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/both_pPb_Pbp_MCs_11_12_15_16.txt";
-    std::string outPrefix = "jetFindingEffMinimal_pPb_Pbp_11_12_15_16_MC";
+    std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/pp_full_2016-2018_w2016pthMC_addMC29-38.txt";
+    std::string outPrefix = "jetFindingEffMinimal_pp_MC";
+    // std::string inputName = "/media/niviths/SSD2/lhcb_analysis_SSD/GANGA/both_pPb_Pbp_MCs_11_12_15_16.txt";
+    // std::string outPrefix = "jetFindingEffMinimal_pPb_Pbp_11_12_15_16_MC";
 
     // create output directory for all plots and root file (append today's date)
     char _datebuf[32];
@@ -341,7 +343,7 @@ int JetFindingEfficiencyMinimal2() {
 
     // --- per-jetPt-bin efficiency and closure checks ---
     std::vector<double> startPt = {5, 10, 15, 20, 30};
-    std::vector<double> endPt = {10, 15, 20, 30, 50};
+    std::vector<double> endPt = {10, 15, 20, 30, 100};
     if (startPt.size() != endPt.size()) {
         std::cerr << "Pt bin vectors size mismatch\n";
     } else {

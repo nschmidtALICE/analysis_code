@@ -88,8 +88,10 @@ static void PrintFitSummary(const TF1 *f, const PtBin &pb, const std::string &ta
 int JetFindingEfficiencyReplot()
 {
 
-    std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_pPb_11_12_MC_outputs_2026-05-26/jetFindingEffMinimal_pPb_11_12_MC.root";
-    std::string outPrefix = "jetFindingEffMinimal_replot_pPb_11_12";
+    std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_pp_MC_outputs_2026-09-28/jetFindingEffMinimal_pp_MC.root";
+    std::string outPrefix = "jetFindingEffMinimal_replot_pp";
+    // std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_pPb_11_12_MC_outputs_2026-05-26/jetFindingEffMinimal_pPb_11_12_MC.root";
+    // std::string outPrefix = "jetFindingEffMinimal_replot_pPb_11_12";
     // std::string inputPath = "/media/niviths/local/analysis_code/data_analysis/d0_FF/7_efficiency/jetFindingEffMinimal_Pbp_15_16_MC_outputs_2026-05-26/jetFindingEffMinimal_Pbp_15_16_MC.root";
     // std::string outPrefix = "jetFindingEffMinimal_replot_Pbp_15_16";
     bool doRefit = true;
@@ -163,6 +165,8 @@ int JetFindingEfficiencyReplot()
         c.SetTopMargin(0.02);
         c.SetBottomMargin(0.08);
         c.SetLeftMargin(0.08);
+        c.SetTickx();
+        c.SetTicky();
         h_eff->SetStats(0);
         h_eff->GetZaxis()->SetTitle("Jet Finding Efficiency");
         h_eff->SetTitle("");
@@ -224,7 +228,7 @@ int JetFindingEfficiencyReplot()
     }
 
     // Pt bin definitions (mirror original)
-    std::vector<PtBin> ptBins = {{5, 10}, {10, 15}, {15, 20}, {20, 30}, {30, 50}};
+    std::vector<PtBin> ptBins = {{5, 10}, {10, 15}, {15, 20}, {20, 30}, {30, 100}};
     // Containers to collect per-pt projections for later multi-panel plotting
     std::vector<TH1 *> multi_eff_vec;
     std::vector<TH1 *> multi_num_vec;
